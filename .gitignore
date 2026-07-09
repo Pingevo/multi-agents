@@ -1,0 +1,43 @@
+# Environment variables (contains API keys)
+.env
+*.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+
+# Chainlit
+.chainlit/
+
+# Data files
+agent_registry.json
+task_registry.json
+chat_sessions.json
+
+# Uploaded attachments (user-generated, not source code)
+public/attachments/
+
+# Node.js
+node_modules/
+
+# Build output
+frontend/dist/
+frontend/build/
+
+# Windsurf internal
+.windsurf/
+.files/
+.node/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
