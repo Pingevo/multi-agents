@@ -2,6 +2,7 @@
 
 import json
 import traceback
+from datetime import datetime
 
 import chainlit as cl
 from backend.globals import *
@@ -268,6 +269,40 @@ async def on_action_assign_task_form(action: cl.Action):
 
     from backend.handlers.chat import execute_task_with_agent
     await execute_task_with_agent(task_description, agent_spec, agent_id, registry)
+
+
+@cl.action_callback("agent_feedback")
+async def on_action_agent_feedback(action: cl.Action):
+    """User gives feedback on agent's work — stored as learning."""
+    registry = cl.user_session.get("registry") or AgentRegistry()
+    messenger = get_messenger()
+    payload = action.payload or {}
+    agent_id = payload.get("agent_id")
+    feedback_text = payload.get("feedback", "").strip()
+    rating = payload.get("rating", "")
+
+    if not agent_id or not feedback_text:
+        if messenger:
+            await messenger.notify("❌ ต้องระบุ agent_id และ feedback")
+        return
+
+    agent = registry.get_by_id(agent_id)
+    if not agent:
+        if messenger:
+            await messenger.notify("❌ ไม่พบ Agent")
+        return
+
+    learning = {
+        "type": "user_feedback",
+        "lesson": feedback_text,
+        "rating": rating,
+        "timestamp": datetime.now().isoformat(),
+    }
+    registry.add_learning(agent_id, learning)
+
+    if messenger:
+        agent_name = agent.get("name", "Agent")
+        await messenger.notify(f"📝 บันทึก feedback ให้ {agent_name} แล้ว — agent จะใช้ในการปรับปรุงครั้งต่อไป")
 
 
 

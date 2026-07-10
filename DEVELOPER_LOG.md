@@ -21,7 +21,20 @@ Expanded agent schema from flat (name, role, goal, backstory) to deep persona wi
 4. **Learnings storage**: `add_learning()` keeps last 10 entries per agent for memory
 
 ### Status
-Phase 1 (Deep Persona Schema) complete. Phase 2 (Feedback Loop) and Phase 3 (Learnings & Memory) pending.
+Phase 1 (Deep Persona Schema) ✅ complete.
+Phase 2 (Feedback Loop) ✅ complete — `agent_feedback` action handler stores user feedback as learnings.
+Phase 3 (Learnings & Memory) ✅ complete — auto-learning after task completion + learnings injected into backstory via `_build_agent_backstory()`.
+
+### Phase 2-3 Details (Session 8)
+**Files Modified:**
+- `backend/handlers/actions.py` — Added `on_action_agent_feedback` handler: stores user feedback (text + rating) as learning via `registry.add_learning()`
+- `backend/handlers/chat.py` — Auto-learning after task completion in both `execute_multi_agent_task` and `execute_task_with_agent`: stores task outcome as learning entry
+- `app.py` — Import `on_action_agent_feedback`
+
+**How it works:**
+1. **User feedback**: User sends `agent_feedback` action with `{agent_id, feedback, rating}` → stored as `{type: "user_feedback", lesson, rating, timestamp}`
+2. **Auto-learning**: After task completes, system stores `{type: "task_completion", lesson: "Task: ... → Output: ...", timestamp}` automatically
+3. **Memory injection**: `_build_agent_backstory()` in `factory.py` reads last 5 learnings and injects into agent's backstory before each task — agent "remembers" past work and feedback
 
 ---
 

@@ -64,6 +64,7 @@ from backend.handlers.actions import (
     on_action_edit_agent_form,
     on_action_delete_agent,
     on_action_assign_task_form,
+    on_action_agent_feedback,
 )
 
 # Constants needed by tests and handlers

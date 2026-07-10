@@ -90,6 +90,7 @@ async def execute_multi_agent_task(
 
     _exec_loop = asyncio.get_event_loop()
     _exec_ctx = contextvars.copy_context()
+    agent_outputs = []
 
     def update_progress(percent: int, status: str):
         if messenger:
@@ -316,6 +317,18 @@ async def execute_multi_agent_task(
             rid = spec.get("registry_id")
             if rid:
                 registry.update_status(rid, "Idle")
+                # Auto-learning: store task outcome as learning
+                agent_output = None
+                for out in agent_outputs:
+                    if out.get("agent") == spec.get("name") or out.get("name") == spec.get("name"):
+                        agent_output = out.get("output", "")[:500]
+                        break
+                if agent_output:
+                    registry.add_learning(rid, {
+                        "type": "task_completion",
+                        "lesson": f"Task: {user_input[:100]} → Output: {agent_output[:200]}",
+                        "timestamp": datetime.now().isoformat(),
+                    })
         if messenger:
             await messenger.update_agents(registry)
         cl.user_session.set("state", STATE_IDLE)
@@ -345,6 +358,7 @@ async def execute_task_with_agent(
 
     _exec_loop = asyncio.get_event_loop()
     _exec_ctx = contextvars.copy_context()
+    task_result = None
 
     def update_progress(percent: int, status: str):
         if messenger:
@@ -360,6 +374,7 @@ async def execute_task_with_agent(
         tool_registry = ToolRegistry()
         orchestrator = ExecutionOrchestrator(llm_manager, tool_registry, update_progress)
         result = await orchestrator.run_async(user_input, [agent_spec])
+        task_result = result
 
         if messenger:
             cl.run_sync(
@@ -393,6 +408,14 @@ async def execute_task_with_agent(
     finally:
         if registry_id:
             registry.update_status(registry_id, "Idle")
+            # Auto-learning: store task outcome
+            if task_result:
+                result_str = str(task_result)[:500]
+                registry.add_learning(registry_id, {
+                    "type": "task_completion",
+                    "lesson": f"Task: {user_input[:100]} → Output: {result_str[:200]}",
+                    "timestamp": datetime.now().isoformat(),
+                })
             if messenger:
                 await messenger.update_agents(registry)
         cl.user_session.set("state", STATE_IDLE)
