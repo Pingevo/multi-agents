@@ -14,7 +14,7 @@ interface AuthContextValue {
   token: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (username: string) => Promise<{ success: boolean; error?: string }>;
+  login: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
 }
 
@@ -70,12 +70,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const login = useCallback(async (username: string): Promise<{ success: boolean; error?: string }> => {
+  const login = useCallback(async (username: string, password: string): Promise<{ success: boolean; error?: string }> => {
     try {
       const res = await fetch(`${BACKEND_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username }),
+        body: JSON.stringify({ username, password }),
       });
       const data = await res.json();
       if (data.token && data.user) {
