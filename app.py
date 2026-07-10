@@ -67,7 +67,7 @@ from backend.handlers.actions import (
 )
 
 # Constants needed by tests and handlers
-URL_REGEX = r'https?://[^\s<>"{}|\\^`\[\]]+'
+URL_REGEX = r'https?://[^\s<>"{}|\\^`]+'
 from backend.attachment.url import MAX_URL_DOWNLOAD_SIZE, AUDIO_FORMAT_MAP, MAX_TEXT_LENGTH
 
 # ============================================================

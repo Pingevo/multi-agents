@@ -66,25 +66,34 @@ class ModelCatalog:
 
     def _model_summary(self, m: dict) -> dict:
         pricing = m.get("pricing", {})
-        prompt_price = pricing.get("prompt", "?")
-        comp_price = pricing.get("completion", "?")
         # OpenRouter returns per-token prices; convert to per-1M-tokens for display
-        try:
-            prompt_price = round(float(prompt_price) * 1_000_000, 6)
-        except (ValueError, TypeError):
-            pass
-        try:
-            comp_price = round(float(comp_price) * 1_000_000, 6)
-        except (ValueError, TypeError):
-            pass
+        def _convert(price):
+            try:
+                return round(float(price) * 1_000_000, 6)
+            except (ValueError, TypeError):
+                return price if price else "?"
+        prompt_price = _convert(pricing.get("prompt", "?"))
+        comp_price = _convert(pricing.get("completion", "?"))
+        image_price = _convert(pricing.get("image", "?"))
+        video_price = _convert(pricing.get("video", "?"))
+        audio_price = _convert(pricing.get("audio", "?"))
+        web_search_price = _convert(pricing.get("web_search", "?"))
+        # is_free: all known prices must be 0 (not just ":free" in id)
+        all_prices = [prompt_price, comp_price, image_price, video_price, audio_price, web_search_price]
+        known_prices = [p for p in all_prices if isinstance(p, (int, float))]
+        is_free = len(known_prices) > 0 and all(p == 0 for p in known_prices)
         return {
             "id": m.get("id", ""),
             "name": m.get("name", m.get("id", "")),
             "context_length": m.get("context_length", "?"),
             "prompt_price": prompt_price,
             "completion_price": comp_price,
+            "image_price": image_price,
+            "video_price": video_price,
+            "audio_price": audio_price,
+            "web_search_price": web_search_price,
             "categories": self._categorize(m),
-            "is_free": ":free" in m.get("id", ""),
+            "is_free": is_free,
             "supported_parameters": m.get("supported_parameters", []),
         }
 

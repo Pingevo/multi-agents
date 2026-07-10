@@ -1,5 +1,7 @@
 """Chainlit message handlers: on_chat_start, on_message."""
 
+print("[CHAT-MODULE] Loaded chat.py v2 with DEBUG-URL", flush=True)
+
 import asyncio
 import base64
 import contextvars
@@ -486,19 +488,32 @@ async def on_chat_start():
                     mid = m.get("id", "")
                     name = m.get("name", mid)
                     pricing = m.get("pricing", {})
-                    all_pricing_fields = {k: v for k, v in pricing.items() if v and v != "0"}
+                    def _convert(price):
+                        try:
+                            return round(float(price) * 1_000_000, 6)
+                        except (ValueError, TypeError):
+                            return price if price else "?"
+                    prompt_price = _convert(pricing.get("prompt", "?"))
+                    comp_price = _convert(pricing.get("completion", "?"))
+                    image_price = _convert(pricing.get("image", "?"))
+                    video_price = _convert(pricing.get("video", "?"))
+                    audio_price = _convert(pricing.get("audio", "?"))
+                    web_search_price = _convert(pricing.get("web_search", "?"))
+                    all_prices = [prompt_price, comp_price, image_price, video_price, audio_price, web_search_price]
+                    known_prices = [p for p in all_prices if isinstance(p, (int, float))]
+                    is_free = len(known_prices) > 0 and all(p == 0 for p in known_prices)
                     entries.append({
                         "id": mid,
                         "name": name,
                         "context_length": m.get("context_length", "?"),
-                        "prompt_price": pricing.get("prompt", "?"),
-                        "completion_price": pricing.get("completion", "?"),
-                        "image_price": pricing.get("image", "?"),
-                        "video_price": pricing.get("video", "?"),
-                        "audio_price": pricing.get("audio", "?"),
-                        "web_search_price": pricing.get("web_search", "?"),
+                        "prompt_price": prompt_price,
+                        "completion_price": comp_price,
+                        "image_price": image_price,
+                        "video_price": video_price,
+                        "audio_price": audio_price,
+                        "web_search_price": web_search_price,
                         "categories": [media_type],
-                        "is_free": ":free" in mid or not all_pricing_fields,
+                        "is_free": is_free,
                     })
                 grouped = {media_type: entries}
                 print(f"[CHAT-START] Sending media catalog for {media_type}: {len(entries)} models", flush=True)
@@ -526,6 +541,7 @@ def _parse_json_command(text: str) -> dict | None:
 
 @cl.on_message
 async def on_message(message: cl.Message):
+    print(f"[DEBUG-MSG] on_message called, content[:100]={message.content[:100]}", flush=True)
     state = cl.user_session.get("state") or STATE_IDLE
     user_input = message.content
     registry = cl.user_session.get("registry") or AgentRegistry()
@@ -776,19 +792,32 @@ async def on_message(message: cl.Message):
                 for m in filtered:
                     mid = m["id"]
                     pricing = m.get("pricing", {})
-                    all_pricing_fields = {k: v for k, v in pricing.items() if v and v != "0"}
+                    def _convert_media(price):
+                        try:
+                            return round(float(price) * 1_000_000, 6)
+                        except (ValueError, TypeError):
+                            return price if price else "?"
+                    prompt_price = _convert_media(pricing.get("prompt", "?"))
+                    comp_price = _convert_media(pricing.get("completion", "?"))
+                    image_price = _convert_media(pricing.get("image", "?"))
+                    video_price = _convert_media(pricing.get("video", "?"))
+                    audio_price = _convert_media(pricing.get("audio", "?"))
+                    web_search_price = _convert_media(pricing.get("web_search", "?"))
+                    all_prices = [prompt_price, comp_price, image_price, video_price, audio_price, web_search_price]
+                    known_prices = [p for p in all_prices if isinstance(p, (int, float))]
+                    is_free = len(known_prices) > 0 and all(p == 0 for p in known_prices)
                     entries.append({
                         "id": mid,
                         "name": m.get("name", mid),
                         "context_length": m.get("context_length", "?"),
-                        "prompt_price": pricing.get("prompt", "?"),
-                        "completion_price": pricing.get("completion", "?"),
-                        "image_price": pricing.get("image", "?"),
-                        "video_price": pricing.get("video", "?"),
-                        "audio_price": pricing.get("audio", "?"),
-                        "web_search_price": pricing.get("web_search", "?"),
+                        "prompt_price": prompt_price,
+                        "completion_price": comp_price,
+                        "image_price": image_price,
+                        "video_price": video_price,
+                        "audio_price": audio_price,
+                        "web_search_price": web_search_price,
                         "categories": [media_type],
-                        "is_free": ":free" in mid or not all_pricing_fields,
+                        "is_free": is_free,
                         "input_modalities": m.get("input_modalities", []),
                         "output_modalities": m.get("output_modalities", []),
                     })
@@ -904,10 +933,12 @@ async def on_message(message: cl.Message):
 
     # Detect and process URLs in user message
     urls_in_message = re.findall(URL_REGEX, user_input)
+    print(f"[DEBUG-URL] Found {len(urls_in_message)} URLs in message: {urls_in_message}", flush=True)
     url_contexts = []
     for found_url in urls_in_message:
         if last_attach_url and found_url == last_attach_url:
             continue
+        print(f"[DEBUG-URL] Processing URL: {found_url[:80]}...", flush=True)
         url_ctx = await process_url(found_url)
         url_contexts.append(url_ctx)
         print(f"[URL] Processed {found_url} → type={url_ctx['type']}", flush=True)

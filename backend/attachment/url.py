@@ -2,7 +2,7 @@
 
 import requests
 
-URL_REGEX = r'https?://[^\s<>"{}|\\^`\[\]]+'
+URL_REGEX = r'https?://[^\s<>"{}|\\^`]+'
 
 MAX_TEXT_LENGTH = 50000
 MAX_URL_DOWNLOAD_SIZE = 50 * 1024 * 1024  # 50MB

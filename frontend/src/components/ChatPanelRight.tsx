@@ -283,11 +283,6 @@ const PlanCard: React.FC<{
                 )}
               </div>
             )}
-            {hasImageTool && imageModel && mediaCatalog?.['image'] && !mediaCatalog['image'].some((m: ModelCatalogEntry) => m.id === imageModel) && (
-              <div className="text-[9px] text-warning flex items-center gap-0.5">
-                <span>⚠️ ไม่ใช่ image model — อาจมีค่าใช้จ่าย</span>
-              </div>
-            )}
             {hasVideoTool && (
               <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-surface-2 border border-border/50">
                 <Video className="w-2.5 h-2.5 text-accent shrink-0" />
