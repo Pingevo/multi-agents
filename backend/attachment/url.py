@@ -36,6 +36,28 @@ def classify_url(url: str) -> str:
     return "webpage"
 
 
+JS_REQUIRED_DOMAINS = [
+    "shopee.co.th",
+    "shopee.com",
+    "lazada.co.th",
+    "lazada.com",
+    "tiktok.com",
+    "amazon.com",
+    "amazon.co.th",
+]
+
+
+def is_js_required_domain(url: str) -> bool:
+    """Check if URL domain is known to require JavaScript rendering."""
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    for domain in JS_REQUIRED_DOMAINS:
+        if host == domain or host.endswith("." + domain):
+            return True
+    return False
+
+
 def _is_localhost_url(url: str) -> bool:
     """Check if URL points to localhost or internal IP (SSRF protection)."""
     from urllib.parse import urlparse

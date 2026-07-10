@@ -1,5 +1,36 @@
 # DEVELOPER_LOG
 
+## 2026-07-10 (Session 5) — Feature: Playwright Headless Browser for JS-Heavy URL Scraping
+
+### Summary
+Added Playwright as fallback scraper for JS-heavy websites (Shopee, Lazada, TikTok) that block `requests.get()`. When `requests.get()` returns empty/too-short text or the domain is known to require JavaScript, the system automatically falls back to headless Chromium to render and extract page content.
+
+### Branch
+`feature/url-headless-browser` (branched from `refactor/modularize-and-cleanup` after Session 2-4 commit)
+
+### Changes
+- **`backend/attachment/url.py`**: Added `JS_REQUIRED_DOMAINS` list (shopee, lazada, tiktok, amazon) and `is_js_required_domain()` helper
+- **`backend/attachment/processor.py`**:
+  - Added `scrape_with_playwright()` — headless Chromium with SSRF protection, 30s timeout, text extraction
+  - Modified `process_url()` webpage branch: requests first (skip for JS domains) → Playwright fallback if text < 500 chars → metadata if both fail
+- **`test_playwright_scrape.py`**: 13 new tests (scrape, SSRF, timeout, fallback, JS-required domain, failure handling)
+
+### Test Results
+- 13/13 new tests pass
+- 46/46 existing attachment tests pass (no regressions)
+
+### Skills Compliance
+- **codebase-design**: Designed `scrape_with_playwright()` interface before implementing
+- **tdd**: Wrote 13 failing tests first, then implemented to make them pass
+- **implement**: Implemented in 3 files with minimal changes
+- **code-review**: Pending
+
+### Security
+- SSRF protection maintained (localhost/internal IPs blocked before Playwright)
+- No cookies/sessions/credentials stored
+- Browser closed after every use (context manager)
+- `.env` and session data confirmed in `.gitignore`
+
 ## 2026-07-10 (Session 4) — Fix: Socket TransportError, Per-Agent Thinking, Routing Model Free Display
 
 ### Summary

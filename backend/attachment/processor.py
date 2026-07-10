@@ -7,7 +7,7 @@ import re
 import requests
 from backend.utils import _sanitize_error
 from backend.attachment.security import check_model_modality_support, llm_manager_tier_check
-from backend.attachment.url import classify_url, download_with_limit, MAX_TEXT_LENGTH, AUDIO_FORMAT_MAP, _is_localhost_url
+from backend.attachment.url import classify_url, download_with_limit, MAX_TEXT_LENGTH, AUDIO_FORMAT_MAP, _is_localhost_url, is_js_required_domain
 
 def _resolve_file_path(file_url: str) -> str:
     """Convert attachment URL to local file path."""
@@ -64,6 +64,38 @@ def _extract_text_content(file_path: str, file_mime: str) -> str:
     except Exception as e:
         print(f"[ATTACHMENT] Text read failed: {_sanitize_error(e)}", flush=True)
         return ""
+
+
+def scrape_with_playwright(url: str, timeout: int = 30) -> str:
+    """Scrape a URL using headless Chromium (Playwright).
+
+    Used as fallback for JS-heavy sites that block requests.get().
+    Returns extracted text (max MAX_TEXT_LENGTH chars).
+    Raises ValueError for SSRF-blocked URLs.
+    """
+    if _is_localhost_url(url):
+        raise ValueError(f"SSRF blocked: {url}")
+
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        try:
+            context = browser.new_context(
+                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                viewport={"width": 1280, "height": 720},
+            )
+            page = context.new_page()
+            page.goto(url, wait_until="networkidle", timeout=timeout * 1000)
+            page.wait_for_selector("body", timeout=10000)
+            page.evaluate("""() => {
+                document.querySelectorAll('script, style, nav, footer, header, noscript').forEach(el => el.remove());
+            }""")
+            text = page.inner_text("body")
+            text = text[:MAX_TEXT_LENGTH] + ("[...truncated]" if len(text) > MAX_TEXT_LENGTH else "")
+            return text
+        finally:
+            browser.close()
 
 
 async def process_attachment(file_url: str, file_name: str, file_mime: str) -> dict:
@@ -427,15 +459,38 @@ async def process_url(url: str) -> dict:
 
     # --- Webpage ---
     if url_type == "webpage":
-        try:
-            response = requests.get(url, timeout=30, headers={"User-Agent": "Mozilla/5.0"})
-            response.raise_for_status()
-            from bs4 import BeautifulSoup
-            soup = BeautifulSoup(response.text, "html.parser")
-            for tag in soup(["script", "style", "nav", "footer", "header"]):
-                tag.decompose()
-            text = soup.get_text(separator="\n", strip=True)
-            text = text[:MAX_TEXT_LENGTH] + ("[...truncated]" if len(text) > MAX_TEXT_LENGTH else "")
+        text = ""
+        scrape_error = None
+
+        # Step 1: Try requests.get + BeautifulSoup (skip for JS-required domains)
+        if not is_js_required_domain(url):
+            try:
+                response = requests.get(url, timeout=30, headers={"User-Agent": "Mozilla/5.0"})
+                response.raise_for_status()
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(response.text, "html.parser")
+                for tag in soup(["script", "style", "nav", "footer", "header"]):
+                    tag.decompose()
+                text = soup.get_text(separator="\n", strip=True)
+                text = text[:MAX_TEXT_LENGTH] + ("[...truncated]" if len(text) > MAX_TEXT_LENGTH else "")
+            except Exception as e:
+                scrape_error = _sanitize_error(e)
+                print(f"[ATTACHMENT] Webpage requests scrape failed: {scrape_error}", flush=True)
+
+        # Step 2: Fallback to Playwright if text is too short or JS-required domain
+        if len(text) < 500:
+            try:
+                print(f"[ATTACHMENT] Trying Playwright for {url}", flush=True)
+                text = scrape_with_playwright(url)
+                print(f"[ATTACHMENT] Playwright scrape success: {len(text)} chars", flush=True)
+            except Exception as e:
+                pw_error = _sanitize_error(e)
+                print(f"[ATTACHMENT] Playwright scrape failed: {pw_error}", flush=True)
+                if not text:
+                    scrape_error = pw_error
+
+        # Step 3: Return result
+        if text and len(text) > 0:
             return {
                 "type": "text",
                 "content_blocks": [],
@@ -447,15 +502,15 @@ async def process_url(url: str) -> dict:
                 "file_name": url,
                 "file_mime": "",
             }
-        except Exception as e:
-            print(f"[ATTACHMENT] Webpage scrape failed: {_sanitize_error(e)}", flush=True)
+        else:
+            error_msg = scrape_error or "No text content extracted"
             return {
                 "type": "metadata",
                 "content_blocks": [],
                 "plugins": None,
                 "crewai_files": None,
                 "text_content": "",
-                "context_text": f"[Webpage URL failed: {url} — {_sanitize_error(e)}]",
+                "context_text": f"[Webpage URL failed: {url} — {error_msg}]",
                 "required_modality": None,
                 "file_name": url,
                 "file_mime": "",
