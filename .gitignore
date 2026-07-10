@@ -14,10 +14,11 @@ venv/
 # Chainlit
 .chainlit/
 
-# Data files
+# Data files (per-user data, auth, sessions — not shared via git)
 agent_registry.json
 task_registry.json
 chat_sessions.json
+data/
 
 # Uploaded attachments (user-generated, not source code)
 public/attachments/
