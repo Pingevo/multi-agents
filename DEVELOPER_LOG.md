@@ -1,5 +1,30 @@
 # DEVELOPER_LOG
 
+## 2026-07-10 (Session 6) — Feature: Agent Tuning — Deep Persona
+
+### Summary
+Expanded agent schema from flat (name, role, goal, backstory) to deep persona with personality, expertise, brand_context, learnings, and team_id. Updated AgentFactory to compose rich backstory from all persona fields. Updated CentralSecretary plan prompts to generate deep persona fields. Added self-check quality instruction to task descriptions.
+
+### Branch
+`feature/agent-tuning` (branched from `main`)
+
+### Files Modified
+- `SYSTEM_PROTOCOL.md` — Updated North Star with company/team/brand vision, added Section 3.5 Agent Persona
+- `backend/agents/registry.py` — Expanded schema: personality, expertise, brand_context, learnings, team_id; auto-naming `[Role] #N`; `add_learning()` method; updated `to_spec()`, `update_agent()`, `to_markdown_table()`
+- `backend/agents/factory.py` — New `_build_agent_backstory()` composes persona from all fields; added self-check instruction to task descriptions
+- `backend/core/secretary.py` — Both plan prompts updated to request personality, expertise, brand_context fields; plan parsing extracts new fields
+
+### Key Changes
+1. **Agent naming**: Auto-generates `[Role] #N` (e.g. "Creative Writer #1") instead of generic names
+2. **Deep persona in prompts**: `_build_agent_backstory()` combines identity + personality + expertise + brand_context + learnings into rich backstory
+3. **Self-check**: Task descriptions now instruct agents to self-verify before submitting
+4. **Learnings storage**: `add_learning()` keeps last 10 entries per agent for memory
+
+### Status
+Phase 1 (Deep Persona Schema) complete. Phase 2 (Feedback Loop) and Phase 3 (Learnings & Memory) pending.
+
+---
+
 ## 2026-07-10 (Session 5) — Feature: Playwright Headless Browser for JS-Heavy URL Scraping
 
 ### Summary

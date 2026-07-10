@@ -24,16 +24,45 @@ class AgentRegistry:
         with open(self.filepath, "w", encoding="utf-8") as f:
             json.dump(self.agents, f, ensure_ascii=False, indent=2)
 
+    def _next_agent_number(self, role: str) -> int:
+        """Auto-increment agent number per role: Creative Writer #1, #2, ..."""
+        count = 0
+        role_lower = role.lower() if role else ""
+        for a in self.agents:
+            if role_lower and role_lower in a.get("role", "").lower():
+                count += 1
+        return count + 1
+
     def add_agent(self, spec: dict) -> dict:
+        role = spec.get("role", "")
+        # Auto-generate name as [Role] #N if not provided or generic
+        name = spec.get("name", "")
+        if not name or name == "Unnamed":
+            num = self._next_agent_number(role)
+            name = f"{role} #{num}" if role else "Unnamed"
+
         agent = {
             "id": str(uuid.uuid4())[:8],
-            "name": spec.get("name", "Unnamed"),
-            "role": spec.get("role", ""),
+            "name": name,
+            "role": role,
             "goal": spec.get("goal", ""),
-            "persona": spec.get("backstory", ""),
+            "persona": spec.get("backstory", spec.get("persona", "")),
+            "personality": spec.get("personality", {
+                "tone": "",
+                "communication_style": "",
+                "language": "",
+            }),
+            "expertise": spec.get("expertise", []),
+            "brand_context": spec.get("brand_context", {
+                "brand_name": "",
+                "guidelines": "",
+                "target_audience": "",
+            }),
+            "learnings": spec.get("learnings", []),
             "tools": spec.get("tools", []),
             "depends_on": spec.get("depends_on", []),
             "model": spec.get("model", ""),
+            "team_id": spec.get("team_id", None),
             "status": "Idle",
             "created_at": datetime.now().isoformat(),
             "last_used_at": None,
@@ -74,7 +103,9 @@ class AgentRegistry:
     def update_agent(self, agent_id: str, fields: dict) -> bool:
         for agent in self.agents:
             if agent.get("id") == agent_id:
-                for key in ("name", "role", "goal", "persona", "tools", "model"):
+                for key in ("name", "role", "goal", "persona", "personality",
+                            "expertise", "brand_context", "learnings",
+                            "tools", "model", "team_id"):
                     if key in fields:
                         agent[key] = fields[key]
                 self._save()
@@ -100,25 +131,42 @@ class AgentRegistry:
             "role": agent.get("role", ""),
             "goal": agent.get("goal", agent.get("role", "")),
             "backstory": agent.get("persona", ""),
+            "personality": agent.get("personality", {}),
+            "expertise": agent.get("expertise", []),
+            "brand_context": agent.get("brand_context", {}),
+            "learnings": agent.get("learnings", []),
             "tools": agent.get("tools", []),
             "model": agent.get("model", ""),
             "task_description": agent.get("last_task", ""),
             "depends_on": agent.get("depends_on", []),
+            "team_id": agent.get("team_id"),
         }
+
+    def add_learning(self, agent_id: str, learning: dict) -> bool:
+        """Add a learning entry to an agent's learnings list (keeps last 10)."""
+        for agent in self.agents:
+            if agent.get("id") == agent_id:
+                learnings = agent.get("learnings", [])
+                learnings.append(learning)
+                agent["learnings"] = learnings[-10:]
+                self._save()
+                return True
+        return False
 
     def to_markdown_table(self) -> str:
         if not self.agents:
             return "_ยังไม่มี Agent ในทะเบียน_"
         lines = [
-            "| ID | Name | Role | Status | Tools |",
-            "|---|---|---|---|---|",
+            "| ID | Name | Role | Status | Tools | Expertise |",
+            "|---|---|---|---|---|---|",
         ]
         for a in self.agents:
             status = "🟢 Idle" if a.get("status") == "Idle" else "🔴 Busy"
             tools = ", ".join(a.get("tools", [])) if a.get("tools") else "-"
             name = a.get("name", "")[:25]
             role = a.get("role", "")[:35]
-            lines.append(f"| {a.get('id', '')} | {name} | {role} | {status} | {tools} |")
+            expertise = ", ".join(a.get("expertise", [])[:3]) if a.get("expertise") else "-"
+            lines.append(f"| {a.get('id', '')} | {name} | {role} | {status} | {tools} | {expertise} |")
         return "\n".join(lines)
 
 

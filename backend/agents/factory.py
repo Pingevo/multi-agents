@@ -15,6 +15,63 @@ class AgentFactory:
         self.tool_registry = tool_registry
         self._cap_resolver = CapabilityResolver()
 
+    def _build_agent_backstory(self, spec: dict) -> str:
+        """Compose deep persona from personality, expertise, brand_context, learnings."""
+        parts = []
+
+        # Base identity
+        name = spec.get("name", "Agent")
+        role = spec.get("role", "")
+        parts.append(f"You are {name}, a {role}.")
+
+        # Original backstory (if any) — keep for backward compat
+        backstory = spec.get("backstory", spec.get("persona", ""))
+        if backstory and isinstance(backstory, str) and len(backstory) > 20:
+            parts.append(backstory)
+
+        # Personality
+        p = spec.get("personality", {})
+        if isinstance(p, dict):
+            tone = p.get("tone", "")
+            style = p.get("communication_style", "")
+            lang = p.get("language", "")
+            if tone:
+                parts.append(f"Your tone is {tone}.")
+            if style:
+                parts.append(f"Communication style: {style}.")
+            if lang:
+                parts.append(f"Primary language: {lang}.")
+
+        # Expertise (permanent skills)
+        expertise = spec.get("expertise", [])
+        if expertise and isinstance(expertise, list):
+            parts.append(f"Your expertise: {', '.join(expertise)}.")
+
+        # Brand context
+        bc = spec.get("brand_context", {})
+        if isinstance(bc, dict):
+            brand_name = bc.get("brand_name", "")
+            guidelines = bc.get("guidelines", "")
+            audience = bc.get("target_audience", "")
+            if brand_name:
+                parts.append(f"You work for brand '{brand_name}'.")
+            if guidelines:
+                parts.append(f"Brand guidelines: {guidelines}")
+            if audience:
+                parts.append(f"Target audience: {audience}")
+
+        # Learnings (last 5 — memory from past work)
+        learnings = spec.get("learnings", [])
+        if learnings and isinstance(learnings, list):
+            recent = learnings[-5:]
+            lessons = [l.get("lesson", str(l)) if isinstance(l, dict) else str(l) for l in recent]
+            if lessons:
+                parts.append("Lessons from past work:")
+                for lesson in lessons:
+                    parts.append(f"  - {lesson}")
+
+        return "\n".join(parts)
+
     def create_agent(self, spec: dict, model_id: str = "") -> Agent:
         resolved = self._cap_resolver.assign_to_agent(
             spec.get("tools", []), spec
@@ -31,10 +88,12 @@ class AgentFactory:
         else:
             llm = self.llm_manager.get_llm()
 
+        backstory = self._build_agent_backstory(spec)
+
         return Agent(
             role=spec["role"],
             goal=spec["goal"],
-            backstory=spec['backstory'],
+            backstory=backstory,
             llm=llm,
             tools=tools,
             allow_delegation=False,
@@ -117,6 +176,14 @@ class AgentFactory:
             if crewai_files:
                 input_files = crewai_files
 
+        # Build self-check instruction for quality
+        self_check = (
+            "\n\nBefore submitting your work, do a self-check: "
+            "Is the output complete? Does it match the requirements? "
+            "Is the tone consistent with your persona? "
+            "If something is missing, fix it before submitting."
+        )
+
         task_kwargs = {
             "description": (
                 f"Context: A user requested: {user_input}\n\n"
@@ -130,6 +197,7 @@ class AgentFactory:
                 "Use your assigned tools when needed. "
                 "Do not explain how things work internally."
                 f"{tool_instructions}"
+                f"{self_check}"
                 f"{attachment_text}"
             ),
             "agent": agent,

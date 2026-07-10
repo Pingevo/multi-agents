@@ -117,10 +117,21 @@ class CentralSecretary:
             '  "summary": "brief summary",\n'
             '  "agents": [\n'
             "    {\n"
-            '      "name": "Agent Name",\n'
+            '      "name": "Role #N (e.g. Creative Writer #1)",\n'
             '      "role": "Agent Role",\n'
             '      "goal": "Agent Goal",\n'
-            '      "backstory": "Agent Backstory",\n'
+            '      "backstory": "Brief backstory",\n'
+            '      "personality": {\n'
+            '        "tone": "e.g. friendly, professional, casual",\n'
+            '        "communication_style": "e.g. concise, detailed",\n'
+            '        "language": "e.g. th, en, mixed"\n'
+            '      },\n'
+            '      "expertise": ["skill1", "skill2", "knowledge area"],\n'
+            '      "brand_context": {\n'
+            '        "brand_name": "",\n'
+            '        "guidelines": "tone, style, rules",\n'
+            '        "target_audience": ""\n'
+            '      },\n'
             '      "tools": ["capability_name"],\n'
             '      "task_description": "What this agent should do",\n'
             '      "depends_on": [],\n'
@@ -148,7 +159,12 @@ class CentralSecretary:
             "- You can use 'openrouter/auto' as a model ID — OpenRouter will automatically select the best model for each request\n"
             "- For image_model/video_model/search_model/tts_model/stt_model/vision_model: you MUST pick a specific model from the specialized catalog if the plan uses those tools — do NOT leave empty\n"
             "- If the plan does NOT need a particular specialized model, leave that field empty\n"
-            "- Write all content in the SAME language as the user's request\n\n"
+            "- Write all content in the SAME language as the user's request\n"
+            "- Name agents as 'Role #N' (e.g. Creative Writer #1, Graphic Designer #2)\n"
+            "- Give each agent a personality (tone, communication_style, language) that fits their role\n"
+            "- List specific expertise/skills for each agent (e.g. SEO, color theory, Thai consumer behavior)\n"
+            "- If the user mentions a brand, fill in brand_context for all agents on that brand\n"
+            "- backstory should be brief — the personality, expertise, and brand_context fields carry the detail\n\n"
 
             "CRITICAL — task_description & depends_on rules:\n"
             "- By default, agents with NO depends_on run IN PARALLEL.\n"
@@ -250,6 +266,9 @@ class CentralSecretary:
                                 "role": item.get("role", "").strip(),
                                 "goal": item.get("goal", "").strip(),
                                 "backstory": item.get("backstory", "").strip(),
+                                "personality": item.get("personality", {}) if isinstance(item.get("personality"), dict) else {},
+                                "expertise": item.get("expertise", []) if isinstance(item.get("expertise"), list) else [],
+                                "brand_context": item.get("brand_context", {}) if isinstance(item.get("brand_context"), dict) else {},
                                 "tools": item.get("tools", []) if isinstance(item.get("tools"), list) else [],
                                 "task_description": item.get("task_description", "").strip(),
                                 "depends_on": [d.strip() for d in depends_on if isinstance(d, str) and d.strip()],
@@ -381,10 +400,21 @@ class CentralSecretary:
             '  "summary": "brief summary",\n'
             '  "agents": [\n'
             "    {\n"
-            '      "name": "Agent Name",\n'
+            '      "name": "Role #N (e.g. Creative Writer #1)",\n'
             '      "role": "Agent Role",\n'
             '      "goal": "Agent Goal",\n'
-            '      "backstory": "Agent Backstory",\n'
+            '      "backstory": "Brief backstory",\n'
+            '      "personality": {\n'
+            '        "tone": "e.g. friendly, professional, casual",\n'
+            '        "communication_style": "e.g. concise, detailed",\n'
+            '        "language": "e.g. th, en, mixed"\n'
+            '      },\n'
+            '      "expertise": ["skill1", "skill2", "knowledge area"],\n'
+            '      "brand_context": {\n'
+            '        "brand_name": "",\n'
+            '        "guidelines": "tone, style, rules",\n'
+            '        "target_audience": ""\n'
+            '      },\n'
             '      "tools": ["capability_name"],\n'
             '      "task_description": "What this agent should do",\n'
             '      "depends_on": [],\n'
@@ -405,12 +435,10 @@ class CentralSecretary:
             "- Assign capabilities based on the descriptions below\n"
             "- Only use model IDs from the available models list\n"
             "- You can use 'openrouter/auto' as a model ID — OpenRouter will automatically select the best model\n"
-            "- Write all content in the SAME language as the user's request\n\n"
-            "CRITICAL — task_description & depends_on rules:\n"
-            "- By default, agents with NO depends_on run IN PARALLEL.\n"
-            "- If agent B needs the output of agent A, set depends_on: [\"Agent A name\"].\n"
-            "- Agents WITHOUT depends_on CANNOT see other agents' output.\n"
-            "- Each task_description MUST be specific.\n\n"
+            "- Write all content in the SAME language as the user's request\n"
+            "- Name agents as 'Role #N' (e.g. Creative Writer #1)\n"
+            "- Give each agent personality, expertise, and brand_context fields\n"
+            "- backstory should be brief — personality, expertise, and brand_context carry the detail\n\n"
             f"Available capabilities:\n{caps_text}\n\n"
             f"Available text models:\n{models_text}\n\n"
             f"Specialized AI models:\n{media_catalog or 'none'}\n\n"
@@ -562,6 +590,9 @@ class CentralSecretary:
                                 "role": item.get("role", "").strip(),
                                 "goal": item.get("goal", "").strip(),
                                 "backstory": item.get("backstory", "").strip(),
+                                "personality": item.get("personality", {}) if isinstance(item.get("personality"), dict) else {},
+                                "expertise": item.get("expertise", []) if isinstance(item.get("expertise"), list) else [],
+                                "brand_context": item.get("brand_context", {}) if isinstance(item.get("brand_context"), dict) else {},
                                 "tools": item.get("tools", []) if isinstance(item.get("tools"), list) else [],
                                 "task_description": item.get("task_description", user_input).strip(),
                                 "depends_on": [d.strip() for d in depends_on if isinstance(d, str) and d.strip()],

@@ -2,13 +2,21 @@
 
 ## 0. Project Goal (North Star)
 
-**สร้าง Multi-Agent Platform ที่ใช้ AI เป็นคนทำงานจริง ไม่ใช่แค่แชทบอท**
+**สร้าง Multi-Agent Platform ที่ใช้ AI เป็นพนักงานจริง ไม่ใช่แค่แชทบอท**
 
 โจทย์ตัวอย่าง: วางแผน Monthly Content — โพสวันละอย่าง 1 โพส, Short Video และ Artwork สัดส่วน 50:50 ต่อเดือน
+
+วิสัยทัศน์: Platform เปรียบเสมือนบริษัท มีทีม แบรนด์ และพนักงาน AI
+- บริษัท (Platform) → ทีม (Team) → แบรนด์ (Brand) → พนักงาน (Agent)
+- แต่ละทีมดูแลแบรนด์ของตัวเอง มีฐานความรู้เฉพาะ
+- Agent แต่ละตัว = พนักงานจริง มี persona, expertise, brand context, memory
+- Flow: ทำงาน → ส่งผล → User review → Feedback → ทำใหม่จนกว่าจะถูกใจ
 
 หลักการ:
 - **Reasoning over Workflow**: Agent คิด ตัดสินใจ ปรับตัวเองได้ ไม่ใช่ if-then-else ตายตัวเหมือน n8n
 - **Multi-agent Collaboration**: แบ่งงานเป็น agent ต่าง role — Planner, Creator, Reviewer, Publisher — มี Quality Loop ตรวจสอบกันเอง
+- **Agent as Employee**: Agent มี deep persona (personality, expertise, brand context, learnings) ไม่ใช่แค่ role + backstory บรรทัดเดียว
+- **Iterative Workflow**: ไม่ใช่รวดเดียวจบ — ทำ → review → feedback → redo จนกว่า user จะพอใจ
 - **OpenRouter เป็น API ตัวเดียว**: Text (chat/completions), Image (/api/v1/images), Video (/api/v1/videos) — ใช้ API key อันเดียว บิลเดียว
 - **Self-hosted Orchestration**: ระบบคิด วางแผน ตรวจสอบ เป็นของเรา — ใช้ API ของคนอื่นแค่ส่วน generation
 - **ใช้ได้จริง**: ต้องเชื่อม social media API สำหรับ auto-posting, ใช้ paid LLM (ไม่ใช่ free tier)
@@ -47,6 +55,29 @@
 - คำถามทั่วไป/ขอข้อมูลระบบ: ตอบเลย ไม่ต้องสร้าง agent
 - AI กำหนดจำนวน agent เอง ไม่จำกัด 1 ตัว
 - AI เลือก tools เองจาก Tool Registry ทั้งหมด
+
+## 3.5 Agent Persona (Deep Identity)
+
+Agent = พนักงานจริง ต้องมี:
+
+| Attribute | คำอธิบาย | ใช้ทุกงาน? |
+|-----------|----------|-----------|
+| `name` | `[Role] #N` เช่น Creative Writer #1 | YES |
+| `role` | ตำแหน่ง | YES |
+| `goal` | เป้าหมายหลัก | YES |
+| `personality` | โทน, สไตล์การสื่อสาร, ภาษา | YES |
+| `expertise` | สกิล/ความรู้ถาวร ไม่ลืม | YES |
+| `brand_context` | แบรนด์ที่ดูแล + guidelines + target audience | YES |
+| `learnings` | บทเรียนสะสมจาก feedback | YES (last 5) |
+| `tools` | เครื่องมือที่ใช้ได้ | YES |
+| `model` | โมเดลที่ใช้ | YES |
+| `team_id` | ทีมที่สังกัด | YES |
+
+Naming: ใช้ `[Role] #N` ไม่ต้องชื่อแปลก ตัวเลข auto-increment ต่อ role
+
+Memory: ยอมรับ context limit — แปลง learnings ที่ใช้บ่อยเป็น expertise ถ้าจำได้นานพอ
+
+Quality: 2 ชั้น — agent ตรวจตัวเอง + manager ตรวจอีกชั้น
 
 ## 4. Coding & Interaction Rules
 - Auto-Documentation: ทุกครั้งที่แก้ไขโค้ด ต้องอัปเดตไฟล์ `DEVELOPER_LOG.md` เสมอ
