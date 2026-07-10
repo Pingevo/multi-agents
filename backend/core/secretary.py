@@ -1,0 +1,619 @@
+"""CentralSecretary — the heart of the system: assess + plan in 1 LLM call."""
+
+import asyncio
+import json
+import os
+import re
+import traceback
+from backend.llm.manager import LLMManager
+from backend.llm.discovery import ModelDiscoveryService
+from backend.agents.capability import CapabilityRegistry
+from backend.agents.registry import AgentRegistry
+from backend.utils import _sanitize_error, _debug
+from backend.globals import STATE_IDLE, STATE_GATHERING_REQUIREMENTS
+
+class CentralSecretary:
+    """AI Assessor: ประเมินความต้องการ, ถาม requirement, วิเคราะห์และวางแผน multi-agent"""
+
+    def __init__(self, llm_manager: LLMManager):
+        self.llm_manager = llm_manager
+
+    async def assess(self, user_input: str, conversation_history: list[dict] | None = None) -> dict:
+        """ประเมินความต้องการ: CHAT (ตอบเลย) / INFO (ตอบเลย) / TASK_NEEDS_INFO (ถามเพิ่ม) / TASK_READY (วางแผน)"""
+        history_text = ""
+        if conversation_history:
+            history_text = "\nConversation so far:\n"
+            for msg in conversation_history:
+                history_text += f"- {msg.get('role', 'user')}: {msg.get('content', '')[:100]}\n"
+
+        prompt = (
+            "You are an AI Assessor for an Agent Management Platform.\n"
+            "Evaluate the user's message and decide what to do next.\n\n"
+            "Respond with EXACTLY one of these JSON objects (no other text):\n"
+            '- {"action": "chat", "message": "your reply"} — for greetings, small talk, general questions\n'
+            '- {"action": "info", "message": "your reply"} — for questions about the system/agents/status\n'
+            '- {"action": "ask", "questions": ["q1", "q2", ...]} — when the user wants work done but needs are unclear\n'
+            '- {"action": "plan", "summary": "brief summary of understood requirements"} — when requirements are clear enough to plan\n\n'
+            "Guidelines:\n"
+            "- If the user is just chatting or asking who you are → chat\n"
+            "- If the user is asking about available agents or system status → info\n"
+            "- If the user wants something done but missing key details (scope, quantity, platform, timeline) → ask\n"
+            "- If the user has provided enough detail to design a plan → plan\n"
+            "- Use the same language as the user.\n\n"
+            f"{history_text}"
+            f"User message: {user_input}\n"
+            "Response JSON:"
+        )
+        response = (await self.llm_manager.call_async(prompt)).strip()
+        return self._parse_assessment(response)
+
+    def _parse_assessment(self, text: str) -> dict:
+        """Parse LLM assessment response, with fallback"""
+        try:
+            json_match = re.search(r'\{.*\}', text, re.DOTALL)
+            if json_match:
+                result = json.loads(json_match.group())
+                if "action" in result:
+                    return result
+        except (json.JSONDecodeError, AttributeError):
+            pass
+        return {"action": "chat", "message": "ขออภัย ไม่เข้าใจคำถาม ลองใหม่อีกครั้ง"}
+
+    async def assess_and_plan(
+        self,
+        user_input: str,
+        conversation_history: list[dict] | None = None,
+        model_table: str | None = None,
+        valid_model_ids: set[str] | None = None,
+        media_catalog: str | None = None,
+        stream_callback=None,
+    ) -> dict:
+        """Unified call: assess + analyze + model assignment in one LLM response.
+
+        Returns same format as assess() for chat/info/ask paths.
+        For plan path, includes 'agents' and 'model_assignment' keys.
+        Falls back to assess() on parse error.
+        """
+        history_text = ""
+        if conversation_history:
+            history_text = "\nConversation so far:\n"
+            for msg in conversation_history:
+                history_text += f"- {msg.get('role', 'user')}: {msg.get('content', '')[:100]}\n"
+
+        cap_registry = CapabilityRegistry()
+        catalog = cap_registry.list_catalog()
+        caps_text = "\n".join(
+            f"- {c['name']}: {c['description']}" for c in catalog
+        ) if catalog else "none"
+
+        models_text = model_table or "none"
+
+        prompt = (
+            "You are the Central Secretary of an Agent Management Platform.\n"
+            "Evaluate the user's message and respond with a single JSON object.\n\n"
+            "First, decide what to do:\n"
+            "- chat: greetings, small talk, general questions, self-introduction requests\n"
+            "- info: questions about system/agents/status\n"
+            "- ask: user wants work done but needs are unclear\n"
+            "- plan: user wants specific work produced (content, images, videos, analysis, etc.)\n\n"
+
+            "Examples:\n"
+            '  "Hello" → {"action": "chat", "message": "Hi! How can I help?"}\n'
+            '  "แนะนำตัวหน่อย" → {"action": "chat", "message": "สวัสดีครับ ผมคือ..."}\n'
+            '  "What can you do?" → {"action": "info", "message": "I can create content plans..."}\n'
+            '  "สร้าง content plan สำหรับร้านกาแฟ" → {"action": "plan", ...}\n\n'
+
+            "IMPORTANT: Do NOT create a plan for greetings, self-introductions, or simple questions.\n"
+            "Only create a plan when the user explicitly asks for work to be done.\n\n"
+
+            "For chat/info/ask, respond with:\n"
+            '  {"action": "chat", "message": "your reply"}\n'
+            '  {"action": "info", "message": "your reply"}\n'
+            '  {"action": "ask", "questions": ["q1", "q2", ...]}\n\n'
+
+            "For plan, respond with a complete plan including agents AND model assignments:\n"
+            "{\n"
+            '  "action": "plan",\n'
+            '  "summary": "brief summary",\n'
+            '  "agents": [\n'
+            "    {\n"
+            '      "name": "Agent Name",\n'
+            '      "role": "Agent Role",\n'
+            '      "goal": "Agent Goal",\n'
+            '      "backstory": "Agent Backstory",\n'
+            '      "tools": ["capability_name"],\n'
+            '      "task_description": "What this agent should do",\n'
+            '      "depends_on": [],\n'
+            '      "model": "model_id from the list"\n'
+            "    }\n"
+            "  ],\n"
+            '  "manager_model": "model_id from the list or openrouter/auto",\n'
+            '  "image_model": "model_id from specialized catalog (REQUIRED if plan uses generate_image)",\n'
+            '  "video_model": "model_id from specialized catalog (REQUIRED if plan uses generate_video)",\n'
+            '  "search_model": "model_id from specialized catalog (REQUIRED if plan uses search_web)",\n'
+            '  "tts_model": "model_id from specialized catalog (REQUIRED if plan uses text_to_speech)",\n'
+            '  "stt_model": "model_id from specialized catalog (REQUIRED if plan uses transcribe_audio)",\n'
+            '  "vision_model": "model_id from specialized catalog (REQUIRED if plan uses analyze_image)"\n'
+            "}\n\n"
+
+            "Design Rules for plan:\n"
+            "- Create as many agents as needed (1, 2, 3, or more)\n"
+            "- Each agent should have a clear, distinct responsibility\n"
+            "- Assign capabilities based on the descriptions below\n"
+            "- Capabilities of type 'tool' (search_web, generate_image, generate_video, text_to_speech, transcribe_audio, analyze_image) give external abilities\n"
+            "- Capabilities of type 'model_trait' (reasoning, creative_writing, write_code, long_context) guide model selection\n"
+            "- Assign the SMARTER/larger model to the manager (it coordinates)\n"
+            "- Assign models suited to each worker's task based on capabilities\n"
+            "- Only use model IDs from the available models list\n"
+            "- You can use 'openrouter/auto' as a model ID — OpenRouter will automatically select the best model for each request\n"
+            "- For image_model/video_model/search_model/tts_model/stt_model/vision_model: you MUST pick a specific model from the specialized catalog if the plan uses those tools — do NOT leave empty\n"
+            "- If the plan does NOT need a particular specialized model, leave that field empty\n"
+            "- Write all content in the SAME language as the user's request\n\n"
+
+            "CRITICAL — task_description & depends_on rules:\n"
+            "- By default, agents with NO depends_on run IN PARALLEL.\n"
+            "- If agent B needs the output of agent A to do its job, set depends_on: [\"Agent A name\"]. Agent B will receive Agent A's output automatically before starting.\n"
+            "- Agents WITHOUT depends_on CANNOT see other agents' output — their task_description MUST be self-contained.\n"
+            "- Agents WITH depends_on CAN reference the upstream agent's output — e.g. 'Based on the caption from Creative Copywriter, generate an image that matches'.\n"
+            "- Decide how many agents to create based on the user's request. You may create one agent per item or one agent that handles multiple items — use your judgment.\n"
+            "- Each task_description MUST be specific — tell the agent EXACTLY what to produce, including how many items and what subject/theme.\n"
+            "- BAD: 'Generate images based on descriptions provided by the manager' (vague, no depends_on)\n"
+            "- GOOD (no depends_on): 'Write 1 engaging caption for a coffee shop post about latte art. Include hashtags and CTA.'\n"
+            "- GOOD (with depends_on): 'Based on the caption from Creative Copywriter, create 1 image that visually matches the described scene. Call generate_image with a detailed English prompt.' + depends_on: [\"Creative Copywriter\"]\n"
+            "- Include: what to create, how many, subject/theme, and which tool to call.\n\n"
+
+            f"Available capabilities:\n{caps_text}\n\n"
+            f"Available text models:\n{models_text}\n\n"
+            f"Specialized AI models:\n{media_catalog or 'none'}\n\n"
+            f"{history_text}"
+            f"User message: {user_input}\n\n"
+            "Output ONLY the JSON object, no explanation:"
+        )
+        print(f"[DEBUG-PROMPT] media_catalog: {media_catalog or 'none'}", flush=True)
+
+        if stream_callback:
+            # Streaming mode: collect chunks while sending them to frontend
+            import queue, threading
+            chunk_queue: queue.Queue = queue.Queue()
+            full_response = []
+
+            def _stream_in_thread():
+                try:
+                    for chunk in self.llm_manager.call_streaming(prompt):
+                        full_response.append(chunk)
+                        chunk_queue.put(chunk)
+                except Exception as e:
+                    chunk_queue.put(e)
+                chunk_queue.put(None)  # sentinel
+
+            thread = threading.Thread(target=_stream_in_thread, daemon=True)
+            thread.start()
+
+            # Poll queue without blocking — no artificial timeout, HTTP client handles it
+            while True:
+                try:
+                    item = chunk_queue.get_nowait()
+                except queue.Empty:
+                    await asyncio.sleep(0.05)
+                    continue
+                if item is None:
+                    break
+                if isinstance(item, Exception):
+                    print(f"[assess_and_plan] Streaming error: {_sanitize_error(item)}")
+                    break
+                if item:
+                    await stream_callback(item)
+
+            thread.join(timeout=1)
+            response = "".join(full_response).strip()
+        else:
+            response = (await self.llm_manager.call_async(prompt)).strip()
+
+        print(f"[DEBUG-STREAM] Response length: {len(response)}, full response: {response[:3000]}", flush=True)
+        if not response:
+            selected = self.llm_manager._selected_model or self.llm_manager._default_model or "auto"
+            return {
+                "action": "chat",
+                "message": f"❌ โมเดล '{selected}' ส่งคำตอบกลับมาว่างเปล่า อาจไม่รองรับคำสั่งที่ซับซ้อน ลองเปลี่ยนโมเดลแล้วส่งใหม่อีกครั้ง"
+            }
+        if os.getenv("DEBUG_MODE", "false").lower() == "true":
+            print(f"[DEBUG-PLAN-RAW] LLM response (first 800 chars): {response[:800]}", flush=True)
+        return self._parse_unified_response(response, valid_model_ids)
+
+    def _parse_unified_response(
+        self, text: str, valid_model_ids: set[str] | None = None
+    ) -> dict:
+        """Parse unified assess_and_plan response."""
+        try:
+            json_match = re.search(r'\{.*\}', text, re.DOTALL)
+            if json_match:
+                result = json.loads(json_match.group())
+                if "action" not in result:
+                    selected = self.llm_manager._selected_model or self.llm_manager._default_model or "auto"
+                    return {
+                        "action": "chat",
+                        "message": (
+                            f"⚠️ โมเดล '{selected}' ส่งคำตอบกลับมาไม่ถูกต้อง (ไม่มี JSON action) "
+                            f"ลองเปลี่ยนโมเดลแล้วส่งใหม่อีกครั้ง"
+                        )
+                    }
+
+                if result["action"] == "plan":
+                    agents = []
+                    for item in result.get("agents", []):
+                        if isinstance(item, dict) and "name" in item and "role" in item:
+                            depends_on = item.get("depends_on", [])
+                            if not isinstance(depends_on, list):
+                                depends_on = []
+                            agents.append({
+                                "name": item.get("name", "").strip(),
+                                "role": item.get("role", "").strip(),
+                                "goal": item.get("goal", "").strip(),
+                                "backstory": item.get("backstory", "").strip(),
+                                "tools": item.get("tools", []) if isinstance(item.get("tools"), list) else [],
+                                "task_description": item.get("task_description", "").strip(),
+                                "depends_on": [d.strip() for d in depends_on if isinstance(d, str) and d.strip()],
+                                "model": item.get("model", ""),
+                            })
+                    if not agents:
+                        return {"action": "chat", "message": "ไม่สามารถวางแผนได้ กรุณาลองใหม่"}
+
+                    manager_model = result.get("manager_model", "")
+                    model_assignment = {"manager": manager_model, "workers": {}}
+                    for a in agents:
+                        model_assignment["workers"][a["name"]] = a.get("model", "")
+
+                    if valid_model_ids:
+                        valid_list = sorted(valid_model_ids)
+                        if model_assignment["manager"] not in valid_model_ids:
+                            model_assignment["manager"] = valid_list[0] if valid_list else ""
+                        for i, a in enumerate(agents):
+                            mid = model_assignment["workers"].get(a["name"], "")
+                            if mid not in valid_model_ids:
+                                replacement = valid_list[0] if valid_list else ""
+                                model_assignment["workers"][a["name"]] = replacement
+                                agents[i]["model"] = replacement
+
+                    return {
+                        "action": "plan",
+                        "summary": result.get("summary", ""),
+                        "agents": agents,
+                        "model_assignment": model_assignment,
+                        "image_model": result.get("image_model", ""),
+                        "video_model": result.get("video_model", ""),
+                        "search_model": result.get("search_model", ""),
+                    }
+
+                return result
+        except (json.JSONDecodeError, AttributeError) as e:
+            print(f"[DEBUG-PARSE-UNIFIED] Failed: {e}", flush=True)
+            print(f"[DEBUG-PARSE-UNIFIED] Response (first 500 chars): {text[:500]}", flush=True)
+        selected = self.llm_manager._selected_model or self.llm_manager._default_model or "auto"
+        return {
+            "action": "chat",
+            "message": (
+                f"⚠️ โมเดล '{selected}' ไม่สามารถสร้างแผนงานได้ (คำตอบไม่ใช่ JSON) "
+                f"ลองเปลี่ยนโมเดลแล้วส่งใหม่อีกครั้ง"
+            )
+        }
+
+    async def chat_response(self, user_input: str) -> str:
+        """ตอบกลับทักทาย/คำถามทั่วไป"""
+        llm = self.llm_manager.get_llm()
+        prompt = (
+            "You are the assistant of an Agent Management Platform.\n"
+            "Respond to the user's message. Be concise and friendly.\n\n"
+            "Respond in the same language as the user's message.\n\n"
+            "Do not mention agents or the system unless asked.\n\n"
+            f"User message: {user_input}\n\n"
+            "Answer:"
+        )
+        return (await self.llm_manager.call_async(prompt)).strip()
+
+    async def chat_response_with_image(self, user_input: str, image_data_url: str) -> str:
+        """ตอบกลับพร้อมวิเคราะห์รูปภาพ (vision/multimodal)"""
+        prompt = (
+            "You are the assistant of an Agent Management Platform.\n"
+            "The user has attached an image. Analyze and describe what you see in the image.\n"
+            "Respond in the same language as the user's message.\n"
+            "Be concise and friendly.\n\n"
+            f"User message: {user_input}\n\n"
+            "Answer:"
+        )
+        return (await self.llm_manager.call_with_image_async(prompt, image_data_url)).strip()
+
+    async def chat_response_multimodal(
+        self, user_input: str, content_blocks: list[dict], plugins: list = None
+    ) -> str:
+        """ตอบกลับพร้อมวิเคราะห์ไฟล์ multimodal (image, PDF, audio, video)"""
+        prompt = (
+            "You are the assistant of an Agent Management Platform.\n"
+            "The user has attached a file. Analyze and respond based on the attached content.\n"
+            "Respond in the same language as the user's message.\n"
+            "Be concise and friendly.\n\n"
+            f"User message: {user_input}\n\n"
+            "Answer:"
+        )
+        return (await self.llm_manager.call_with_multimodal_async(prompt, content_blocks, plugins)).strip()
+
+    async def assess_and_plan_multimodal(
+        self,
+        user_input: str,
+        content_blocks: list[dict],
+        plugins: list = None,
+        conversation_history: list[dict] | None = None,
+        model_table: str | None = None,
+        valid_model_ids: set[str] | None = None,
+        media_catalog: str | None = None,
+        stream_callback=None,
+    ) -> dict:
+        """assess_and_plan with multimodal content blocks (image, PDF, audio, video)."""
+        history_text = ""
+        if conversation_history:
+            history_text = "\nConversation so far:\n"
+            for msg in conversation_history:
+                history_text += f"- {msg.get('role', 'user')}: {msg.get('content', '')[:100]}\n"
+
+        cap_registry = CapabilityRegistry()
+        catalog = cap_registry.list_catalog()
+        caps_text = "\n".join(
+            f"- {c['name']}: {c['description']}" for c in catalog
+        ) if catalog else "none"
+
+        models_text = model_table or "none"
+
+        prompt = (
+            "You are the Central Secretary of an Agent Management Platform.\n"
+            "Evaluate the user's message and respond with a single JSON object.\n\n"
+            "First, decide what to do:\n"
+            "- chat: greetings, small talk, general questions, self-introduction requests\n"
+            "- info: questions about system/agents/status\n"
+            "- ask: user wants work done but needs are unclear\n"
+            "- plan: user wants specific work produced (content, images, videos, analysis, etc.)\n\n"
+            "The user has attached a file. Analyze the attached content and use it in your assessment.\n\n"
+            "For chat/info/ask, respond with:\n"
+            '  {"action": "chat", "message": "your reply"}\n'
+            '  {"action": "info", "message": "your reply"}\n'
+            '  {"action": "ask", "questions": ["q1", "q2", ...]}\n\n'
+            "For plan, respond with a complete plan including agents AND model assignments:\n"
+            "{\n"
+            '  "action": "plan",\n'
+            '  "summary": "brief summary",\n'
+            '  "agents": [\n'
+            "    {\n"
+            '      "name": "Agent Name",\n'
+            '      "role": "Agent Role",\n'
+            '      "goal": "Agent Goal",\n'
+            '      "backstory": "Agent Backstory",\n'
+            '      "tools": ["capability_name"],\n'
+            '      "task_description": "What this agent should do",\n'
+            '      "depends_on": [],\n'
+            '      "model": "model_id from the list"\n'
+            "    }\n"
+            "  ],\n"
+            '  "manager_model": "model_id from the list or openrouter/auto",\n'
+            '  "image_model": "model_id from specialized catalog (REQUIRED if plan uses generate_image)",\n'
+            '  "video_model": "model_id from specialized catalog (REQUIRED if plan uses generate_video)",\n'
+            '  "search_model": "model_id from specialized catalog (REQUIRED if plan uses search_web)",\n'
+            '  "tts_model": "model_id from specialized catalog (REQUIRED if plan uses text_to_speech)",\n'
+            '  "stt_model": "model_id from specialized catalog (REQUIRED if plan uses transcribe_audio)",\n'
+            '  "vision_model": "model_id from specialized catalog (REQUIRED if plan uses analyze_image)"\n'
+            "}\n\n"
+            "Design Rules for plan:\n"
+            "- Create as many agents as needed (1, 2, 3, or more)\n"
+            "- Each agent should have a clear, distinct responsibility\n"
+            "- Assign capabilities based on the descriptions below\n"
+            "- Only use model IDs from the available models list\n"
+            "- You can use 'openrouter/auto' as a model ID — OpenRouter will automatically select the best model\n"
+            "- Write all content in the SAME language as the user's request\n\n"
+            "CRITICAL — task_description & depends_on rules:\n"
+            "- By default, agents with NO depends_on run IN PARALLEL.\n"
+            "- If agent B needs the output of agent A, set depends_on: [\"Agent A name\"].\n"
+            "- Agents WITHOUT depends_on CANNOT see other agents' output.\n"
+            "- Each task_description MUST be specific.\n\n"
+            f"Available capabilities:\n{caps_text}\n\n"
+            f"Available text models:\n{models_text}\n\n"
+            f"Specialized AI models:\n{media_catalog or 'none'}\n\n"
+            f"{history_text}"
+            f"User message: {user_input}\n\n"
+            "Output ONLY the JSON object, no explanation:"
+        )
+
+        if stream_callback:
+            import queue, threading
+            chunk_queue: queue.Queue = queue.Queue()
+            full_response = []
+
+            def _stream_in_thread():
+                try:
+                    for chunk in self.llm_manager.call_with_multimodal_streaming(prompt, content_blocks, plugins):
+                        full_response.append(chunk)
+                        chunk_queue.put(chunk)
+                except Exception as e:
+                    chunk_queue.put(e)
+                chunk_queue.put(None)
+
+            thread = threading.Thread(target=_stream_in_thread, daemon=True)
+            thread.start()
+
+            while True:
+                try:
+                    item = chunk_queue.get_nowait()
+                except queue.Empty:
+                    await asyncio.sleep(0.05)
+                    continue
+                if item is None:
+                    break
+                if isinstance(item, Exception):
+                    print(f"[assess_and_plan_multimodal] Streaming error: {_sanitize_error(item)}")
+                    break
+                if item:
+                    await stream_callback(item)
+
+            thread.join(timeout=1)
+            response = "".join(full_response).strip()
+        else:
+            response = (await self.llm_manager.call_with_multimodal_async(prompt, content_blocks, plugins)).strip()
+
+        if not response:
+            selected = self.llm_manager._selected_model or self.llm_manager._default_model or "auto"
+            return {
+                "action": "chat",
+                "message": f"❌ โมเดล '{selected}' ส่งคำตอบกลับมาว่างเปล่า อาจไม่รองรับ multimodal input"
+            }
+        return self._parse_unified_response(response, valid_model_ids)
+
+    async def info_response(self, user_input: str, agents: list[dict], tasks: list[dict], state: str) -> str:
+        """ตอบคำถามข้อมูลระบบ"""
+        llm = self.llm_manager.get_llm()
+        prompt = (
+            "You are the central secretary of an Agent Management Platform.\n"
+            "Answer the user's question based on the system data below.\n\n"
+            "Respond in the same language as the user's question.\n\n"
+            f"System state: {state}\n"
+            f"Agents (JSON): {json.dumps(agents, ensure_ascii=False, indent=2)}\n\n"
+            f"Tasks (JSON): {json.dumps(tasks, ensure_ascii=False, indent=2)}\n\n"
+            f"User question: {user_input}\n\n"
+            "Answer:"
+        )
+        return (await self.llm_manager.call_async(prompt)).strip()
+
+    async def analyze(self, user_input: str, available_tools: list[str], conversation_history: list[dict] | None = None) -> list[dict]:
+        """วิเคราะห์และออกแบบ multi-agent plan — ไม่จำกัดจำนวน agent หรือ capabilities"""
+        llm = self.llm_manager.get_llm()
+
+        # Build capability descriptions from registry
+        cap_registry = CapabilityRegistry()
+        catalog = cap_registry.list_catalog()
+        caps_text = "\n".join(
+            f"- {c['name']}: {c['description']}" for c in catalog
+        ) if catalog else "none"
+
+        history_text = ""
+        if conversation_history:
+            history_text = "\nConversation context:\n"
+            for msg in conversation_history[-10:]:
+                history_text += f"- {msg.get('role', 'user')}: {msg.get('content', '')[:150]}\n"
+
+        prompt = (
+            "You are the Central Secretary of an Agent Management Platform.\n"
+            "Analyze the user's request and design a multi-agent plan to accomplish it.\n\n"
+            f"User request: {user_input}\n"
+            f"{history_text}"
+            f"Available capabilities: {caps_text}\n\n"
+            "Design Rules:\n"
+            "- Create as many agents as needed (1, 2, 3, or more — your decision)\n"
+            "- Each agent should have a clear, distinct responsibility\n"
+            "- Assign capabilities to agents based on the descriptions above — "
+            "match each capability to the agent whose task requires it\n"
+            "- Capabilities of type 'tool' (search_web, generate_image) give the agent external abilities\n"
+            "- Capabilities of type 'model_trait' (reasoning, creative_writing, write_code, long_context) "
+            "guide model selection but are not tools\n"
+            "- A manager agent will coordinate the team and delegate tasks\n"
+            "- Independent tasks may run in parallel; dependent tasks will wait\n"
+            "- Write all content in the SAME language as the user's request\n\n"
+            "Output format (JSON array, no other text):\n"
+            "[\n"
+            "  {\n"
+            '    "name": "Agent Name",\n'
+            '    "role": "Agent Role",\n'
+            '    "goal": "Agent Goal",\n'
+            '    "backstory": "Agent Backstory/Persona",\n'
+            '    "tools": ["capability_name"],\n'
+            '    "task_description": "What this agent should do"\n'
+            "  }\n"
+            "]\n\n"
+            "Output ONLY the JSON array, no explanation:"
+        )
+        response = await self.llm_manager.call_async(prompt)
+        return self._parse_agent_specs(response, user_input)
+
+    def check_resources(
+        self, agent_spec: dict, registry: AgentRegistry
+    ) -> dict:
+        """
+        เช็ค Registry ว่ามี Agent ที่ว่างและตรงสายงานหรือไม่
+        Returns: {"type": "existing", "agent": {...}} หรือ {"type": "create", "spec": {...}}
+        """
+        existing = registry.find_idle_agent(
+            agent_spec.get("role", ""), agent_spec.get("tools", [])
+        )
+        if existing:
+            return {"type": "existing", "agent": existing}
+        return {"type": "create", "spec": agent_spec}
+
+    def _parse_agent_specs(self, text: str, user_input: str) -> list[dict]:
+        """Parse agent specs from JSON array or text format"""
+        agents = []
+
+        # Try JSON array first
+        try:
+            json_match = re.search(r'\[.*\]', text, re.DOTALL)
+            if json_match:
+                parsed = json.loads(json_match.group())
+                if isinstance(parsed, list):
+                    for item in parsed:
+                        if isinstance(item, dict) and "name" in item and "role" in item:
+                            depends_on = item.get("depends_on", [])
+                            if not isinstance(depends_on, list):
+                                depends_on = []
+                            agents.append({
+                                "name": item.get("name", "").strip(),
+                                "role": item.get("role", "").strip(),
+                                "goal": item.get("goal", "").strip(),
+                                "backstory": item.get("backstory", "").strip(),
+                                "tools": item.get("tools", []) if isinstance(item.get("tools"), list) else [],
+                                "task_description": item.get("task_description", user_input).strip(),
+                                "depends_on": [d.strip() for d in depends_on if isinstance(d, str) and d.strip()],
+                            })
+                    if agents:
+                        return agents
+        except (json.JSONDecodeError, AttributeError):
+            pass
+
+        # Fallback: text format parsing
+        blocks = re.split(r"\n(?=\d+\.\s*Agent Name:)", text.strip())
+        for block in blocks:
+            if not block.strip():
+                continue
+
+            name_match = re.search(r"Agent Name:\s*(.+)", block)
+            role_match = re.search(r"Role:\s*(.+)", block)
+            goal_match = re.search(r"Goal:\s*(.+)", block)
+            backstory_match = re.search(r"Backstory:\s*(.+)", block)
+            tools_match = re.search(r"Tools:\s*(.+)", block)
+            task_match = re.search(r"Task Description:\s*(.+)", block)
+
+            if name_match and role_match:
+                tools_str = tools_match.group(1).strip() if tools_match else ""
+                tools = [t.strip() for t in tools_str.split(",") if t.strip()]
+                agents.append(
+                    {
+                        "name": name_match.group(1).strip(),
+                        "role": role_match.group(1).strip(),
+                        "goal": goal_match.group(1).strip() if goal_match else "",
+                        "backstory": backstory_match.group(1).strip()
+                        if backstory_match
+                        else "",
+                        "tools": tools,
+                        "task_description": task_match.group(1).strip()
+                        if task_match
+                        else user_input,
+                    }
+                )
+
+        if not agents:
+            agents.append(
+                {
+                    "name": "Agent หลัก",
+                    "role": "ผู้ช่วยทั่วไป",
+                    "goal": "ตอบคำถามและช่วยเหลือ User",
+                    "backstory": "คุณเป็นผู้ช่วยที่มีประสบการณ์",
+                    "tools": [],
+                    "task_description": user_input,
+                }
+            )
+        return agents
+
+
+

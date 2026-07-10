@@ -1,0 +1,522 @@
+"""StateMessenger — sends platform state to frontend via JSON messages."""
+
+import json
+import os
+import requests
+from datetime import datetime
+
+import chainlit as cl
+from backend.globals import AGENT_REGISTRY_FILE, TASK_REGISTRY_FILE, CHAT_SESSIONS_FILE
+from backend.agents.task_store import TaskStore
+from backend.agents.chat_store import ChatStore
+from backend.agents.registry import AgentRegistry
+from backend.agents.tool_registry import ToolRegistry
+from backend.llm.manager import LLMManager
+from schemas import (
+    PlanAgentItem, ResultAgentItem, AgentProgressEntry,
+    ChatReplyText, ChatReplyPlanValidationError, ChatReplyPlan, ChatReplyProgress,
+    ChatReplyAgentProgress, ChatReplyResult, ChatReplyImageApproval, ChatReplyImageResult,
+    ChatReplyAudioResult, ChatReplyTranscriptionResult, ChatReplyVideoResult, ChatReplyFileResult,
+    ChatReplyModelCatalog, ModelCatalogItem, chat_reply,
+)
+
+class StateMessenger:
+    """ส่ง Platform State ให้ Custom Frontend ผ่าน JSON Messages"""
+
+    def __init__(self, task_store: TaskStore | None = None, chat_store: ChatStore | None = None):
+        self.task_store = task_store or TaskStore()
+        self.chat_store = chat_store or ChatStore()
+        self.current_session_id: str | None = None
+        self.state = {
+            "tasks": self.task_store.list_tasks(),
+            "current_plan": None,
+            "notifications": [],
+            "system_status": "Ready",
+            "available_tools": ToolRegistry().list_tool_catalog(),
+            "credits": None,
+        }
+
+    @staticmethod
+    def _fetch_credits() -> dict | None:
+        """Fetch credit balance from OpenRouter /key endpoint."""
+        try:
+            llm_mgr = LLMManager()
+            if not llm_mgr._is_openrouter():
+                return None
+            resp = requests.get(
+                f"{llm_mgr.base_url}/key",
+                headers={"Authorization": f"Bearer {llm_mgr.api_key}"},
+                timeout=5,
+            )
+            if resp.status_code == 200:
+                data = resp.json().get("data", {})
+                return {
+                    "limit": data.get("limit"),
+                    "limit_remaining": data.get("limit_remaining"),
+                    "usage": data.get("usage", 0),
+                    "usage_daily": data.get("usage_daily", 0),
+                    "usage_monthly": data.get("usage_monthly", 0),
+                    "is_free_tier": data.get("is_free_tier", True),
+                }
+        except Exception as e:
+            print(f"[Credits] Failed to fetch: {_sanitize_error(e)}")
+        return None
+
+    @staticmethod
+    def _get_resolved_model_name() -> str:
+        """Get the actual model name that adaptive mode would pick."""
+        try:
+            return LLMManager().get_selected_model_name()
+        except Exception:
+            return "local"
+
+    @staticmethod
+    def _agents_for_ui(agents: list[dict]) -> list[dict]:
+        return [
+            {
+                "id": a.get("id"),
+                "name": a.get("name", "Unnamed"),
+                "role": a.get("role", ""),
+                "goal": a.get("goal", ""),
+                "persona": a.get("persona", ""),
+                "tools": a.get("tools", []),
+                "model": a.get("model", ""),
+                "status": a.get("status", "Idle"),
+            }
+            for a in agents
+        ]
+
+    async def _send(self):
+        self.state["credits"] = self._fetch_credits()
+        payload = {
+            "type": "platform_state",
+            "payload": self.state,
+        }
+        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
+
+    async def init(self, registry: AgentRegistry):
+        self.state["agents"] = self._agents_for_ui(registry.list_agents())
+        self.state["tasks"] = self.task_store.list_tasks()
+        await self._send()
+
+    async def update_agents(self, registry: AgentRegistry):
+        self.state["agents"] = self._agents_for_ui(registry.list_agents())
+        await self._send()
+
+    async def set_status(self, status: str):
+        self.state["system_status"] = status
+        await self._send()
+
+    async def notify(self, message: str):
+        notifications = self.state["notifications"]
+        notifications.append(message)
+        if len(notifications) > 5:
+            notifications.pop(0)
+        await self._send()
+
+    async def reply(self, message: str):
+        """Send a chat reply message to the frontend (separate from notifications)"""
+        self.state["notifications"] = []
+        await self._send()
+        payload = chat_reply(ChatReplyText(message=message))
+        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
+        self.persist_message({"role": "assistant", "content": message, "messageType": "text"})
+
+    async def reply_plan_validation_error(self, errors: list[str]):
+        """Send a plan validation error — frontend resets plan card to pending"""
+        self.state["notifications"] = []
+        await self._send()
+        message = "\n".join(errors)
+        payload = chat_reply(ChatReplyPlanValidationError(message=message, errors=errors))
+        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
+        self.persist_message({"role": "assistant", "content": message, "messageType": "plan_validation_error", "validationErrors": errors})
+
+    async def reply_thinking(self, chunk: str, thinking_id: str = "thinking"):
+        """Send a streaming thinking chunk to the frontend."""
+        payload = {
+            "type": "chat_reply",
+            "payload": {
+                "messageType": "thinking",
+                "chunk": chunk,
+                "thinkingId": thinking_id,
+            }
+        }
+        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
+
+    async def reply_thinking_done(self, thinking_id: str = "thinking"):
+        """Signal that thinking stream is complete."""
+        payload = {
+            "type": "chat_reply",
+            "payload": {
+                "messageType": "thinking_done",
+                "thinkingId": thinking_id,
+            }
+        }
+        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
+
+    async def reply_plan(self, agents: list[dict], task_description: str, plan_type: str = "new", image_model: str = "", video_model: str = "", search_model: str = "", tts_model: str = "", stt_model: str = "", vision_model: str = "", has_image_tool: bool = False, has_video_tool: bool = False, has_search_tool: bool = False, has_tts_tool: bool = False, has_stt_tool: bool = False, has_vision_tool: bool = False, manager_model: str = "", agent_specs: list = None, model_assignment: dict = None, current_input: str = ""):
+        """Send a plan card as a chat message"""
+        self.state["notifications"] = []
+        await self._send()
+        plan_agents = [
+            PlanAgentItem(
+                name=a.get("name", "Unnamed"),
+                role=a.get("role", ""),
+                goal=a.get("goal", ""),
+                tools=a.get("tools", []),
+                depends_on=a.get("depends_on", []),
+                is_existing=a.get("is_existing", False),
+                model=a.get("model", ""),
+            )
+            for a in agents
+        ]
+        payload = chat_reply(ChatReplyPlan(
+            planAgents=plan_agents,
+            planTaskDescription=task_description,
+            planType=plan_type,
+            imageModel=image_model,
+            videoModel=video_model,
+            searchModel=search_model,
+            ttsModel=tts_model,
+            sttModel=stt_model,
+            visionModel=vision_model,
+            hasImageTool=has_image_tool,
+            hasVideoTool=has_video_tool,
+            hasSearchTool=has_search_tool,
+            hasTtsTool=has_tts_tool,
+            hasSttTool=has_stt_tool,
+            hasVisionTool=has_vision_tool,
+            managerModel=manager_model,
+        ))
+        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
+        self.persist_message({"role": "assistant", "messageType": "plan", "planAgents": payload["payload"]["planAgents"], "planTaskDescription": task_description, "planType": plan_type, "planStatus": "pending", "imageModel": image_model, "videoModel": video_model, "searchModel": search_model, "ttsModel": tts_model, "sttModel": stt_model, "visionModel": vision_model, "managerModel": manager_model, "agentSpecs": agent_specs or [], "modelAssignment": model_assignment or {}, "currentInput": current_input})
+
+    async def reply_progress(self, percent: int, label: str, progress_id: str = ""):
+        """Send a progress card as a chat message"""
+        payload = chat_reply(ChatReplyProgress(
+            progressId=progress_id,
+            progressPercent=percent,
+            progressLabel=label,
+        ))
+        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
+        # Progress: update or insert in session (don't duplicate)
+        if self.current_session_id:
+            session = self.chat_store.get_session(self.current_session_id)
+            if session:
+                msgs = session["messages"]
+                existing = None
+                for m in msgs:
+                    if m.get("messageType") == "progress" and m.get("progressId") == progress_id:
+                        existing = m
+                        break
+                prog_msg = {"role": "assistant", "messageType": "progress", "progressId": progress_id, "progressPercent": percent, "progressLabel": label}
+                if existing:
+                    existing.update(prog_msg)
+                else:
+                    msgs.append(prog_msg)
+                session["updated_at"] = datetime.now().isoformat()
+                self.chat_store._save()
+
+    async def reply_agent_progress(self, task_id: str, agents_progress: list[dict]):
+        """Send per-agent progress card — updates in-place by task_id"""
+        overall = sum(a.get("progress", 0) for a in agents_progress) // max(len(agents_progress), 1)
+        entries = [
+            AgentProgressEntry(
+                name=a.get("name", "Agent"),
+                role=a.get("role", ""),
+                status=a.get("status", "pending"),
+                progress=a.get("progress", 0),
+                output=a.get("output", ""),
+                current_task=a.get("current_task", ""),
+                current_tool=a.get("current_tool", ""),
+                tool_description=a.get("tool_description", ""),
+                model=a.get("model", ""),
+            )
+            for a in agents_progress
+        ]
+        payload = chat_reply(ChatReplyAgentProgress(
+            taskId=task_id,
+            overallProgress=overall,
+            agents=entries,
+        ))
+        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
+        # Update or insert in session
+        if self.current_session_id:
+            session = self.chat_store.get_session(self.current_session_id)
+            if session:
+                msgs = session["messages"]
+                existing = None
+                for m in msgs:
+                    if m.get("messageType") == "agent_progress" and m.get("taskId") == task_id:
+                        existing = m
+                        break
+                prog_msg = {"role": "assistant", "messageType": "agent_progress", "taskId": task_id, "overallProgress": overall, "agents": agents_progress}
+                if existing:
+                    existing.update(prog_msg)
+                else:
+                    msgs.append(prog_msg)
+                session["updated_at"] = datetime.now().isoformat()
+                self.chat_store._save()
+
+    async def reply_result(self, summary: str, agents: list[dict] | None = None, is_error: bool = False):
+        """Send a result card as a chat message, with per-agent collapsible outputs"""
+        result_agents = [
+            ResultAgentItem(
+                name=a.get("name", ""),
+                role=a.get("role", ""),
+                output=a.get("output", ""),
+            )
+            for a in (agents or [])
+        ]
+        payload = chat_reply(ChatReplyResult(
+            resultSummary=summary,
+            resultError=is_error,
+            resultAgents=result_agents,
+        ))
+        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
+        self.persist_message({"role": "assistant", "messageType": "result", "resultSummary": summary, "resultError": is_error, "resultAgents": [a.model_dump() for a in result_agents]})
+
+    async def reply_image_approval(self, prompt: str, approval_id: str, agent_name: str = "", media_type: str = "image", duration: int = 0, model: str = "", approval_status: str = "pending", image_error: str = ""):
+        """Send a media approval card — user must approve before generation"""
+        payload = chat_reply(ChatReplyImageApproval(
+            imagePrompt=prompt,
+            approvalId=approval_id,
+            agentName=agent_name,
+            mediaType=media_type,
+            duration=duration,
+            model=model,
+            approvalStatus=approval_status,
+            imageError=image_error,
+        ))
+        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
+        self.persist_message({"role": "assistant", "messageType": "image_approval", "imagePrompt": prompt, "approvalId": approval_id, "agentName": agent_name, "mediaType": media_type, "duration": duration, "model": model, "approvalStatus": approval_status, "imageError": image_error})
+
+    async def reply_image_result(self, image_url: str, prompt: str, approval_id: str, task_id: str | None = None, media_type: str = "image", agent_name: str = ""):
+        """Send a generated media result (image or video)"""
+        payload = chat_reply(ChatReplyImageResult(
+            imageUrl=image_url,
+            imagePrompt=prompt,
+            approvalId=approval_id,
+            taskId=task_id or "",
+            mediaType=media_type,
+            agentName=agent_name,
+        ))
+        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
+        self.persist_message({"role": "assistant", "messageType": "image_result", "imageUrl": image_url, "imagePrompt": prompt, "approvalId": approval_id, "taskId": task_id, "mediaType": media_type, "agentName": agent_name})
+
+    async def reply_audio_result(self, audio_url: str, prompt: str, voice: str = "", agent_name: str = "", model: str = "", task_id: str = ""):
+        """Send a TTS audio result to the frontend."""
+        payload = chat_reply(ChatReplyAudioResult(
+            audioUrl=audio_url,
+            audioPrompt=prompt,
+            voice=voice,
+            agentName=agent_name,
+            model=model,
+            taskId=task_id,
+        ))
+        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
+        self.persist_message({"role": "assistant", "messageType": "audio_result", "audioUrl": audio_url, "audioPrompt": prompt, "voice": voice, "agentName": agent_name, "model": model})
+
+    async def reply_transcription_result(self, transcription_text: str, audio_url: str = "", agent_name: str = "", model: str = "", task_id: str = ""):
+        """Send a transcription (STT) result to the frontend."""
+        payload = chat_reply(ChatReplyTranscriptionResult(
+            transcriptionText=transcription_text,
+            audioUrl=audio_url,
+            agentName=agent_name,
+            model=model,
+            taskId=task_id,
+        ))
+        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
+        self.persist_message({"role": "assistant", "messageType": "transcription_result", "transcriptionText": transcription_text, "audioUrl": audio_url, "agentName": agent_name, "model": model})
+
+    async def reply_video_result(self, video_url: str, prompt: str, agent_name: str = "", model: str = "", task_id: str = ""):
+        """Send a video generation result to the frontend."""
+        payload = chat_reply(ChatReplyVideoResult(
+            videoUrl=video_url,
+            videoPrompt=prompt,
+            agentName=agent_name,
+            model=model,
+            taskId=task_id,
+        ))
+        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
+        self.persist_message({"role": "assistant", "messageType": "video_result", "videoUrl": video_url, "videoPrompt": prompt, "agentName": agent_name, "model": model})
+
+    async def reply_file_result(self, file_url: str, file_name: str, file_mime: str = "", agent_name: str = "", task_id: str = ""):
+        """Send a generic file result to the frontend."""
+        payload = chat_reply(ChatReplyFileResult(
+            fileUrl=file_url,
+            fileName=file_name,
+            fileMime=file_mime,
+            agentName=agent_name,
+            taskId=task_id,
+        ))
+        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
+        self.persist_message({"role": "assistant", "messageType": "file_result", "fileUrl": file_url, "fileName": file_name, "fileMime": file_mime, "agentName": agent_name})
+
+    async def reply_model_catalog(self, recommended: dict, search_results: list, selected_model: str = "", catalog_type: str = "text"):
+        """Send model catalog to frontend for user selection"""
+        # Resolve actual model name if adaptive (empty)
+        resolved_model = selected_model
+        if not selected_model:
+            resolved_model = self._get_resolved_model_name()
+        # Convert to ModelCatalogItem lists
+        rec_items = {}
+        for cat, models in recommended.items():
+            rec_items[cat] = [
+                ModelCatalogItem(
+                    id=m.get("id", ""),
+                    name=m.get("name", ""),
+                    context_length=m.get("context_length", "?"),
+                    prompt_price=m.get("prompt_price", "?"),
+                    completion_price=m.get("completion_price", "?"),
+                    categories=m.get("categories", []),
+                    is_free=m.get("is_free", False),
+                )
+                for m in models
+            ]
+        search_items = [
+            ModelCatalogItem(
+                id=m.get("id", ""),
+                name=m.get("name", ""),
+                context_length=m.get("context_length", "?"),
+                prompt_price=m.get("prompt_price", "?"),
+                completion_price=m.get("completion_price", "?"),
+                categories=m.get("categories", []),
+                is_free=m.get("is_free", False),
+            )
+            for m in search_results
+        ]
+        payload = chat_reply(ChatReplyModelCatalog(
+            recommended=rec_items,
+            searchResults=search_items,
+            selectedModel=selected_model,
+            catalogType=catalog_type,
+        ))
+        # Add resolved model name for adaptive mode display
+        payload["payload"]["resolvedModel"] = resolved_model
+        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
+
+    async def reply_chat_history(self, session_id: str):
+        """Send full chat history for a session, including canvas state"""
+        session = self.chat_store.get_session(session_id)
+        messages = session["messages"] if session else []
+        canvas_state = self.chat_store.get_canvas_state(session_id) if session else None
+        settings = self.chat_store.get_settings(session_id) if session else {}
+        payload = {
+            "type": "chat_reply",
+            "payload": {
+                "messageType": "chat_history",
+                "sessionId": session_id,
+                "messages": messages,
+                "canvasState": canvas_state,
+                "selectedModel": settings.get("selected_model", ""),
+            },
+        }
+        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
+
+    async def reply_chat_sessions(self):
+        """Send list of all chat sessions"""
+        sessions = self.chat_store.list_sessions()
+        session_list = [
+            {"id": s["id"], "title": s["title"], "updated_at": s.get("updated_at", "")}
+            for s in sessions
+        ]
+        payload = {
+            "type": "chat_reply",
+            "payload": {
+                "messageType": "chat_sessions",
+                "sessions": session_list,
+                "currentSessionId": self.current_session_id,
+            },
+        }
+        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
+
+    def persist_message(self, message: dict):
+        """Persist a message to the current chat session"""
+        if self.current_session_id:
+            self.chat_store.add_message(self.current_session_id, message)
+
+    def update_plan_status(self, status: str):
+        """Update the planStatus of the most recent plan message in the current session"""
+        if not self.current_session_id:
+            return
+        session = self.chat_store.get_session(self.current_session_id)
+        if not session:
+            return
+        msgs = session["messages"]
+        for i in range(len(msgs) - 1, -1, -1):
+            if msgs[i].get("messageType") == "plan":
+                msgs[i]["planStatus"] = status
+                self.chat_store._save()
+                break
+
+    def update_approval_status(self, approval_id: str, status: str):
+        """Update the approvalStatus of an image_approval message in the current session"""
+        if not self.current_session_id:
+            return
+        session = self.chat_store.get_session(self.current_session_id)
+        if not session:
+            return
+        msgs = session["messages"]
+        for i in range(len(msgs) - 1, -1, -1):
+            if msgs[i].get("messageType") == "image_approval" and msgs[i].get("approvalId") == approval_id:
+                msgs[i]["approvalStatus"] = status
+                self.chat_store._save()
+                break
+
+    async def clear_plan(self):
+        self.state["current_plan"] = None
+        await self._send()
+
+    async def set_plan(self, agent: dict, task_description: str, plan_type: str = "new"):
+        self.state["current_plan"] = {
+            "agents": [agent],
+            "task_description": task_description,
+            "plan_type": plan_type,
+        }
+        await self._send()
+
+    async def set_multi_agent_plan(self, agents: list[dict], task_description: str, plan_type: str = "new"):
+        self.state["current_plan"] = {
+            "agents": agents,
+            "task_description": task_description,
+            "plan_type": plan_type,
+        }
+        await self._send()
+
+    async def add_task(self, task_id: str, title: str, agent_name: str) -> dict:
+        task = {
+            "id": task_id,
+            "title": title,
+            "agent": agent_name,
+            "status": "running",
+            "progress": 0,
+            "result": "",
+            "created_at": datetime.now().isoformat(),
+        }
+        self.task_store.add_task(task)
+        self.state["tasks"] = self.task_store.list_tasks()
+        await self._send()
+        return task
+
+    async def update_task(self, task_id: str, **kwargs):
+        self.task_store.update_task(task_id, **kwargs)
+        self.state["tasks"] = self.task_store.list_tasks()
+        await self._send()
+
+    async def update_task_image(self, task_id: str, image_url: str, image_prompt: str, media_type: str = "image"):
+        """Append a generated image to its originating task's image list."""
+        task = self.task_store.get_task(task_id)
+        images = task.get("images", []) if task else []
+        images.append({"url": image_url, "prompt": image_prompt, "media_type": media_type})
+        self.task_store.update_task(task_id, image_url=image_url, image_prompt=image_prompt, images=images)
+        self.state["tasks"] = self.task_store.list_tasks()
+        await self._send()
+
+    async def delete_task(self, task_id: str):
+        self.task_store.delete_task(task_id)
+        self.state["tasks"] = self.task_store.list_tasks()
+        await self._send()
+
+
+

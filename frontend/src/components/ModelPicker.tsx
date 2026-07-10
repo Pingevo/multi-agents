@@ -8,6 +8,10 @@ export interface ModelCatalogEntry {
   context_length: any;
   prompt_price: any;
   completion_price: any;
+  image_price?: any;
+  video_price?: any;
+  audio_price?: any;
+  web_search_price?: any;
   categories: string[];
   is_free: boolean;
   input_modalities?: string[];
@@ -92,18 +96,51 @@ export const displayModelId = (modelId: string): string => {
   return name.split(':')[0];
 };
 
-const parsePrice = (price: any): number => {
-  if (price === '?' || price === undefined || price === null) return 0;
+const parsePrice = (price: any): number | null => {
+  if (price === '?' || price === undefined || price === null) return null;
   const num = parseFloat(price);
-  return isNaN(num) ? 0 : num;
+  return isNaN(num) ? null : num;
 };
 
 const formatPrice = (price: any): string => {
   const num = parsePrice(price);
+  if (num === null) return 'Unknown';
   if (num === 0) return 'Free';
   if (num < 0.001) return `$${num.toFixed(6)}`;
   if (num < 1) return `$${num.toFixed(3)}`;
   return `$${num.toFixed(2)}`;
+};
+
+const getMaxPrice = (model: ModelCatalogEntry): number => {
+  const prices = [
+    parsePrice(model.prompt_price),
+    parsePrice(model.completion_price),
+    parsePrice(model.image_price),
+    parsePrice(model.video_price),
+    parsePrice(model.audio_price),
+    parsePrice(model.web_search_price),
+  ].filter((p): p is number => p !== null && p > 0);
+  return prices.length > 0 ? Math.max(...prices) : 0;
+};
+
+const ROUTING_MODELS = ['openrouter/auto', 'openrouter/free'];
+
+const isRoutingModel = (model: ModelCatalogEntry): boolean =>
+  ROUTING_MODELS.includes(model.id);
+
+const isModelFree = (model: ModelCatalogEntry): boolean => {
+  if (isRoutingModel(model)) return false;
+  const prices = [
+    parsePrice(model.prompt_price),
+    parsePrice(model.completion_price),
+    parsePrice(model.image_price),
+    parsePrice(model.video_price),
+    parsePrice(model.audio_price),
+    parsePrice(model.web_search_price),
+  ];
+  // Free only if all known prices are 0 (ignore unknown/null)
+  const knownPrices = prices.filter((p): p is number => p !== null);
+  return knownPrices.length > 0 && knownPrices.every((p) => p === 0);
 };
 
 const formatContext = (ctx: any): string => {
@@ -159,11 +196,22 @@ export const findModelName = (
   return parts.length > 1 ? parts[parts.length - 1].split(':')[0] : modelId;
 };
 
-const getCostTier = (price: any): 'free' | 'low' | 'mid' | 'high' => {
-  const num = parsePrice(price);
-  if (num === 0) return 'free';
-  if (num < 1) return 'low';
-  if (num < 10) return 'mid';
+const getModelCostTier = (model: ModelCatalogEntry): 'free' | 'low' | 'mid' | 'high' | 'unknown' => {
+  if (isRoutingModel(model)) return 'unknown';
+  const maxPrice = getMaxPrice(model);
+  if (maxPrice === 0) {
+    // Check if all prices are explicitly 0 (truly free) or all unknown
+    const prices = [
+      parsePrice(model.prompt_price),
+      parsePrice(model.completion_price),
+      parsePrice(model.image_price),
+      parsePrice(model.video_price),
+    ];
+    const hasKnown = prices.some((p) => p !== null);
+    return hasKnown ? 'free' : 'unknown';
+  }
+  if (maxPrice < 1) return 'low';
+  if (maxPrice < 10) return 'mid';
   return 'high';
 };
 
@@ -172,6 +220,7 @@ const COST_TIER_COLORS: Record<string, string> = {
   low: '#3b82f6',
   mid: '#eab308',
   high: '#ef4444',
+  unknown: '#6b7280',
 };
 
 export const ModelPicker: React.FC<ModelPickerProps> = ({
@@ -500,6 +549,30 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
                     <span className="text-text-2">Output</span>
                     <span className="text-text">{formatPrice(previewModel.completion_price)}</span>
                   </div>
+                  {parsePrice(previewModel.image_price) !== null && parsePrice(previewModel.image_price)! > 0 && (
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-text-2">Image</span>
+                      <span className="text-text">{formatPrice(previewModel.image_price)}</span>
+                    </div>
+                  )}
+                  {parsePrice(previewModel.video_price) !== null && parsePrice(previewModel.video_price)! > 0 && (
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-text-2">Video</span>
+                      <span className="text-text">{formatPrice(previewModel.video_price)}</span>
+                    </div>
+                  )}
+                  {parsePrice(previewModel.audio_price) !== null && parsePrice(previewModel.audio_price)! > 0 && (
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-text-2">Audio</span>
+                      <span className="text-text">{formatPrice(previewModel.audio_price)}</span>
+                    </div>
+                  )}
+                  {parsePrice(previewModel.web_search_price) !== null && parsePrice(previewModel.web_search_price)! > 0 && (
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-text-2">Web Search</span>
+                      <span className="text-text">{formatPrice(previewModel.web_search_price)}</span>
+                    </div>
+                  )}
                 </div>
                 {/* Cost tier bar */}
                 <div className="text-[9px] text-text-2 mb-1">Cost tier</div>
@@ -508,16 +581,16 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
                     <div
                       className="h-full rounded-full"
                       style={{
-                        width: `${getCostTier(previewModel.prompt_price) === 'free' ? 100 : getCostTier(previewModel.prompt_price) === 'low' ? 75 : getCostTier(previewModel.prompt_price) === 'mid' ? 45 : 20}%`,
-                        backgroundColor: COST_TIER_COLORS[getCostTier(previewModel.prompt_price)],
+                        width: `${getModelCostTier(previewModel) === 'free' ? 100 : getModelCostTier(previewModel) === 'low' ? 75 : getModelCostTier(previewModel) === 'mid' ? 45 : getModelCostTier(previewModel) === 'unknown' ? 30 : 20}%`,
+                        backgroundColor: COST_TIER_COLORS[getModelCostTier(previewModel)],
                       }}
                     />
                   </div>
-                  <span className="text-[9px] text-text-2 capitalize shrink-0">{getCostTier(previewModel.prompt_price)}</span>
+                  <span className="text-[9px] text-text-2 capitalize shrink-0">{getModelCostTier(previewModel)}</span>
                 </div>
               </div>
 
-              {previewModel.is_free && (
+              {isModelFree(previewModel) && (
                 <div className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-500/10 text-emerald-500 text-[10px]">
                   <Star className="w-3 h-3" />
                   Free model
@@ -574,8 +647,8 @@ const ModelRow: React.FC<{
       <span className="text-xs truncate flex-1">{stripProviderPrefix(model.name)}</span>
       <div
         className="w-1.5 h-1.5 rounded-full shrink-0"
-        style={{ backgroundColor: COST_TIER_COLORS[getCostTier(model.prompt_price)] }}
-        title={`Cost: ${formatPrice(model.prompt_price)}/1M`}
+        style={{ backgroundColor: COST_TIER_COLORS[getModelCostTier(model)] }}
+        title={`Cost: ${isModelFree(model) ? 'Free' : formatPrice(getMaxPrice(model))}/1M`}
       />
       {isSelected && <Check className="w-3.5 h-3.5 text-accent shrink-0" />}
     </button>

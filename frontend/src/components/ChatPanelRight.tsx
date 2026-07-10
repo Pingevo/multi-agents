@@ -7,7 +7,7 @@ import {
 import type {
   ChatMessage, ActivityEntry, AgentProgressEntry, PlanAgent, ResultAgent,
   PlanStatus, ImageApprovalStatus,
-} from './ChatPanel';
+} from './chatTypes';
 import type { ChatSession } from './ChatSidebar';
 import { ModelPicker, PROVIDER_FAVICONS, getProvider, findModelName } from './ModelPicker';
 import type { ModelCatalogEntry } from './ModelPicker';
@@ -35,10 +35,13 @@ interface ChatPanelRightProps {
   onSearchModels?: (query: string) => void;
   onSelectModel?: (modelId: string) => void;
   onChangeAgentModel?: (agentName: string, modelId: string) => void;
+  onChangeManagerModel?: (modelId: string) => void;
   onChangeMediaModel?: (mediaType: 'imageModel' | 'videoModel' | 'searchModel' | 'ttsModel' | 'sttModel' | 'visionModel', modelId: string) => void;
   selectedModel?: string;
   resolvedModel?: string;
   thinkingText?: string;
+  thinkingDuration?: number | null;
+  isThinking?: boolean;
   inputMode?: 'chat' | 'plan';
   onModeChange?: (mode: 'chat' | 'plan') => void;
   disabled?: boolean;
@@ -65,9 +68,11 @@ const PlanCard: React.FC<{
   hasTtsTool?: boolean;
   hasSttTool?: boolean;
   hasVisionTool?: boolean;
+  managerModel?: string;
   onAccept?: () => void;
   onReject?: () => void;
   onChangeAgentModel?: (agentName: string, modelId: string) => void;
+  onChangeManagerModel?: (modelId: string) => void;
   onChangeMediaModel?: (mediaType: 'imageModel' | 'videoModel' | 'searchModel' | 'ttsModel' | 'sttModel' | 'visionModel', modelId: string) => void;
   modelCatalog?: Record<string, ModelCatalogEntry[]>;
   modelSearchResults?: ModelCatalogEntry[];
@@ -76,7 +81,7 @@ const PlanCard: React.FC<{
   onSearchModels?: (query: string) => void;
   onFetchModelCatalog?: () => void;
   onFetchMediaCatalog?: (mediaType: string) => void;
-}> = ({ agents, taskDescription, planType, planStatus, imageModel, videoModel, searchModel, ttsModel, sttModel, visionModel, hasImageTool, hasVideoTool, hasSearchTool, hasTtsTool, hasSttTool, hasVisionTool, onAccept, onReject, onChangeAgentModel, onChangeMediaModel, modelCatalog, modelSearchResults, mediaCatalog, mediaSearchResults, onSearchModels, onFetchModelCatalog, onFetchMediaCatalog }) => {
+}> = ({ agents, taskDescription, planType, planStatus, imageModel, videoModel, searchModel, ttsModel, sttModel, visionModel, hasImageTool, hasVideoTool, hasSearchTool, hasTtsTool, hasSttTool, hasVisionTool, managerModel, onAccept, onReject, onChangeAgentModel, onChangeManagerModel, onChangeMediaModel, modelCatalog, modelSearchResults, mediaCatalog, mediaSearchResults, onSearchModels, onFetchModelCatalog, onFetchMediaCatalog }) => {
   const isPending = planStatus === 'pending';
   const [editingAgent, setEditingAgent] = useState<string | null>(null);
   const [editingMedia, setEditingMedia] = useState<string | null>(null);
@@ -93,6 +98,9 @@ const PlanCard: React.FC<{
     agents.forEach(a => { map[a.name] = a.model || 'openrouter/auto'; });
     return map;
   });
+  const [originalManagerModel] = useState(managerModel || '');
+  const [editingManager, setEditingManager] = useState(false);
+  const managerModelRef = useRef<HTMLButtonElement | null>(null);
   return (
     <div className={`rounded-xl border bg-surface/80 backdrop-blur-sm overflow-hidden ${isPending ? 'border-accent/30' : 'border-border'}`}>
       <div className="flex items-center justify-between px-3 py-2 bg-accent/5 border-b border-accent/20">
@@ -109,6 +117,60 @@ const PlanCard: React.FC<{
       <div className="p-3 space-y-2">
         <div className="text-xs text-text-2">
           Task: <span className="text-text">{taskDescription}</span>
+        </div>
+        {/* Manager model row */}
+        <div className="p-2 rounded-lg bg-surface-2 border border-accent/20">
+          <div className="flex items-center gap-1.5 mb-0.5">
+            <Brain className="w-3 h-3 text-accent shrink-0" />
+            <span className="text-xs font-medium text-text">Manager</span>
+            <span className="text-[10px] text-text-2">— Coordinates & summarizes</span>
+          </div>
+          <div className="flex items-center gap-1 mt-0.5 ml-5">
+            <Cpu className="w-2.5 h-2.5 text-text-2 shrink-0" />
+            <span className="text-[9px] text-text-2">Model:</span>
+            {isPending && onChangeManagerModel ? (
+              <>
+                <button
+                  ref={(el) => { managerModelRef.current = el; }}
+                  onClick={() => {
+                    if (!editingManager && modelCatalog && Object.keys(modelCatalog).length === 0 && onFetchModelCatalog) {
+                      onFetchModelCatalog();
+                    }
+                    setEditingManager(!editingManager);
+                  }}
+                  className="text-[9px] text-text bg-surface-3 border border-border/50 rounded px-1.5 py-0.5 hover:border-accent/50 transition-colors max-w-[180px] truncate flex items-center gap-1"
+                >
+                  {(() => {
+                    const modelId = managerModel || '';
+                    if (!modelId) return <span className="text-text-2">Auto (system default)</span>;
+                    const provider = getProvider(modelId);
+                    const favicon = PROVIDER_FAVICONS[provider];
+                    if (favicon) return <img src={favicon} alt="" className="w-3 h-3 rounded shrink-0 object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />;
+                    return null;
+                  })()}
+                  {managerModel ? findModelName(managerModel, modelCatalog || {}, modelSearchResults || []) : ''}
+                </button>
+                  {editingManager && (
+                    <ModelPicker
+                      recommended={modelCatalog || {}}
+                      searchResults={modelSearchResults || []}
+                      selectedModel={managerModel}
+                      onSelect={(modelId) => {
+                        onChangeManagerModel(modelId);
+                        setEditingManager(false);
+                      }}
+                      onSearch={onSearchModels || (() => {})}
+                      onClose={() => setEditingManager(false)}
+                      anchorRef={{ current: managerModelRef.current }}
+                      pinnedModelId={originalManagerModel || 'openrouter/auto'}
+                      showAutoRouter={true}
+                    />
+                  )}
+                </>
+              ) : (
+                <span className="text-[9px] text-text font-mono">{managerModel ? findModelName(managerModel, modelCatalog || {}, modelSearchResults || []) : 'Auto (system default)'}</span>
+              )}
+          </div>
         </div>
         <div className="space-y-1.5">
           {agents.map((agent, idx) => (
@@ -219,6 +281,11 @@ const PlanCard: React.FC<{
                 ) : (
                   <span className="text-[9px] text-text font-mono truncate max-w-[120px]">{findModelName(imageModel, mediaCatalog || {}, mediaSearchResults || [])}</span>
                 )}
+              </div>
+            )}
+            {hasImageTool && imageModel && mediaCatalog?.['image'] && !mediaCatalog['image'].some((m: ModelCatalogEntry) => m.id === imageModel) && (
+              <div className="text-[9px] text-warning flex items-center gap-0.5">
+                <span>⚠️ ไม่ใช่ image model — อาจมีค่าใช้จ่าย</span>
               </div>
             )}
             {hasVideoTool && (
@@ -502,6 +569,7 @@ const AgentStatusRow: React.FC<{
   const isError = agent.status === 'error';
   const hasTool = isRunning && !!agent.current_tool;
   const hasOutput = !!agent.output && agent.output.length > 0;
+  const hasThinking = isRunning && !!agent.thinking && agent.thinking.length > 0;
 
   return (
     <div className={`rounded-lg border overflow-hidden transition-colors ${
@@ -523,6 +591,13 @@ const AgentStatusRow: React.FC<{
         <div className="px-2.5 pb-1.5 flex items-start gap-1">
           <Brain className="w-2.5 h-2.5 text-text-2 shrink-0 mt-0.5" />
           <span className="text-[10px] text-text-2 line-clamp-2">{agent.current_task}</span>
+        </div>
+      )}
+      {hasThinking && (
+        <div className="px-2.5 pb-1.5">
+          <div className="text-[10px] text-text-2 bg-surface-3 rounded-md p-1.5 max-h-32 overflow-y-auto whitespace-pre-wrap line-clamp-4">
+            {agent.thinking}
+          </div>
         </div>
       )}
       {hasTool && (
@@ -562,6 +637,18 @@ const AgentProgressCard: React.FC<{ agents: AgentProgressEntry[] }> = ({ agents 
     });
   };
 
+  useEffect(() => {
+    setExpandedAgents((prev) => {
+      const next = new Set(prev);
+      for (const a of agents) {
+        if ((a.status === 'complete' || a.status === 'waiting_approval') && a.output && a.output.length > 0 && !next.has(a.name)) {
+          next.add(a.name);
+        }
+      }
+      return next;
+    });
+  }, [agents]);
+
   return (
     <div className="rounded-xl border border-border bg-surface/80 backdrop-blur-sm p-3 space-y-2">
       <div className="flex items-center gap-2">
@@ -596,26 +683,16 @@ const ResultAgentCard: React.FC<{ agent: ResultAgent; index: number }> = ({ agen
 };
 
 const ResultCard: React.FC<{ summary: string; agents?: ResultAgent[]; isError?: boolean }> = ({ summary, agents, isError }) => {
-  const mainAgent = agents && agents.length > 0 ? agents[agents.length - 1] : null;
-  const detailAgents = agents && agents.length > 1 ? agents.slice(0, -1) : [];
   return (
     <div className={`rounded-xl border overflow-hidden backdrop-blur-sm ${isError ? 'border-danger/30 bg-surface/80' : 'border-success/30 bg-surface/80'}`}>
       <div className={`flex items-center gap-2 px-3 py-2 border-b ${isError ? 'bg-danger/5 border-danger/20' : 'bg-success/5 border-success/20'}`}>
         {isError ? <XCircle className="w-3.5 h-3.5 text-danger" /> : <CheckCircle className="w-3.5 h-3.5 text-success" />}
-        <span className="font-semibold text-xs text-text">{summary}</span>
+        <span className="font-semibold text-xs text-text">{isError ? 'Error' : 'Completed'}</span>
       </div>
-      <div className="p-3 space-y-3">
-        {mainAgent && (
-          <div className="text-xs text-text whitespace-pre-wrap leading-relaxed">
-            {mainAgent.output}
-          </div>
-        )}
-        {detailAgents.length > 0 && (
-          <div className="space-y-1.5">
-            <div className="text-[10px] text-text-3 uppercase tracking-wide">Agent details</div>
-            {detailAgents.map((agent, idx) => <ResultAgentCard key={idx} agent={agent} index={idx} />)}
-          </div>
-        )}
+      <div className="p-3">
+        <div className="text-xs text-text whitespace-pre-wrap leading-relaxed">
+          {summary}
+        </div>
       </div>
     </div>
   );
@@ -738,8 +815,8 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
   messages, activityLog, isProcessing, chatSessions, activeSessionId,
   onSend, onStop, onNewChat, onSwitchChat, onRenameChat, onDeleteChat,
   onAcceptPlan, onRejectPlan, onApproveImage, onRejectImage, onRetryImage, onEditImagePrompt,
-  onFetchModelCatalog, onFetchMediaCatalog, onSearchModels, onSelectModel, onChangeAgentModel, onChangeMediaModel,
-  selectedModel, resolvedModel, thinkingText, inputMode, onModeChange, disabled,
+  onFetchModelCatalog, onFetchMediaCatalog, onSearchModels, onSelectModel, onChangeAgentModel, onChangeManagerModel, onChangeMediaModel,
+  selectedModel, resolvedModel, thinkingText, thinkingDuration, isThinking, inputMode, onModeChange, disabled,
 }) => {
   const [width, setWidth] = useState(360);
   const [input, setInput] = useState('');
@@ -747,6 +824,8 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [thinkingExpanded, setThinkingExpanded] = useState(false);
+  const thinkingManualExpandRef = useRef(false);
   const [modelCatalog, setModelCatalog] = useState<Record<string, ModelCatalogEntry[]>>({});
   const [modelSearchResults, setModelSearchResults] = useState<ModelCatalogEntry[]>([]);
   const [mediaCatalog, setMediaCatalog] = useState<Record<string, ModelCatalogEntry[]>>({});
@@ -786,6 +865,13 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages, activityLog, isProcessing]);
+
+  // Auto-collapse thinking when done (unless user manually expanded)
+  useEffect(() => {
+    if (thinkingDuration !== null && !thinkingManualExpandRef.current) {
+      setThinkingExpanded(false);
+    }
+  }, [thinkingDuration]);
 
   // Process model_catalog messages from backend — separate text vs media catalogs
   useEffect(() => {
@@ -1041,14 +1127,47 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
                             <Bot className="w-3 h-3" />
                           </div>
                           <div className="flex-1 min-w-0">
+                            {/* Thinking block — inline like ChatGPT/Claude */}
+                            {(isThinking || thinkingText) && (
+                              <div className="mb-1.5 rounded-lg bg-surface-2/50 border border-border/50">
+                                <button
+                                  onClick={() => {
+                                    thinkingManualExpandRef.current = true;
+                                    setThinkingExpanded(!thinkingExpanded);
+                                  }}
+                                  className="w-full flex items-center gap-1.5 px-2.5 py-1.5 hover:bg-surface-2/80 rounded-lg transition-colors"
+                                >
+                                  {isProcessing ? (
+                                    <Loader2 className="w-3 h-3 text-accent animate-spin shrink-0" />
+                                  ) : (
+                                    <Brain className="w-3 h-3 text-text-2 shrink-0" />
+                                  )}
+                                  <span className="text-[11px] text-text-2 font-medium">
+                                    {isProcessing ? 'กำลังคิด...' : thinkingDuration !== null ? `คิดเสร็จแล้ว (${thinkingDuration}s)` : 'ความคิดของ AI'}
+                                  </span>
+                                  <span className="ml-auto">
+                                    {thinkingExpanded ? <ChevronDown className="w-3 h-3 text-text-2" /> : <ChevronRight className="w-3 h-3 text-text-2" />}
+                                  </span>
+                                </button>
+                                {thinkingExpanded && (
+                                  <div className="px-2.5 pb-2 pt-0.5">
+                                    <div className="text-[11px] text-text-2 leading-relaxed">
+                                      {isProcessing ? 'AI กำลังวิเคราะห์คำขอและวางแผนการทำงาน...' : 'AI วิเคราะห์คำขอเสร็จแล้ว แผนงานจะแสดงด้านล่าง'}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
                             <PlanCard agents={msg.planAgents} taskDescription={msg.planTaskDescription || ''}
                               planType={msg.planType || 'new'} planStatus={msg.planStatus || 'pending'}
                               imageModel={msg.imageModel} videoModel={msg.videoModel} searchModel={msg.searchModel}
                               ttsModel={msg.ttsModel} sttModel={msg.sttModel} visionModel={msg.visionModel}
                               hasImageTool={msg.hasImageTool} hasVideoTool={msg.hasVideoTool} hasSearchTool={msg.hasSearchTool}
                               hasTtsTool={msg.hasTtsTool} hasSttTool={msg.hasSttTool} hasVisionTool={msg.hasVisionTool}
+                              managerModel={msg.managerModel}
                               onAccept={onAcceptPlan} onReject={onRejectPlan}
                               onChangeAgentModel={onChangeAgentModel}
+                              onChangeManagerModel={onChangeManagerModel}
                               onChangeMediaModel={onChangeMediaModel}
                               modelCatalog={modelCatalog}
                               modelSearchResults={modelSearchResults}
@@ -1075,27 +1194,27 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
                       );
                     }
 
-                    if (msgType === 'agent_progress' && msg.agentProgressList) {
-                      return (
-                        <div key={msg.id} className="flex gap-1.5 flex-row">
-                          <div className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 bg-surface-2 text-accent">
-                            <Bot className="w-3 h-3" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <AgentProgressCard agents={msg.agentProgressList} />
-                          </div>
-                        </div>
-                      );
+                    if (msgType === 'agent_progress') {
+                      return null;
                     }
 
                     if (msgType === 'result') {
+                      const isError = msg.resultError;
                       return (
                         <div key={msg.id} className="flex gap-1.5 flex-row">
                           <div className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 bg-surface-2 text-accent">
                             <Bot className="w-3 h-3" />
                           </div>
                           <div className="flex-1 min-w-0">
-                            <ResultCard summary={msg.resultSummary || 'Done'} agents={msg.resultAgents} isError={msg.resultError} />
+                            <div className={`rounded-xl border overflow-hidden backdrop-blur-sm ${isError ? 'border-danger/30 bg-surface/80' : 'border-success/30 bg-surface/80'}`}>
+                              <div className={`flex items-center gap-2 px-3 py-2 border-b ${isError ? 'bg-danger/5 border-danger/20' : 'bg-success/5 border-success/20'}`}>
+                                {isError ? <XCircle className="w-3.5 h-3.5 text-danger" /> : <CheckCircle className="w-3.5 h-3.5 text-success" />}
+                                <span className="font-semibold text-xs text-text">{isError ? 'Error' : 'Completed'}</span>
+                              </div>
+                              <div className="p-3 text-xs text-text whitespace-pre-wrap leading-relaxed">
+                                {msg.resultSummary || 'Done'}
+                              </div>
+                            </div>
                           </div>
                         </div>
                       );
@@ -1225,7 +1344,7 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
                           <span>{entry.text}</span>
                         </div>
                       ))}
-                      {isProcessing && activityLog.length === 0 && (
+                      {isProcessing && activityLog.length === 0 && !isThinking && (
                         <div className="flex items-center gap-1.5 text-[10px] text-text-2">
                           <Loader2 className="w-2.5 h-2.5 text-accent animate-spin shrink-0" />
                           <span>Processing...</span>
@@ -1233,27 +1352,48 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
                       )}
                     </div>
                   )}
+
+                  {/* Standalone thinking block — when thinking is active but no plan message yet */}
+                  {isThinking && !messages.some(m => m.messageType === 'plan') && (
+                    <div className="flex gap-1.5 flex-row">
+                      <div className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 bg-surface-2 text-accent">
+                        <Bot className="w-3 h-3" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="rounded-lg bg-surface-2/50 border border-border/50">
+                          <button
+                            onClick={() => {
+                              thinkingManualExpandRef.current = true;
+                              setThinkingExpanded(!thinkingExpanded);
+                            }}
+                            className="w-full flex items-center gap-1.5 px-2.5 py-1.5 hover:bg-surface-2/80 rounded-lg transition-colors"
+                          >
+                            {isProcessing ? (
+                              <Loader2 className="w-3 h-3 text-accent animate-spin shrink-0" />
+                            ) : (
+                              <Brain className="w-3 h-3 text-text-2 shrink-0" />
+                            )}
+                            <span className="text-[11px] text-text-2 font-medium">
+                              {isProcessing ? 'กำลังคิด...' : thinkingDuration !== null ? `คิดเสร็จแล้ว (${thinkingDuration}s)` : 'ความคิดของ AI'}
+                            </span>
+                            <span className="ml-auto">
+                              {thinkingExpanded ? <ChevronDown className="w-3 h-3 text-text-2" /> : <ChevronRight className="w-3 h-3 text-text-2" />}
+                            </span>
+                          </button>
+                          {thinkingExpanded && (
+                            <div className="px-2.5 pb-2 pt-0.5">
+                              <div className="text-[11px] text-text-2 leading-relaxed">
+                                {isProcessing ? 'AI กำลังวิเคราะห์คำขอและวางแผนการทำงาน...' : 'AI วิเคราะห์คำขอเสร็จแล้ว'}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </>
               )}
             </div>
-
-            {/* Thinking stream — shows AI's real-time thinking */}
-            {thinkingText && (
-              <div className="border-t border-border px-3 py-2 shrink-0 max-h-[200px] overflow-y-auto bg-surface/50">
-                <div className="flex items-start gap-2">
-                  <div className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 bg-accent/10 text-accent mt-0.5">
-                    <Brain className="w-3 h-3 animate-pulse" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[9px] text-accent font-medium mb-0.5">AI Thinking...</div>
-                    <div className="text-[10px] text-text-2 whitespace-pre-wrap leading-relaxed font-mono">
-                      {thinkingText}
-                      <span className="inline-block w-1.5 h-3 bg-accent ml-0.5 animate-pulse align-middle" />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
 
             {/* Input bar */}
             <div ref={inputBarRef} className="border-t border-border p-2 shrink-0 relative">

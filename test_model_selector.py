@@ -30,13 +30,24 @@ class TestModelSelectorFetchCandidates(unittest.TestCase):
             self.assertIn(":free", c["id"])
         mock_rotator.get_models.assert_called_once()
 
-    def test_returns_empty_without_rotator(self):
+    def test_fetches_from_api_without_rotator(self):
+        """Without rotator, _fetch_candidates fetches tool-capable models from OpenRouter API."""
         from app import ModelSelector
         selector = ModelSelector(api_key="fake", base_url="https://openrouter.ai/api/v1")
 
+        # Mock _fetch_all_models to avoid real API call
+        selector._fetch_all_models = MagicMock(return_value=[
+            {"id": "model-a", "supported_parameters": ["tools"], "context_length": 131072,
+             "pricing": {"prompt": "0", "completion": "0"}, "description": "Model A"},
+            {"id": "model-b", "supported_parameters": [], "context_length": 8192,
+             "pricing": {"prompt": "0", "completion": "0"}, "description": "Model B"},
+        ])
+
         candidates = selector._fetch_candidates()
 
-        self.assertEqual(candidates, [])
+        # Only tool-capable models should be returned
+        self.assertEqual(len(candidates), 1)
+        self.assertEqual(candidates[0]["id"], "model-a")
 
 
 class TestModelSelectorAssignModels(unittest.TestCase):

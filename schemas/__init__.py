@@ -60,13 +60,14 @@ class ResultAgentItem(BaseModel):
 class AgentProgressEntry(BaseModel):
     name: str
     role: str = ""
-    status: Literal["pending", "running", "complete", "error"] = "pending"
+    status: Literal["pending", "running", "complete", "error", "waiting_approval"] = "pending"
     progress: int = 0
     output: str = ""
     current_task: str = ""
     current_tool: str = ""
     tool_description: str = ""
     model: str = ""
+    thinking: str = ""
 
 
 class TaskItem(BaseModel):
@@ -130,6 +131,7 @@ class ChatReplyPlan(BaseModel):
     hasTtsTool: bool = False
     hasSttTool: bool = False
     hasVisionTool: bool = False
+    managerModel: str = ""
 
 
 class ChatReplyProgress(BaseModel):

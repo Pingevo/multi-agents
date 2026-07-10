@@ -2,11 +2,10 @@ import { useState, useMemo } from 'react';
 import {
   Loader2, CheckCircle, XCircle, Bot, User as UserIcon, Zap, Image as ImageIcon,
   Video, PenTool, ChevronDown, ChevronUp, Pencil, Brain,
-  ArrowRight, GitBranch, Cpu, Download, RotateCw,
+  ArrowRight, GitBranch, Cpu, Download, RotateCw, Copy, Sparkles,
 } from 'lucide-react';
-import type { Agent } from '../types/platform';
-import type { ChatMessage, AgentProgressEntry, PlanAgent, ResultAgent, PlanStatus } from './ChatPanel';
-import type { PendingApproval, ImageResult } from './CanvasArea';
+import type { Agent, PendingApproval, ImageResult } from '../types/platform';
+import type { ChatMessage, AgentProgressEntry, PlanAgent, ResultAgent, PlanStatus } from './chatTypes';
 import { displayModelId } from './ModelPicker';
 
 // ============================================================
@@ -148,6 +147,80 @@ function computeWaves(agents: Agent[]): WaveGroup[] {
 }
 
 // ============================================================
+// Final Result Card
+// ============================================================
+
+const FinalResultCard: React.FC<{
+  result: { summary: string; agents?: ResultAgent[]; error?: boolean };
+  agentCount: number;
+}> = ({ result, agentCount }) => {
+  const [expanded, setExpanded] = useState(true);
+  const [copied, setCopied] = useState(false);
+  const isError = result.error || false;
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(result.summary);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="relative pl-10 mb-5 storyboard-fade-in">
+      <div className={`absolute left-0 top-1 w-8 h-8 rounded-full flex items-center justify-center ${
+        isError ? 'bg-danger/20 border-2 border-danger/40' : 'bg-success/20 border-2 border-success/40'
+      }`}>
+        {isError ? <XCircle className="w-3.5 h-3.5 text-danger" /> : <Sparkles className="w-3.5 h-3.5 text-success" />}
+      </div>
+      <div className={`rounded-xl border overflow-hidden ${
+        isError ? 'border-danger/30' : 'border-success/30'
+      }`}>
+        {/* Header bar */}
+        <div
+          className={`flex items-center justify-between px-3 py-2 cursor-pointer select-none ${
+            isError ? 'bg-danger/5' : 'bg-gradient-to-r from-success/10 to-accent/10'
+          }`}
+          onClick={() => setExpanded(!expanded)}
+        >
+          <div className="flex items-center gap-2">
+            {isError ? (
+              <XCircle className="w-3.5 h-3.5 text-danger shrink-0" />
+            ) : (
+              <CheckCircle className="w-3.5 h-3.5 text-success shrink-0" />
+            )}
+            <span className="font-semibold text-xs text-text">
+              {isError ? 'Generation Failed' : 'Final Result'}
+            </span>
+            {!isError && agentCount > 0 && (
+              <span className="text-[10px] text-text-3 bg-surface-2 px-1.5 py-0.5 rounded">
+                {agentCount} agent{agentCount > 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={(e) => { e.stopPropagation(); handleCopy(); }}
+              className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded text-text-3 hover:text-text hover:bg-surface-2 transition-colors"
+            >
+              {copied ? <CheckCircle className="w-3 h-3 text-success" /> : <Copy className="w-3 h-3" />}
+              {copied ? 'Copied' : 'Copy'}
+            </button>
+            {expanded ? <ChevronUp className="w-3.5 h-3.5 text-text-3" /> : <ChevronDown className="w-3.5 h-3.5 text-text-3" />}
+          </div>
+        </div>
+        {/* Content */}
+        {expanded && (
+          <div className="p-3 bg-surface/50">
+            <div className="text-sm text-text whitespace-pre-wrap leading-relaxed">
+              {result.summary}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ============================================================
 // Agent Card
 // ============================================================
 
@@ -167,6 +240,7 @@ const AgentCard: React.FC<{
   const isRunning = status === 'running';
   const isComplete = status === 'complete';
   const isError = status === 'error';
+  const isWaitingApproval = status === 'waiting_approval';
   const isWaiting = status === 'pending' && ((agent as any).depends_on?.length || 0) > 0;
   const progressPercent = progress?.progress || 0;
   const hasOutput = !!progress?.output && progress.output.length > 0;
@@ -177,6 +251,8 @@ const AgentCard: React.FC<{
     ? 'border-success/40'
     : isError
     ? 'border-danger/40'
+    : isWaitingApproval
+    ? 'border-purple-400/40'
     : isWaiting
     ? 'border-warning/30'
     : 'border-border';
@@ -205,6 +281,8 @@ const AgentCard: React.FC<{
             <CheckCircle className="w-4 h-4 text-success" />
           ) : isError ? (
             <XCircle className="w-4 h-4 text-danger" />
+          ) : isWaitingApproval ? (
+            <div className="text-[10px] text-purple-400 font-medium px-1.5 py-0.5 rounded bg-purple-500/10">Awaiting Gen</div>
           ) : isWaiting ? (
             <div className="text-[10px] text-warning font-medium px-1.5 py-0.5 rounded bg-warning/10">Waiting</div>
           ) : (
@@ -213,6 +291,14 @@ const AgentCard: React.FC<{
         </div>
       </div>
 
+      {/* Waiting for approval indicator */}
+      {isWaitingApproval && (
+        <div className="text-xs text-purple-400 mb-2 bg-purple-500/5 rounded-md p-2 border border-purple-400/20 flex items-center gap-1.5">
+          <PenTool className="w-3 h-3 shrink-0" />
+          <span>รอผู้ใช้กด Generate เพื่อสร้างภาพ/วิดีโอ</span>
+        </div>
+      )}
+
       {/* Thinking indicator */}
       {isRunning && (
         <div className="text-xs text-text-2 mb-2 bg-surface/60 rounded-md p-2 backdrop-blur-sm border border-border/30">
@@ -220,7 +306,12 @@ const AgentCard: React.FC<{
             <Loader2 className="w-3 h-3 text-accent animate-spin shrink-0" />
             <span className="text-text-2 font-medium">Thinking...</span>
           </div>
-          {progress?.current_task && (
+          {progress?.thinking && (
+            <div className="text-[10px] text-text-3 italic mt-1 max-h-24 overflow-y-auto whitespace-pre-wrap leading-relaxed">
+              {progress.thinking}
+            </div>
+          )}
+          {!progress?.thinking && progress?.current_task && (
             <div className="text-[10px] text-text-3 italic">{progress.current_task}</div>
           )}
           {progress?.current_tool && (
@@ -249,7 +340,7 @@ const AgentCard: React.FC<{
           </div>
           <div className="w-full bg-surface-3 rounded-full h-1.5 overflow-hidden">
             <div
-              className={`h-full rounded-full transition-all duration-500 ${isComplete ? 'bg-success' : isError ? 'bg-danger' : 'bg-gradient-to-r from-accent to-accent-light'}`}
+              className={`h-full rounded-full transition-all duration-500 ${isComplete ? 'bg-success' : isError ? 'bg-danger' : isWaitingApproval ? 'bg-purple-400' : 'bg-gradient-to-r from-accent to-accent-light'}`}
               style={{ width: `${progressPercent}%` }}
             />
           </div>
@@ -297,12 +388,15 @@ const AgentCard: React.FC<{
         <div className="mt-2 border-t border-border/30 pt-2 space-y-2">
           {pendingApprovals.map((pa) => {
             const isApprovalError = pa.approvalStatus === 'error';
+            const isApproved = pa.approvalStatus === 'approved';
+            const hasResult = imageResults?.some((ir) => ir.approvalId === pa.approvalId);
             return (
-            <div key={pa.approvalId} className={`rounded-lg p-2 ${isApprovalError ? 'border border-danger/40 bg-danger/5' : 'border border-purple-400/30 bg-purple-500/5'}`}>
+            <div key={pa.approvalId} className={`rounded-lg p-2 ${isApprovalError ? 'border border-danger/40 bg-danger/5' : isApproved ? 'border border-purple-400/40 bg-purple-500/10' : 'border border-purple-400/30 bg-purple-500/5'}`}>
               <div className={`flex items-center gap-1 text-[10px] mb-1 ${isApprovalError ? 'text-danger' : 'text-purple-400'}`}>
                 {pa.mediaType === 'video' ? <Video className="w-2.5 h-2.5" /> : <ImageIcon className="w-2.5 h-2.5" />}
-                <span className="font-medium">{isApprovalError ? `${pa.mediaType === 'video' ? 'Video' : 'Image'} Failed` : `${pa.mediaType === 'video' ? 'Video' : 'Image'} Approval`}</span>
+                <span className="font-medium">{isApprovalError ? `${pa.mediaType === 'video' ? 'Video' : 'Image'} Failed` : isApproved ? (hasResult ? `${pa.mediaType === 'video' ? 'Video' : 'Image'} Generated` : `Generating ${pa.mediaType === 'video' ? 'Video' : 'Image'}`) : `${pa.mediaType === 'video' ? 'Video' : 'Image'} Approval`}</span>
                 {pa.duration > 0 && <span className="text-text-3">({pa.duration}s)</span>}
+                {isApproved && !hasResult && <Loader2 className="w-3 h-3 animate-spin ml-auto" />}
               </div>
               <div className="text-xs text-text-2 italic mb-2">"{pa.prompt}"</div>
               {pa.model && (
@@ -314,6 +408,16 @@ const AgentCard: React.FC<{
               {isApprovalError && pa.imageError && (
                 <div className="text-[10px] text-danger bg-danger/10 rounded px-1.5 py-1 mb-2 border border-danger/20">
                   ⚠️ {pa.imageError}
+                </div>
+              )}
+              {isApproved && !hasResult && (
+                <div className="w-full aspect-video rounded-md bg-surface-2 flex items-center justify-center mb-2">
+                  <Loader2 className="w-6 h-6 text-purple-400 animate-spin" />
+                </div>
+              )}
+              {hasResult && (
+                <div className="text-[10px] text-success flex items-center gap-1 mb-1">
+                  <CheckCircle className="w-3 h-3" /> Generated successfully
                 </div>
               )}
               <div className="flex gap-1.5 flex-wrap">
@@ -332,6 +436,12 @@ const AgentCard: React.FC<{
                       ❌ Cancel
                     </button>
                   </>
+                ) : isApproved ? (
+                  hasResult ? (
+                    <span className="text-[10px] text-success italic">✅ สร้างภาพเสร็จแล้ว</span>
+                  ) : (
+                    <span className="text-[10px] text-text-3 italic">กำลังสร้างภาพ... กรุณารอ</span>
+                  )
                 ) : (
                   <>
                     <button
@@ -358,27 +468,6 @@ const AgentCard: React.FC<{
                 )}
               </div>
             </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Loading state for approved but not yet generated media */}
-      {pendingApprovals && pendingApprovals.some((pa) => pa.approvalStatus === 'approved') && (
-        <div className="mt-2 border-t border-border/30 pt-2 space-y-2">
-          {pendingApprovals.filter((pa) => pa.approvalStatus === 'approved').map((pa) => {
-            const hasResult = imageResults?.some((ir) => ir.approvalId === pa.approvalId);
-            if (hasResult) return null;
-            return (
-              <div key={pa.approvalId} className="rounded-lg border border-purple-400/30 bg-purple-500/5 p-2">
-                <div className="flex items-center gap-1.5 text-[10px] text-purple-400 mb-2">
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                  <span className="font-medium">Generating {pa.mediaType === 'video' ? 'video' : 'image'}...</span>
-                </div>
-                <div className="w-full aspect-video rounded-md bg-surface-2 flex items-center justify-center">
-                  <Loader2 className="w-6 h-6 text-text-3 animate-spin" />
-                </div>
-              </div>
             );
           })}
         </div>
@@ -498,8 +587,10 @@ function buildRuns(chatMessages: ChatMessage[]): StoryboardRun[] {
       };
     }
 
-    if (msg.messageType === 'image_approval' && (msg.approvalStatus === 'pending' || msg.approvalStatus === 'error')) {
-      currentRun.pendingApprovals.push({
+    if (msg.messageType === 'image_approval' && (msg.approvalStatus === 'pending' || msg.approvalStatus === 'error' || msg.approvalStatus === 'approved')) {
+      // Replace existing entry with same approvalId, or add new
+      const existingIdx = currentRun.pendingApprovals.findIndex((pa) => pa.approvalId === (msg.approvalId || ''));
+      const entry = {
         approvalId: msg.approvalId || '',
         prompt: msg.imagePrompt || '',
         agentName: msg.agentName || '',
@@ -508,10 +599,16 @@ function buildRuns(chatMessages: ChatMessage[]): StoryboardRun[] {
         model: msg.model || '',
         approvalStatus: msg.approvalStatus || 'pending',
         imageError: msg.imageError || '',
-      });
+      };
+      if (existingIdx >= 0) {
+        currentRun.pendingApprovals[existingIdx] = entry;
+      } else {
+        currentRun.pendingApprovals.push(entry);
+      }
     }
 
     if (msg.messageType === 'image_result' && msg.imageUrl) {
+      console.log('[STORYBOARD] image_result found:', { imageUrl: msg.imageUrl, approvalId: msg.approvalId, agentName: msg.agentName, mediaType: msg.mediaType });
       currentRun.imageResults.push({
         imageUrl: msg.imageUrl || '',
         prompt: msg.imagePrompt || '',
@@ -571,6 +668,11 @@ const RunTimeline: React.FC<{
       return p?.status === 'complete' || p?.status === 'error';
     });
   }, [run.progress, planAgentsAsAgents]);
+
+  const hasWaitingApproval = useMemo(() => {
+    if (!run.progress) return false;
+    return run.progress.some((ap) => ap.status === 'waiting_approval');
+  }, [run.progress]);
 
   return (
     <>
@@ -635,7 +737,7 @@ const RunTimeline: React.FC<{
       {waves.map((wave, waveIdx) => {
         const waveStarted = wave.agents.some(({ agent }) => {
           const p = run.progress?.find((ap) => ap.name === agent.name);
-          return p?.status === 'running' || p?.status === 'complete' || p?.status === 'error';
+          return p?.status === 'running' || p?.status === 'complete' || p?.status === 'error' || p?.status === 'waiting_approval';
         });
 
         return (
@@ -675,7 +777,15 @@ const RunTimeline: React.FC<{
                 {wave.agents.map(({ agent }) => {
                   const nodeProgress = run.progress?.find((p) => p.name === agent.name);
                   const agentApprovals = run.pendingApprovals.filter((pa) => pa.agentName.toLowerCase() === agent.name.toLowerCase());
-                  const agentImages = run.imageResults.filter((ir) => ir.agentName.toLowerCase() === agent.name.toLowerCase());
+                  const agentApprovalIds = new Set(agentApprovals.map(pa => pa.approvalId));
+                  const agentImages = run.imageResults.filter((ir) => {
+                    if (ir.agentName && ir.agentName.toLowerCase() === agent.name.toLowerCase()) return true;
+                    if (!ir.agentName && agentApprovalIds.has(ir.approvalId)) return true;
+                    return false;
+                  });
+                  if (run.imageResults.length > 0 && agentImages.length === 0 && agentApprovals.length > 0) {
+                    console.log('[STORYBOARD] Image match failed for agent:', agent.name, 'approvals:', [...agentApprovalIds], 'imageResults:', run.imageResults.map(ir => ({ approvalId: ir.approvalId, agentName: ir.agentName })));
+                  }
                   return (
                     <AgentCard
                       key={agent.id || agent.name}
@@ -696,8 +806,23 @@ const RunTimeline: React.FC<{
         );
       })}
 
+      {/* Waiting for user to generate images */}
+      {hasWaitingApproval && !run.result && (
+        <div className="relative pl-10 mb-5 storyboard-fade-in">
+          <div className="absolute left-0 top-1 w-8 h-8 rounded-full bg-purple-500/20 border-2 border-purple-400/40 flex items-center justify-center">
+            <PenTool className="w-3.5 h-3.5 text-purple-400" />
+          </div>
+          <div className="rounded-xl border border-purple-400/30 bg-purple-500/5 p-3">
+            <div className="text-[10px] text-text-3 uppercase tracking-wide mb-1">Awaiting User Action</div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-text-2">รอผู้ใช้กด Generate เพื่อสร้างภาพ/วิดีโอ — งานจะยังไม่เสร็จจนกว่าจะกด Generate</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Manager Synthesizing */}
-      {allComplete && !run.result && (
+      {allComplete && !run.result && !hasWaitingApproval && (
         <div className="relative pl-10 mb-5 storyboard-fade-in">
           <div className="absolute left-0 top-1 w-8 h-8 rounded-full bg-accent/20 border-2 border-accent/40 flex items-center justify-center">
             <Brain className="w-3.5 h-3.5 text-accent animate-pulse" />
@@ -714,25 +839,7 @@ const RunTimeline: React.FC<{
 
       {/* Final Result */}
       {run.result && (
-        <div className="relative pl-10 mb-5 storyboard-fade-in">
-          <div className="absolute left-0 top-1 w-8 h-8 rounded-full bg-success/20 border-2 border-success/40 flex items-center justify-center">
-            <CheckCircle className="w-3.5 h-3.5 text-success" />
-          </div>
-          <div className={`rounded-xl border p-3 ${run.result.error ? 'border-danger/30 bg-danger/5' : 'border-success/30 bg-success/5'}`}>
-            <div className="text-[10px] text-text-3 uppercase tracking-wide mb-1">Final Result</div>
-            <div className="text-sm text-text font-medium mb-2">{run.result.summary}</div>
-            {run.result.agents && run.result.agents.length > 0 && (
-              <div className="space-y-1.5 mt-2">
-                {run.result.agents.map((ra, i) => (
-                  <div key={i} className="flex gap-2 items-start py-1.5 border-t border-border/30 first:border-t-0">
-                    <div className="text-xs font-semibold text-text-2 min-w-[120px] shrink-0">{ra.name}</div>
-                    <div className="text-xs text-text-3 flex-1">{ra.output}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
+        <FinalResultCard result={run.result} agentCount={run.planAgents.length} />
       )}
     </>
   );

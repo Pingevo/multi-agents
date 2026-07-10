@@ -1,5 +1,174 @@
 # DEVELOPER_LOG
 
+## 2026-07-10 (Session 4) — Fix: Socket TransportError, Per-Agent Thinking, Routing Model Free Display
+
+### Summary
+Fixed 3 critical issues found during testing: socket hardcoded to localhost:8000 causing TransportError in browser preview (blocking all actions including image approval), per-agent thinking not rendered in Storyboard agent cards, and routing models (openrouter/auto, openrouter/free) incorrectly shown as free.
+
+### Changes
+- **`frontend/src/App.tsx`**: Changed `BACKEND_URL` from hardcoded `'http://localhost:8000'` to `window.location.origin` — socket now connects through whatever proxy/host the browser uses
+- **`frontend/src/components/ChatPanelRight.tsx`**: Added `hasThinking` check and thinking render block in `AgentStatusRow` — shows agent's `thinking` text in a scrollable box when agent is running
+- **`frontend/src/components/ModelPicker.tsx`**: Added `ROUTING_MODELS` array and `isRoutingModel()` helper; `isModelFree()` returns `false` for routing models; `getModelCostTier()` returns `'unknown'` for routing models
+- **`backend/handlers/chat.py`**: Added `[DEBUG-RESULT]` log before `reply_result()` showing media_tool_results count
+
+### Root Causes
+1. **Socket TransportError**: `BACKEND_URL` was hardcoded — browser preview proxy couldn't reach `localhost:8000` directly, so all socket actions (approve, reject, retry) silently failed
+2. **No per-agent thinking**: Backend already sends `thinking` in `reply_agent_progress`, but `AgentStatusRow` only rendered `current_task`, `current_tool`, and `output`
+3. **Routing models shown as free**: `isModelFree()` checked only pricing fields; routing models have all-zero/unknown prices but route to paid models
+
+## 2026-07-10 (Session 3) — Fix: Execution UX, Result Ordering, Pricing Display
+
+### Summary
+Fixed 6 issues: thinking display appearing too late, progress bar flickering, agent output not auto-expanding, result card sent before image approval cards, missing final summary from manager, and inverted is_free logic causing incorrect pricing display.
+
+### Changes
+- **`frontend/src/App.tsx`**:
+  - Added `isThinking` state — set `true` at send time, `false` on `thinking_done` or terminal message
+  - `thinkingStartRef` now set at send time (not at first chunk arrival)
+  - Replaced blanket `else { setIsProcessing(false); }` with terminal types check (`result`, `text`, `plan`, `plan_validation_error`, `image_result`, etc.)
+  - State messages: only `setIsProcessing(false)` when no running tasks AND no pending approvals
+  - Pass `isThinking` to MainLayout
+- **`frontend/src/components/MainLayout.tsx`**: Added `isThinking` to props interface, destructuring, and pass to ChatPanelRight
+- **`frontend/src/components/ChatPanelRight.tsx`**:
+  - Added `isThinking` to props — shows thinking block when `isThinking === true` even if `thinkingText` is empty
+  - Replaced `!thinkingText` with `!isThinking` in "Processing..." fallback condition
+  - Inline thinking block (inside plan card) now shows when `isThinking || thinkingText`
+  - Standalone thinking block shows when `isThinking` (not just `thinkingText`)
+  - `AgentProgressCard`: Added `useEffect` to auto-expand agents with status `complete` or `waiting_approval` that have output
+  - PlanCard: Added warning "⚠️ ไม่ใช่ image model — อาจมีค่าใช้จ่าย" when image model is not in image media catalog
+- **`backend/handlers/chat.py`**:
+  - Moved `reply_result()` from before approval cards to after all approval cards are sent
+  - Conditional result message: "⏳ รออนุมัติสร้างสื่อ" if pending approvals, "✅ งานเสร็จสมบูรณ์" if none
+  - Added `messenger.reply(raw_output[:4000])` after result card when raw_output is meaningful text (not JSON, >20 chars)
+  - Fixed inverted `is_free` logic at lines 500 and 790: `":free" in mid or not all_pricing_fields` (was `":free" not in mid and not all_pricing_fields`)
+- **`backend/media/manager.py`**: Added `else` log for FREE image model (was only logging for PAID)
+- **`test_execution_ux.py`**: 9 tests covering is_free logic, result ordering, final summary conditions, media gen free detection
+
+### Design Decisions
+- Thinking timer measures total time from user send to thinking_done (not just streaming time)
+- Progress bar stays visible until a terminal event arrives — non-terminal types don't change isProcessing
+- Result card comes after approval cards to avoid confusing "complete" message
+- Manager's raw_output shown as final summary when it contains readable text
+- `is_free` logic: free = `:free` suffix OR all prices are zero (was inverted before)
+
+## 2026-07-10 (Session 2) — Fix: Manager Model User Control & Plan Card Transparency
+
+### Summary
+Fixed regression from Fix 1 where manager model was overridden by UI fallback in adaptive mode. Now manager model comes from AI's choice (Secretary's plan), is visible in plan card, and user can change it before accepting.
+
+### Changes
+- **`chat.py` line 107**: Added fallback `or llm_manager.get_selected_model_name()` to `execute_multi_agent_task` (was still using `or ""`)
+- **`chat.py` lines 1080/1248**: Removed `if selected_model: model_assignment["manager"] = selected_model` override — manager model now comes from AI's plan, not UI
+- **`chat.py` lines 798-804**: Added `change_manager_model` action handler — updates `pre_assigned_models["manager"]` in session
+- **`chat.py` lines 1162/1321**: Added `manager_model=model_assignment.get('manager', '')` to both `reply_plan()` calls
+- **`schemas/__init__.py`**: Added `managerModel: str = ""` to `ChatReplyPlan`
+- **`messenger.py`**: `reply_plan()` now accepts and sends `manager_model` parameter in payload + persist
+- **`frontend/src/schemas/messages.ts`**: Added `managerModel?: string` to `ChatReplyPlan`
+- **`frontend/src/components/chatTypes.ts`**: Added `managerModel?: string` to `ChatMessage`
+- **`frontend/src/App.tsx`**: Added `managerModel` to plan message mapping, chat history restore, and `change_manager_model` action handler
+- **`frontend/src/components/MainLayout.tsx`**: Added `onChangeManagerModel` prop passthrough
+- **`frontend/src/components/ChatPanelRight.tsx`**: Added `managerModel` + `onChangeManagerModel` to `ChatPanelRightProps` and `PlanCard`. Plan card now shows manager model as first row with ModelPicker for changing it
+- **`test_manager_model_not_overridden.py`**: 4 regression tests — secretary returns AI's manager model, ChatReplyPlan has managerModel field, change_manager_model updates session
+
+### Design Decision
+- Secretary (AI) assigns manager model in plan JSON — same as before
+- Manager model is NOT overridden by UI selected_model — user can change it in plan card
+- Model from UI = model of Secretary (chat/analysis), not model of Manager
+- User sees and controls all models before accepting plan
+
+## 2026-07-10 (Session 1) — Fix: Manager Model, Image Pricing Display, Agent Thinking
+
+### Summary
+Fixed 3 bugs: manager model not matching UI in adaptive mode, image models showing "Free" when they have paid image pricing, agent thinking not displaying because CrewAI sends agent_role=None in stream chunks.
+
+### Fix 1: Manager model not matching UI
+- **Root cause**: `chat.py` read `selected_model` from session which is empty in adaptive mode → `set_selected_model()` never called → LLMManager used default, not the resolved model shown in UI.
+- **Fix**: `chat.py` lines 971 and 1175 — changed `selected_model = cl.user_session.get("selected_model") or ""` to `selected_model = cl.user_session.get("selected_model") or llm_manager.get_selected_model_name()`. This ensures the model is always set, matching what the UI displays.
+
+### Fix 2: Image pricing display showing "Free" incorrectly
+- **Root cause**: OpenRouter API returns `pricing = {prompt: "0", completion: "0", image: "0.01"}` for image models, but backend only sent `prompt_price` and `completion_price` to frontend. UI showed "Free" because both were 0, even though `image: 0.01` is paid.
+- **Backend fix** (`chat.py` lines 464-477 and 740-755): Added `image_price`, `video_price`, `audio_price`, `web_search_price` fields to catalog entries. Changed `is_free` to check all pricing fields — model is free only when no pricing field has a value > 0.
+- **Frontend fix** (`ModelPicker.tsx`):
+  - Added optional pricing fields to `ModelCatalogEntry` interface
+  - Added `getMaxPrice()` — returns highest non-zero price across all fields
+  - Added `isModelFree()` — returns true only when all known prices are 0
+  - Added `getModelCostTier()` — uses max price for cost tier classification
+  - Detail panel now shows Image/Video/Audio/Web Search prices when > 0
+  - Cost tier bar and free badge use new helpers
+  - `ModelRow` cost indicator dot uses `getModelCostTier` and `getMaxPrice`
+  - Removed unused `getCostTier` function
+
+### Fix 3: Agent thinking not displaying
+- **Root cause**: CrewAI's `LLMStreamChunkEvent` sends `agent_role=None` for all stream chunks. The `on_llm_stream_chunk` handler returned early when `agent_role` was None, so thinking text was never captured.
+- **Fix** (`orchestrator.py` line 208-230): When `agent_role` is None, fall back to `_thread_local.agent_name` (set in `run_single_agent_sync` before kickoff). This is the agent name from the spec, which `_match_agent_index` can match against agent_specs by name.
+
+## 2026-07-09 (Session 2 — Modularization Cleanup & Integration Tests)
+
+### Summary
+- Fixed all pre-existing test bugs (event loop hang, timeout test, empty agents plan rejection)
+- Removed 558 lines of duplicate attachment code from `chat.py` (already extracted to `backend/attachment/`)
+- Deleted 7 unused frontend components, extracted shared types to `chatTypes.ts`
+- Created 14 integration tests with mocked OpenRouter API covering full LLM pipeline
+- All 107 tests pass in ~28 seconds
+
+### Test Bug Fixes
+- **`test_valid_json_response_returns_plan`**: Test data had empty `agents` list → secretary rejected plan and returned `action:"chat"`. Fixed by adding a realistic agent in test JSON.
+- **`test_timeout_returns_error`**: Hardcoded 30s timeout made test hang. Added `stream_timeout` parameter to `assess_and_plan()` and `assess_and_plan_multimodal()`. Test now uses `stream_timeout=3`.
+- **Pytest event loop hang**: `run_in_executor(None, chunk_queue.get, 0.1)` blocked executor threads, causing thread pool exhaustion when streaming thread never yields. Replaced with non-blocking `chunk_queue.get_nowait()` + `asyncio.sleep(0.05)` polling loop.
+- **`conftest.py`**: Added to set fresh asyncio event loop per test.
+- **`asyncio.run()`**: Replaced all `asyncio.get_event_loop().run_until_complete()` calls in tests.
+
+### Backend: Duplicate Code Removal
+- **`backend/handlers/chat.py`**: Deleted lines 456-1013 (558 lines) — duplicate `URL_REGEX`, `classify_url`, `_is_localhost_url`, `download_with_limit`, `check_model_modality_support`, `llm_manager_tier_check`, `_resolve_file_path`, `_extract_text_content`, `process_attachment`, `process_url`, `AUDIO_FORMAT_MAP`, `URL_EXT_MAP`, `MAX_TEXT_LENGTH`, `MAX_URL_DOWNLOAD_SIZE`. These were already extracted to `backend/attachment/` package.
+- **`backend/attachment/url.py`**: Added `URL_REGEX` constant (was only in deleted duplicate code).
+- **`backend/handlers/chat.py`**: Updated import to `from backend.attachment.url import classify_url, URL_REGEX`.
+
+### Frontend: Dead Code Cleanup
+- **Deleted 7 unused components** (zero imports from any other file):
+  - `AgentSidebar.tsx` — replaced by `AgentPalette` + `DetailPanel`
+  - `ChatPanel.tsx` — replaced by `ChatPanelRight.tsx` (types extracted to `chatTypes.ts`)
+  - `CanvasArea.tsx` — replaced by `StoryboardArea.tsx` (types `PendingApproval`/`ImageResult` moved to `platform.ts`)
+  - `CanvasView.tsx` — superseded by `StoryboardArea`
+  - `TaskGrid.tsx` — superseded by `StoryboardArea`
+  - `CommandConsole.tsx` — superseded by `ChatPanelRight` input
+  - `AgentNode.tsx` — only imported by `CanvasView` (also deleted)
+- **`chatTypes.ts`** (new): Extracted all shared types from `ChatPanel.tsx` (`PlanAgent`, `ResultAgent`, `ChatMessageType`, `PlanStatus`, `ImageApprovalStatus`, `ChatMessage`, `AgentProgressEntry`, `ActivityEntry`). Updated all imports in `App.tsx`, `MainLayout.tsx`, `StoryboardArea.tsx`, `DetailPanel.tsx`, `ChatPanelRight.tsx`.
+- **`platform.ts`**: Added `PendingApproval` and `ImageResult` interfaces (moved from `CanvasArea.tsx`).
+
+### Integration Tests (`test_integration_pipeline.py`)
+- **14 tests, 5 test classes**:
+  - `TestLLMManagerTierDetection` (3): paid/free/error tier detection from OpenRouter credits endpoint
+  - `TestLLMManagerCallWithFallback` (2): primary success, primary failure without fallback
+  - `TestFreeModelRotatorIntegration` (2): model filtering (small/non-chat excluded), rotation on failure
+  - `TestModelSelectorIntegration` (2): candidate fetching from rotator, LLM-driven model assignment
+  - `TestCentralSecretaryIntegration` (4): plan response, chat response, empty stream, timeout
+  - `TestEndToEndPipeline` (1): full pipeline rotator→selector→secretary produces valid plan
+- All HTTP calls mocked via `unittest.mock.patch` — no real API calls.
+
+### Files Changed
+- `backend/core/secretary.py` — `stream_timeout` param, non-blocking queue polling
+- `backend/handlers/chat.py` — 558 lines duplicate code removed, import updated
+- `backend/attachment/url.py` — added `URL_REGEX`
+- `frontend/src/types/platform.ts` — added `PendingApproval`, `ImageResult`
+- `frontend/src/components/chatTypes.ts` — new file (extracted types)
+- `frontend/src/components/StoryboardArea.tsx` — updated imports
+- `frontend/src/components/MainLayout.tsx` — updated imports
+- `frontend/src/components/DetailPanel.tsx` — updated imports
+- `frontend/src/components/ChatPanelRight.tsx` — updated imports
+- `frontend/src/App.tsx` — updated imports
+- `frontend/src/components/AgentSidebar.tsx` — deleted
+- `frontend/src/components/ChatPanel.tsx` — deleted
+- `frontend/src/components/CanvasArea.tsx` — deleted
+- `frontend/src/components/CanvasView.tsx` — deleted
+- `frontend/src/components/TaskGrid.tsx` — deleted
+- `frontend/src/components/CommandConsole.tsx` — deleted
+- `frontend/src/components/AgentNode.tsx` — deleted
+- `test_routing_model_planning.py` — test data fix, asyncio.run(), stream_timeout=3
+- `test_integration_pipeline.py` — new file (14 integration tests)
+- `conftest.py` — new file (asyncio event loop fix)
+
+---
+
 ## 2026-07-09
 
 ### Multimodal Attachment Processing Pipeline

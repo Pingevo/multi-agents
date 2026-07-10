@@ -35,7 +35,7 @@ class TestEmptyStreamReturnsError(unittest.TestCase):
         llm_mgr = MagicMock(spec=LLMManager)
         llm_mgr._selected_model = "openrouter/free"  # user may use any model
         llm_mgr._default_model = "openrouter/auto"
-        llm_mgr.tier = "free"
+        llm_mgr._is_openrouter = MagicMock(return_value=True)
 
         # Simulate empty stream: yields nothing, returns immediately
         def empty_stream(prompt):
@@ -47,7 +47,7 @@ class TestEmptyStreamReturnsError(unittest.TestCase):
         secretary = CentralSecretary(llm_mgr)
 
         start = time.time()
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             secretary.assess_and_plan(
                 "สร้าง content plan สำหรับร้านกาแฟ 1 โพสต์",
                 stream_callback=AsyncMock(),
@@ -62,28 +62,27 @@ class TestEmptyStreamReturnsError(unittest.TestCase):
         self.assertIn("ว่างเปล่า", result.get("message", ""))
 
     def test_timeout_returns_error(self):
-        """If the LLM stream never yields chunks, assess_and_plan must timeout and
+        """If the LLM stream times out (HTTP client timeout), assess_and_plan must
         return an error instead of hanging forever."""
         from app import CentralSecretary, LLMManager
-        import threading
 
         llm_mgr = MagicMock(spec=LLMManager)
         llm_mgr._selected_model = "openrouter/free"
         llm_mgr._default_model = "openrouter/auto"
-        llm_mgr.tier = "free"
+        llm_mgr._is_openrouter = MagicMock(return_value=True)
 
-        # Simulate a stream that blocks forever
-        def blocking_stream(prompt):
-            while True:
-                threading.Event().wait(1)
+        # Simulate HTTP client timeout — raises exception instead of blocking
+        def timeout_stream(prompt):
+            raise TimeoutError("Request timed out")
+            yield  # make it a generator
 
-        llm_mgr.call_streaming = blocking_stream
+        llm_mgr.call_streaming = timeout_stream
         llm_mgr.call_async = AsyncMock(return_value="")
 
         secretary = CentralSecretary(llm_mgr)
 
         start = time.time()
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             secretary.assess_and_plan(
                 "สร้าง content plan สำหรับร้านกาแฟ 1 โพสต์",
                 stream_callback=AsyncMock(),
@@ -91,8 +90,8 @@ class TestEmptyStreamReturnsError(unittest.TestCase):
         )
         elapsed = time.time() - start
 
-        # Must complete within 35 seconds (30s timeout + buffer)
-        self.assertLess(elapsed, 35.0, "assess_and_plan did not timeout")
+        # Must complete quickly (exception propagates immediately)
+        self.assertLess(elapsed, 5.0, "assess_and_plan did not handle timeout exception")
         self.assertEqual(result.get("action"), "chat")
         self.assertTrue(
             "ว่างเปล่า" in result.get("message", ""),
@@ -110,11 +109,12 @@ class TestNormalResponseParsed(unittest.TestCase):
         llm_mgr = MagicMock(spec=LLMManager)
         llm_mgr._selected_model = "openrouter/free"
         llm_mgr._default_model = "openrouter/auto"
-        llm_mgr.tier = "free"
+        llm_mgr._is_openrouter = MagicMock(return_value=True)
 
         valid_response = (
-            '{"action":"plan","summary":"test","agents":[],'
-            '"model_assignment":{"manager":"openrouter/free","workers":{}},'
+            '{"action":"plan","summary":"test",'
+            '"agents":[{"name":"Writer","role":"Content Writer","goal":"Write content","backstory":"Experienced writer","tools":[],"task_description":"Write 1 post","depends_on":[],"model":""}],'
+            '"model_assignment":{"manager":"openrouter/free","workers":{"Writer":"openrouter/free"}},'
             '"image_model":"","video_model":"","search_model":""}'
         )
 
@@ -126,7 +126,7 @@ class TestNormalResponseParsed(unittest.TestCase):
 
         secretary = CentralSecretary(llm_mgr)
 
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             secretary.assess_and_plan(
                 "สร้าง content plan สำหรับร้านกาแฟ 1 โพสต์",
                 stream_callback=AsyncMock(),

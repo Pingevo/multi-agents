@@ -7,7 +7,7 @@ import { ChatPanelRight } from './ChatPanelRight';
 import { DetailPanel } from './DetailPanel';
 import { AgentFormModal } from './AgentFormModal';
 import { AssignTaskModal } from './AssignTaskModal';
-import type { ChatMessage, ActivityEntry, AgentProgressEntry } from './ChatPanel';
+import type { ChatMessage, ActivityEntry, AgentProgressEntry } from './chatTypes';
 import type { ChatSession } from './ChatSidebar';
 import type { Agent } from '../types/platform';
 import type { Node, Edge } from '@xyflow/react';
@@ -26,6 +26,8 @@ interface MainLayoutProps {
   selectedModel?: string;
   resolvedModel?: string;
   thinkingText?: string;
+  thinkingDuration?: number | null;
+  isThinking?: boolean;
   inputMode?: 'chat' | 'plan';
   onModeChange?: (mode: 'chat' | 'plan') => void;
 }
@@ -44,10 +46,12 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   selectedModel,
   resolvedModel,
   thinkingText,
+  thinkingDuration,
+  isThinking,
   inputMode,
   onModeChange,
 }) => {
-  const { agents, tasks, current_plan, system_status, available_tools, credits } = usePlatform();
+  const { agents, current_plan, system_status, available_tools, credits } = usePlatform();
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [editAgent, setEditAgent] = useState<Agent | null>(null);
@@ -95,72 +99,6 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
     return undefined;
   })();
 
-  const _latestUserMessage = (() => {
-    for (let i = chatMessages.length - 1; i >= 0; i--) {
-      if (chatMessages[i].role === 'user') return chatMessages[i].content;
-    }
-    return '';
-  })();
-
-  const _runningTasks = latestProgress?.filter((p) => p.status === 'running').length ?? 0;
-  const _completedTasks = latestProgress?.filter((p) => p.status === 'complete').length ?? 0;
-
-  // Derive plan status from chat messages (pending = not yet approved)
-  const _planPending = (() => {
-    for (let i = chatMessages.length - 1; i >= 0; i--) {
-      const msg = chatMessages[i];
-      if (msg.messageType === 'plan') {
-        return msg.planStatus === 'pending';
-      }
-    }
-    return false;
-  })();
-
-  // Get latest result message for output node
-  const _latestResult = (() => {
-    for (let i = chatMessages.length - 1; i >= 0; i--) {
-      const msg = chatMessages[i];
-      if (msg.messageType === 'result') {
-        return {
-          summary: msg.resultSummary || '',
-          agents: msg.resultAgents || [],
-          error: msg.resultError || false,
-        };
-      }
-    }
-    return null;
-  })();
-
-  // Collect pending image approvals and results for canvas agent nodes
-  const _pendingApprovals = chatMessages
-    .filter((m) => m.messageType === 'image_approval' && (m.approvalStatus === 'pending' || m.approvalStatus === 'error'))
-    .map((m) => ({
-      approvalId: m.approvalId || '',
-      prompt: m.imagePrompt || '',
-      agentName: m.agentName || '',
-      mediaType: m.mediaType || 'image',
-      duration: m.duration || 0,
-      model: m.model || '',
-      approvalStatus: m.approvalStatus || 'pending',
-      imageError: m.imageError || '',
-    }));
-
-  const _imageResults = chatMessages
-    .filter((m) => m.messageType === 'image_result' && m.imageUrl)
-    .map((m) => {
-      // Find the corresponding approval message to get agentName
-      const approvalMsg = chatMessages.find(
-        (am) => am.messageType === 'image_approval' && am.approvalId === m.approvalId
-      );
-      return {
-        imageUrl: m.imageUrl || '',
-        prompt: m.imagePrompt || '',
-        approvalId: m.approvalId || '',
-        mediaType: m.mediaType || 'image',
-        agentName: m.agentName || approvalMsg?.agentName || '',
-      };
-    });
-
   const handleSelectAgent = (agent: Agent) => {
     setSelectedAgent(selectedAgent?.id === agent.id ? null : agent);
   };
@@ -196,24 +134,9 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
     onAction('edit_image_prompt', { approval_id: approvalId, new_prompt: newPrompt });
   }, [onAction]);
 
-  const _handleCanvasStateChange = useCallback((nodes: Node[], edges: Edge[]) => {
-    if (!activeSessionId) return;
-    setCanvasStates((prev) => ({
-      ...prev,
-      [activeSessionId]: { nodes, edges },
-    }));
-    // Persist to backend
-    onAction('save_canvas', {
-      session_id: activeSessionId,
-      canvas_state: { nodes, edges },
-    });
-  }, [activeSessionId, onAction]);
-
   const selectedProgress = selectedAgent
     ? latestProgress?.find((p) => p.name === selectedAgent.name)
     : undefined;
-
-  const _currentCanvasState = activeSessionId ? canvasStates[activeSessionId] : undefined;
 
   return (
     <div className="h-full w-full flex flex-col bg-bg">
@@ -283,10 +206,13 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
           onSearchModels={(query) => onAction('search_models', { query })}
           onSelectModel={(modelId) => onAction('set_selected_model', { model_id: modelId })}
           onChangeAgentModel={(agentName, modelId) => onAction('change_agent_model', { agent_name: agentName, model_id: modelId })}
+          onChangeManagerModel={(modelId) => onAction('change_manager_model', { model_id: modelId })}
           onChangeMediaModel={(mediaType, modelId) => onAction('change_media_model', { media_type: mediaType, model_id: modelId })}
           selectedModel={selectedModel}
           resolvedModel={resolvedModel}
           thinkingText={thinkingText}
+          thinkingDuration={thinkingDuration}
+          isThinking={isThinking}
           inputMode={inputMode}
           onModeChange={onModeChange}
           disabled={connectionStatus !== 'connected' || isProcessing || !!current_plan}

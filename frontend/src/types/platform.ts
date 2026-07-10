@@ -91,3 +91,22 @@ export interface AssignFormData {
   agent_id: string;
   task: string;
 }
+
+export interface PendingApproval {
+  approvalId: string;
+  prompt: string;
+  agentName: string;
+  mediaType: string;
+  duration: number;
+  model?: string;
+  approvalStatus?: 'pending' | 'approved' | 'rejected' | 'error';
+  imageError?: string;
+}
+
+export interface ImageResult {
+  imageUrl: string;
+  prompt: string;
+  approvalId: string;
+  agentName?: string;
+  mediaType?: string;
+}

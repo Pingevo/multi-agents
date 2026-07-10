@@ -77,6 +77,26 @@ The single source of truth for all available capabilities. Maps each capability 
 
 Resolves capabilities to concrete tools and model traits for agents. Takes agent specs (with capability names) and produces a `ResolvedAgent` with bound tools and model traits. Used by `AgentFactory` during agent creation.
 
+### Attachment Processing
+
+The pipeline that handles user-uploaded files and URLs. Classifies file types (image, PDF, audio, video, text, DOCX, XLSX, SVG) and URL types (direct file, YouTube, webpage), then converts them to OpenRouter multimodal content blocks or extracted text. Enforces SSRF protection, download size limits (50MB), and text truncation (50K chars).
+
+### Multimodal Content Block
+
+An OpenRouter API content block type: `image_url`, `file`, `input_audio`, or `video_url`. Used to send non-text data to vision/multimodal models. Each block type maps to a specific file category and may require plugins (e.g., PDF file-parser).
+
+### Model Modality Support
+
+Whether a model accepts a specific input type (image, file, audio, video). Checked via `ModelDiscoveryService` before sending multimodal content. If unsupported, the system warns the user and falls back to text extraction or metadata.
+
+### URL Classification
+
+Categorizes URLs by domain and file extension: `youtube` (youtube.com/youtu.be), `image` (.jpg/.png/.gif/.webp), `pdf` (.pdf), `audio` (.mp3/.wav/.ogg), `video` (.mp4/.webm/.mov), `webpage` (default). Determines how `process_url` handles each URL.
+
+### CrewAI Input Files
+
+CrewAI's native file passing mechanism (`input_files` parameter on Task). When `crewai-files` package is available, attachment files are wrapped as CrewAI File objects and passed directly to worker agents. Falls back to text injection in task description if unavailable.
+
 ## Message Types
 
 - **text** — plain text message (user or assistant)

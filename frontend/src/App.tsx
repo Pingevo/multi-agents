@@ -2,7 +2,7 @@ import { useEffect, useCallback, useState, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { PlatformProvider, usePlatform } from './context/PlatformContext';
 import { MainLayout } from './components/MainLayout';
-import type { ChatMessage, ActivityEntry, PlanAgent } from './components/ChatPanel';
+import type { ChatMessage, ActivityEntry, PlanAgent } from './components/chatTypes';
 import type { ChatSession } from './components/ChatSidebar';
 import type { ChatReplyEnvelope, ChatReplyPayload, ChatReplyPlan } from './schemas/messages';
 import type { Agent, Plan } from './types/platform';
@@ -18,7 +18,7 @@ const planAgentsToAgents = (planAgents: PlanAgent[]): Agent[] =>
     status: 'Idle',
   }));
 
-const BACKEND_URL = 'http://localhost:8000';
+const BACKEND_URL = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:8000';
 const SOCKET_PATH = '/ws/socket.io';
 
 const generateUUIDv4 = () => {
@@ -74,6 +74,7 @@ const parseChatReply = (message: any): Omit<ChatMessage, 'id' | 'timestamp'> | n
           hasTtsTool: planP.hasTtsTool || false,
           hasSttTool: planP.hasSttTool || false,
           hasVisionTool: planP.hasVisionTool || false,
+          managerModel: planP.managerModel || '',
         };
       }
 
@@ -238,7 +239,7 @@ const parseChatReply = (message: any): Omit<ChatMessage, 'id' | 'timestamp'> | n
   return null;
 };
 
-const parseChatSessionMessage = (message: any): { sessions: ChatSession[]; currentSessionId: string } | { messages: ChatMessage[]; canvasState: any } | null => {
+const parseChatSessionMessage = (message: any): { sessions: ChatSession[]; currentSessionId: string } | { messages: ChatMessage[]; canvasState: any; selectedModel?: string } | null => {
   const text = message?.output || message?.content || '';
   if (!text) return null;
   try {
@@ -275,11 +276,29 @@ const parseChatSessionMessage = (message: any): { sessions: ChatSession[]; curre
           agentName: m.agentName,
           approvalStatus: m.approvalStatus || 'pending',
           imageError: m.imageError,
+          mediaType: m.mediaType,
+          duration: m.duration,
+          model: m.model,
+          videoUrl: m.videoUrl,
+          videoPrompt: m.videoPrompt,
+          audioUrl: m.audioUrl,
+          voice: m.voice,
+          transcriptionText: m.transcriptionText,
+          fileUrl: m.fileUrl,
+          fileName: m.fileName,
+          fileMime: m.fileMime,
           agentProgressTaskId: m.taskId,
           agentProgressOverall: m.overallProgress,
           agentProgressList: m.agents,
+          imageModel: m.imageModel,
+          videoModel: m.videoModel,
+          searchModel: m.searchModel,
+          ttsModel: m.ttsModel,
+          sttModel: m.sttModel,
+          visionModel: m.visionModel,
+          managerModel: m.managerModel,
         }));
-        return { messages, canvasState: p.canvasState || null };
+        return { messages, canvasState: p.canvasState || null, selectedModel: p.selectedModel || '' };
       }
     }
   } catch {
@@ -299,6 +318,9 @@ function AppContent() {
   const [selectedModel, setSelectedModel] = useState<string>('');
   const [resolvedModel, setResolvedModel] = useState<string>('');
   const [thinkingText, setThinkingText] = useState<string>('');
+  const [thinkingDuration, setThinkingDuration] = useState<number | null>(null);
+  const [isThinking, setIsThinking] = useState(false);
+  const thinkingStartRef = useRef<number | null>(null);
   const [inputMode, setInputMode] = useState<'chat' | 'plan'>('plan');
   const [canvasStateFromBackend, setCanvasStateFromBackend] = useState<any>(null);
   const socketRef = useRef<Socket | null>(null);
@@ -397,6 +419,9 @@ function AppContent() {
           // chat_history — replace all messages + load canvas state
           setChatMessages(sessionData.messages);
           setCanvasStateFromBackend(sessionData.canvasState);
+          if (sessionData.selectedModel) {
+            setSelectedModel(sessionData.selectedModel);
+          }
           clearActivity();
         } else if ('sessions' in sessionData) {
           // chat_sessions — update session list
@@ -411,23 +436,30 @@ function AppContent() {
       if (reply) {
         // Handle thinking chunks as streaming (not regular chat messages)
         if (reply.messageType === 'thinking') {
+          setThinkingDuration(null);
           setThinkingText(prev => (prev || '') + (reply.content || ''));
           setIsProcessing(true);
           return;
         }
         if (reply.messageType === 'thinking_done') {
-          setThinkingText('');
+          if (thinkingStartRef.current !== null) {
+            setThinkingDuration(Math.round((Date.now() - thinkingStartRef.current) / 1000));
+            thinkingStartRef.current = null;
+          }
+          setIsThinking(false);
           return;
         }
 
         addChatMessage(reply);
         clearActivity();
 
-        // Set isProcessing based on message type
+        // Set isProcessing based on message type — only false for terminal types
+        const TERMINAL_TYPES = ['result', 'text', 'plan', 'plan_validation_error', 'image_result', 'audio_result', 'video_result', 'file_result', 'transcription_result'];
         if (reply.messageType === 'agent_progress' || reply.messageType === 'progress') {
           setIsProcessing(true);
-        } else {
+        } else if (TERMINAL_TYPES.includes(reply.messageType)) {
           setIsProcessing(false);
+          setIsThinking(false);
         }
 
         // Handle plan validation error — reset plan card to pending so user can edit
@@ -490,10 +522,11 @@ function AppContent() {
         }
         prevNotificationsRef.current = [...newNotifications];
 
-        // Only clear activity + isProcessing when no running tasks AND no notifications
+        // Only clear activity + isProcessing when no running tasks AND no notifications AND no pending approvals
         const payloadTasks = payload.tasks || [];
         const hasRunning = payloadTasks.some((t: any) => t.status === 'running');
-        if (!hasRunning && newNotifications.length === 0) {
+        const hasPendingApprovals = chatMessages.some((m: ChatMessage) => m.messageType === 'image_approval' && m.approvalStatus === 'pending');
+        if (!hasRunning && newNotifications.length === 0 && !hasPendingApprovals) {
           clearActivity();
           setIsProcessing(false);
         }
@@ -514,6 +547,10 @@ function AppContent() {
       console.error('Socket not connected');
       return;
     }
+    setThinkingText('');
+    setThinkingDuration(null);
+    thinkingStartRef.current = Date.now();
+    setIsThinking(true);
     const message = {
       id: generateUUIDv4(),
       name: 'User',
@@ -595,6 +632,9 @@ function AppContent() {
         );
         setActivityLog([]);
         setThinkingText('');
+        setThinkingDuration(null);
+        thinkingStartRef.current = null;
+        setIsThinking(false);
         setIsProcessing(false);
         updateState({ current_plan: null });
       } else if (name === 'approve_image') {
@@ -664,6 +704,17 @@ function AppContent() {
             )
           );
         }
+      } else if (name === 'change_manager_model') {
+        const modelId = payload?.model_id as string;
+        if (modelId) {
+          setChatMessages((prev) =>
+            prev.map((m) =>
+              m.messageType === 'plan' && m.planStatus === 'pending'
+                ? { ...m, managerModel: modelId }
+                : m
+            )
+          );
+        }
       }
       sendMessage(JSON.stringify({ type: 'action', name, payload: payload || {} }));
     },
@@ -691,6 +742,8 @@ function AppContent() {
       selectedModel={selectedModel}
       resolvedModel={resolvedModel}
       thinkingText={thinkingText}
+      thinkingDuration={thinkingDuration}
+      isThinking={isThinking}
       inputMode={inputMode}
       onModeChange={setInputMode}
     />

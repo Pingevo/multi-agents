@@ -94,6 +94,7 @@ export interface ChatReplyPlan {
   hasTtsTool?: boolean;
   hasSttTool?: boolean;
   hasVisionTool?: boolean;
+  managerModel?: string;
 }
 
 export interface ChatReplyProgress {

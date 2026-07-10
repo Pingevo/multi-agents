@@ -1,6 +1,6 @@
 import { X, Pencil, Trash2, Rocket, Bot, Wrench } from 'lucide-react';
 import type { Agent, ToolCatalogEntry } from '../types/platform';
-import type { AgentProgressEntry } from './ChatPanel';
+import type { AgentProgressEntry } from './chatTypes';
 
 interface DetailPanelProps {
   agent: Agent | null;
