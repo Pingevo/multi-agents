@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { ArrowLeft, ChevronLeft, ChevronRight, Plus, Settings, Trash2, Users, Cpu } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Settings, Trash2, Cpu } from 'lucide-react';
 import { usePlatform } from '../context/PlatformContext';
 import { StoryboardArea } from './StoryboardArea';
 import { ChatPanelRight } from './ChatPanelRight';
@@ -81,24 +81,22 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({
 
   return (
     <div className="h-full w-full flex flex-col bg-bg">
-      {/* Top bar with team info + back */}
-      <div className="h-12 bg-surface border-b border-border flex items-center justify-between px-4 shrink-0">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={onBack}
-            className="flex items-center gap-1 text-xs text-text-2 hover:text-text transition-colors"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Teams
-          </button>
-          <div className="w-px h-5 bg-border" />
-          <div className="flex items-center gap-2">
-            <Users className="w-4 h-4 text-accent" />
-            <h1 className="text-sm font-semibold text-text">{team.name}</h1>
-            {team.description && (
-              <span className="text-xs text-text-3 hidden md:inline">— {team.description}</span>
-            )}
-          </div>
+      {/* Top bar — match mockup */}
+      <div className="flex items-center gap-4 px-5 py-2.5 bg-surface border-b border-border shrink-0">
+        <button
+          onClick={onBack}
+          className="text-text-3 hover:text-text hover:bg-surface-2 rounded-md px-2 py-1 transition-colors text-lg"
+        >
+          ←
+        </button>
+        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-accent to-purple-500 flex items-center justify-center text-sm font-bold text-white shrink-0">
+          {team.name.charAt(0).toUpperCase()}
+        </div>
+        <div className="flex-1 min-w-0">
+          <h1 className="text-sm font-semibold text-text truncate">{team.name}</h1>
+          <p className="text-[11px] text-text-3 truncate">
+            {team.description ? `${team.description} · ` : ''}{teamAgents.length} agents · {chatSessions.length} sessions
+          </p>
         </div>
         <div className="flex items-center gap-3">
           {/* Credits */}

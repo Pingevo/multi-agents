@@ -1054,6 +1054,12 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
       )}
 
       <div className="flex-1 flex flex-col bg-bg border-l border-border min-w-0">
+        {/* Header — chat title (when fillContainer) */}
+        {fillContainer && (
+          <div className="px-4 py-2.5 border-b border-border shrink-0">
+            <span className="text-xs font-semibold text-text">💬 Chat</span>
+          </div>
+        )}
         {/* Header — session dropdown (hidden when fillContainer, sessions shown in left sidebar) */}
         {!fillContainer && (
         <div className="px-2 py-1.5 border-b border-border shrink-0 relative" ref={dropdownRef}>
@@ -1132,12 +1138,12 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
         )}
 
         {/* Messages */}
-        <div ref={scrollRef} className="flex-1 overflow-y-auto p-2.5 space-y-2">
+        <div ref={scrollRef} className="flex-1 overflow-y-auto p-5 space-y-3 flex flex-col">
               {messages.length === 0 && activityLog.length === 0 && !isProcessing ? (
-                <div className="flex flex-col items-center justify-center py-12 text-text-2">
-                  <Bot className="w-10 h-10 mb-2 opacity-30" />
-                  <p className="text-xs">No conversation yet</p>
-                  <p className="text-[10px] mt-1">Type a message below to start</p>
+                <div className="flex flex-col items-center justify-center py-20 text-text-2">
+                  <Bot className="w-12 h-12 mb-3 opacity-30" />
+                  <p className="text-sm">No conversation yet</p>
+                  <p className="text-xs mt-1">Type a message below to start</p>
                 </div>
               ) : (
                 <>
@@ -1146,36 +1152,36 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
 
                     if (msgType === 'plan' && msg.planAgents) {
                       return (
-                        <div key={msg.id} className="flex gap-1.5 flex-row">
-                          <div className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 bg-surface-2 text-accent">
-                            <Bot className="w-3 h-3" />
+                        <div key={msg.id} className="flex gap-2 flex-row max-w-[75%]">
+                          <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 bg-surface-2 border border-border text-accent">
+                            <Bot className="w-3.5 h-3.5" />
                           </div>
                           <div className="flex-1 min-w-0">
                             {/* Thinking block — inline like ChatGPT/Claude */}
                             {(isThinking || thinkingText) && (
-                              <div className="mb-1.5 rounded-lg bg-surface-2/50 border border-border/50">
+                              <div className="mb-2 rounded-lg bg-surface-2/50 border border-border/50">
                                 <button
                                   onClick={() => {
                                     thinkingManualExpandRef.current = true;
                                     setThinkingExpanded(!thinkingExpanded);
                                   }}
-                                  className="w-full flex items-center gap-1.5 px-2.5 py-1.5 hover:bg-surface-2/80 rounded-lg transition-colors"
+                                  className="w-full flex items-center gap-2 px-3 py-2 hover:bg-surface-2/80 rounded-lg transition-colors"
                                 >
                                   {isProcessing ? (
-                                    <Loader2 className="w-3 h-3 text-accent animate-spin shrink-0" />
+                                    <Loader2 className="w-3.5 h-3.5 text-accent animate-spin shrink-0" />
                                   ) : (
-                                    <Brain className="w-3 h-3 text-text-2 shrink-0" />
+                                    <Brain className="w-3.5 h-3.5 text-text-2 shrink-0" />
                                   )}
-                                  <span className="text-[11px] text-text-2 font-medium">
+                                  <span className="text-xs text-text-2 font-medium">
                                     {isProcessing ? 'กำลังคิด...' : thinkingDuration !== null ? `คิดเสร็จแล้ว (${thinkingDuration}s)` : 'ความคิดของ AI'}
                                   </span>
                                   <span className="ml-auto">
-                                    {thinkingExpanded ? <ChevronDown className="w-3 h-3 text-text-2" /> : <ChevronRight className="w-3 h-3 text-text-2" />}
+                                    {thinkingExpanded ? <ChevronDown className="w-3.5 h-3.5 text-text-2" /> : <ChevronRight className="w-3.5 h-3.5 text-text-2" />}
                                   </span>
                                 </button>
                                 {thinkingExpanded && (
-                                  <div className="px-2.5 pb-2 pt-0.5">
-                                    <div className="text-[11px] text-text-2 leading-relaxed">
+                                  <div className="px-3 pb-2 pt-0.5">
+                                    <div className="text-xs text-text-2 leading-relaxed">
                                       {isProcessing ? 'AI กำลังวิเคราะห์คำขอและวางแผนการทำงาน...' : 'AI วิเคราะห์คำขอเสร็จแล้ว แผนงานจะแสดงด้านล่าง'}
                                     </div>
                                   </div>
@@ -1207,9 +1213,9 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
 
                     if (msgType === 'progress') {
                       return (
-                        <div key={msg.id} className="flex gap-1.5 flex-row">
-                          <div className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 bg-surface-2 text-accent">
-                            <Bot className="w-3 h-3" />
+                        <div key={msg.id} className="flex gap-2 flex-row max-w-[75%]">
+                          <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 bg-surface-2 border border-border text-accent">
+                            <Bot className="w-3.5 h-3.5" />
                           </div>
                           <div className="flex-1 min-w-0">
                             <ProgressCard percent={msg.progressPercent || 0} label={msg.progressLabel || 'Processing...'} />
@@ -1225,9 +1231,9 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
                     if (msgType === 'result') {
                       const isError = msg.resultError;
                       return (
-                        <div key={msg.id} className="flex gap-1.5 flex-row">
-                          <div className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 bg-surface-2 text-accent">
-                            <Bot className="w-3 h-3" />
+                        <div key={msg.id} className="flex gap-2 flex-row max-w-[75%]">
+                          <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 bg-surface-2 border border-border text-accent">
+                            <Bot className="w-3.5 h-3.5" />
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className={`rounded-xl border overflow-hidden backdrop-blur-sm ${isError ? 'border-danger/30 bg-surface/80' : 'border-success/30 bg-surface/80'}`}>
@@ -1251,9 +1257,9 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
 
                     if (msgType === 'tuning_proposal' && msg.tuningProposals) {
                       return (
-                        <div key={msg.id} className="flex gap-1.5 flex-row">
-                          <div className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 bg-surface-2 text-accent">
-                            <Bot className="w-3 h-3" />
+                        <div key={msg.id} className="flex gap-2 flex-row max-w-[75%]">
+                          <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 bg-surface-2 border border-border text-accent">
+                            <Bot className="w-3.5 h-3.5" />
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className="rounded-xl border border-accent/30 bg-surface/80 backdrop-blur-sm overflow-hidden">
@@ -1304,11 +1310,11 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
 
                     if (msgType === 'audio_result') {
                       return (
-                        <div key={msg.id} className="flex gap-1.5 flex-row">
-                          <div className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 bg-surface-2 text-accent">
-                            <Volume2 className="w-3 h-3" />
+                        <div key={msg.id} className="flex gap-2 flex-row max-w-[75%]">
+                          <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 bg-surface-2 border border-border text-accent">
+                            <Volume2 className="w-3.5 h-3.5" />
                           </div>
-                          <div className="max-w-[80%] rounded-lg px-2.5 py-2 bg-surface/80 backdrop-blur-sm border border-border text-text">
+                          <div className="max-w-[80%] rounded-xl px-3 py-2.5 bg-surface border border-border text-text">
                             {msg.audioPrompt && <p className="text-[10px] text-text-2 mb-1 italic">"{msg.audioPrompt}"</p>}
                             <audio controls src={msg.audioUrl} className="w-full h-8" />
                             <div className="flex items-center gap-2 mt-1">
@@ -1322,11 +1328,11 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
 
                     if (msgType === 'transcription_result') {
                       return (
-                        <div key={msg.id} className="flex gap-1.5 flex-row">
-                          <div className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 bg-surface-2 text-accent">
-                            <Mic className="w-3 h-3" />
+                        <div key={msg.id} className="flex gap-2 flex-row max-w-[75%]">
+                          <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 bg-surface-2 border border-border text-accent">
+                            <Mic className="w-3.5 h-3.5" />
                           </div>
-                          <div className="max-w-[80%] rounded-lg px-2.5 py-2 bg-surface/80 backdrop-blur-sm border border-border text-text">
+                          <div className="max-w-[80%] rounded-xl px-3 py-2.5 bg-surface border border-border text-text">
                             <div className="flex items-center justify-between mb-1">
                               <span className="text-[10px] font-medium text-text-2">Transcription</span>
                               <button
@@ -1348,11 +1354,11 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
 
                     if (msgType === 'video_result') {
                       return (
-                        <div key={msg.id} className="flex gap-1.5 flex-row">
-                          <div className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 bg-surface-2 text-accent">
-                            <Video className="w-3 h-3" />
+                        <div key={msg.id} className="flex gap-2 flex-row max-w-[75%]">
+                          <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 bg-surface-2 border border-border text-accent">
+                            <Video className="w-3.5 h-3.5" />
                           </div>
-                          <div className="max-w-[80%] rounded-lg px-2.5 py-2 bg-surface/80 backdrop-blur-sm border border-border text-text">
+                          <div className="max-w-[80%] rounded-xl px-3 py-2.5 bg-surface border border-border text-text">
                             {msg.videoPrompt && <p className="text-[10px] text-text-2 mb-1 italic">"{msg.videoPrompt}"</p>}
                             <video controls src={msg.videoUrl} className="w-full rounded" />
                             <div className="flex items-center gap-2 mt-1">
@@ -1366,11 +1372,11 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
 
                     if (msgType === 'file_result') {
                       return (
-                        <div key={msg.id} className="flex gap-1.5 flex-row">
-                          <div className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 bg-surface-2 text-accent">
-                            <FileText className="w-3 h-3" />
+                        <div key={msg.id} className="flex gap-2 flex-row max-w-[75%]">
+                          <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 bg-surface-2 border border-border text-accent">
+                            <FileText className="w-3.5 h-3.5" />
                           </div>
-                          <div className="max-w-[80%] rounded-lg px-2.5 py-2 bg-surface/80 backdrop-blur-sm border border-border text-text">
+                          <div className="max-w-[80%] rounded-xl px-3 py-2.5 bg-surface border border-border text-text">
                             <a href={msg.fileUrl} download={msg.fileName} className="flex items-center gap-1.5 text-xs text-accent hover:text-accent-hover transition-colors">
                               <FileText className="w-3.5 h-3.5" />
                               <span className="truncate">{msg.fileName || 'Download file'}</span>
@@ -1383,13 +1389,13 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
                     }
 
                     return (
-                      <div key={msg.id} className={`flex gap-1.5 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
-                        <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${
-                          msg.role === 'user' ? 'bg-accent text-white' : 'bg-surface-2 text-text-2'}`}>
-                          {msg.role === 'user' ? <User className="w-3 h-3" /> : <Bot className="w-3 h-3" />}
+                      <div key={msg.id} className={`flex gap-2 max-w-[75%] ${msg.role === 'user' ? 'flex-row-reverse self-end' : 'flex-row self-start'}`}>
+                        <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${
+                          msg.role === 'user' ? 'bg-accent text-white' : 'bg-surface-2 border border-border text-text-2'}`}>
+                          {msg.role === 'user' ? <User className="w-3.5 h-3.5" /> : <Bot className="w-3.5 h-3.5" />}
                         </div>
-                        <div className={`max-w-[80%] rounded-lg px-2.5 py-1.5 text-xs whitespace-pre-wrap ${
-                          msg.role === 'user' ? 'bg-accent text-white' : 'bg-surface/80 backdrop-blur-sm border border-border text-text'}`}>
+                        <div className={`rounded-xl px-3.5 py-2.5 text-sm whitespace-pre-wrap leading-relaxed ${
+                          msg.role === 'user' ? 'bg-accent text-white' : 'bg-surface border border-border text-text'}`}>
                           {msg.content}
                           {msg.attachmentUrl && (
                             <div className="mt-2 pt-2 border-t border-white/20">
@@ -1413,17 +1419,17 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
                   })}
 
                   {(activityLog.length > 0 || isProcessing) && (
-                    <div className="flex flex-col gap-1 pl-7">
+                    <div className="flex flex-col gap-1.5 pl-9">
                       {activityLog.map((entry) => (
-                        <div key={entry.id} className="flex items-center gap-1.5 text-[10px] text-text-2">
-                          {entry.status === 'current' ? <Loader2 className="w-2.5 h-2.5 text-accent animate-spin shrink-0" /> :
-                            <CheckCircle className="w-2.5 h-2.5 text-success shrink-0" />}
+                        <div key={entry.id} className="flex items-center gap-2 text-[11px] text-text-2">
+                          {entry.status === 'current' ? <Loader2 className="w-3 h-3 text-accent animate-spin shrink-0" /> :
+                            <CheckCircle className="w-3 h-3 text-success shrink-0" />}
                           <span>{entry.text}</span>
                         </div>
                       ))}
                       {isProcessing && activityLog.length === 0 && !isThinking && (
-                        <div className="flex items-center gap-1.5 text-[10px] text-text-2">
-                          <Loader2 className="w-2.5 h-2.5 text-accent animate-spin shrink-0" />
+                        <div className="flex items-center gap-2 text-[11px] text-text-2">
+                          <Loader2 className="w-3 h-3 text-accent animate-spin shrink-0" />
                           <span>Processing...</span>
                         </div>
                       )}
@@ -1432,9 +1438,9 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
 
                   {/* Standalone thinking block — when thinking is active but no plan message yet */}
                   {isThinking && !messages.some(m => m.messageType === 'plan') && (
-                    <div className="flex gap-1.5 flex-row">
-                      <div className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 bg-surface-2 text-accent">
-                        <Bot className="w-3 h-3" />
+                    <div className="flex gap-2 flex-row max-w-[75%]">
+                      <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 bg-surface-2 border border-border text-accent">
+                        <Bot className="w-3.5 h-3.5" />
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="rounded-lg bg-surface-2/50 border border-border/50">
@@ -1443,23 +1449,23 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
                               thinkingManualExpandRef.current = true;
                               setThinkingExpanded(!thinkingExpanded);
                             }}
-                            className="w-full flex items-center gap-1.5 px-2.5 py-1.5 hover:bg-surface-2/80 rounded-lg transition-colors"
+                            className="w-full flex items-center gap-2 px-3 py-2 hover:bg-surface-2/80 rounded-lg transition-colors"
                           >
                             {isProcessing ? (
-                              <Loader2 className="w-3 h-3 text-accent animate-spin shrink-0" />
+                              <Loader2 className="w-3.5 h-3.5 text-accent animate-spin shrink-0" />
                             ) : (
-                              <Brain className="w-3 h-3 text-text-2 shrink-0" />
+                              <Brain className="w-3.5 h-3.5 text-text-2 shrink-0" />
                             )}
-                            <span className="text-[11px] text-text-2 font-medium">
+                            <span className="text-xs text-text-2 font-medium">
                               {isProcessing ? 'กำลังคิด...' : thinkingDuration !== null ? `คิดเสร็จแล้ว (${thinkingDuration}s)` : 'ความคิดของ AI'}
                             </span>
                             <span className="ml-auto">
-                              {thinkingExpanded ? <ChevronDown className="w-3 h-3 text-text-2" /> : <ChevronRight className="w-3 h-3 text-text-2" />}
+                              {thinkingExpanded ? <ChevronDown className="w-3.5 h-3.5 text-text-2" /> : <ChevronRight className="w-3.5 h-3.5 text-text-2" />}
                             </span>
                           </button>
                           {thinkingExpanded && (
-                            <div className="px-2.5 pb-2 pt-0.5">
-                              <div className="text-[11px] text-text-2 leading-relaxed">
+                            <div className="px-3 pb-2 pt-0.5">
+                              <div className="text-xs text-text-2 leading-relaxed">
                                 {isProcessing ? 'AI กำลังวิเคราะห์คำขอและวางแผนการทำงาน...' : 'AI วิเคราะห์คำขอเสร็จแล้ว'}
                               </div>
                             </div>
@@ -1473,7 +1479,7 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
             </div>
 
             {/* Input bar */}
-            <div ref={inputBarRef} className="border-t border-border p-2 shrink-0 relative">
+            <div ref={inputBarRef} className="border-t border-border p-3 shrink-0 relative">
               {modelPickerOpen && (
                 <ModelPicker
                   recommended={modelCatalog}
@@ -1489,7 +1495,7 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
               <button
                 onClick={handleOpenModelPicker}
                 disabled={disabled}
-                className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg border mb-1.5 transition-colors text-left ${
+                className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg border mb-2 transition-colors text-left ${
                   modelPickerOpen
                     ? 'bg-accent/10 border-accent/40 text-text'
                     : 'bg-surface-2 border-border text-text-2 hover:text-text hover:border-border/80'
@@ -1502,61 +1508,61 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
                   if (favicon) {
                     return <img src={favicon} alt="" className="w-4 h-4 rounded shrink-0 object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />;
                   }
-                  return <Cpu className={`w-3.5 h-3.5 shrink-0 ${modelPickerOpen ? 'text-accent' : ''}`} />;
+                  return <Cpu className={`w-4 h-4 shrink-0 ${modelPickerOpen ? 'text-accent' : ''}`} />;
                 })()}
                 {selectedModel ? (
                   <>
-                    <span className="text-[10px] font-medium text-text flex-1 truncate">{findModelName(selectedModel, modelCatalog, modelSearchResults)}</span>
-                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-accent/15 text-accent shrink-0">Manual</span>
+                    <span className="text-xs font-medium text-text flex-1 truncate">{findModelName(selectedModel, modelCatalog, modelSearchResults)}</span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-accent/15 text-accent shrink-0">Manual</span>
                   </>
                 ) : (
                   <>
-                    <span className="text-[10px] font-medium text-text flex-1 truncate">
+                    <span className="text-xs font-medium text-text flex-1 truncate">
                       {resolvedModel ? findModelName(resolvedModel, modelCatalog, modelSearchResults) : 'Resolving...'}
                     </span>
-                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-500 shrink-0">Auto</span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-500 shrink-0">Auto</span>
                   </>
                 )}
-                <ChevronDown className={`w-3 h-3 shrink-0 transition-transform ${modelPickerOpen ? 'rotate-180' : ''}`} />
+                <ChevronDown className={`w-3.5 h-3.5 shrink-0 transition-transform ${modelPickerOpen ? 'rotate-180' : ''}`} />
               </button>
               {/* Mode toggle: Chat / Plan */}
-              <div className="flex items-center gap-1 mb-1.5">
+              <div className="flex items-center gap-1.5 mb-2">
                 <button
                   onClick={() => onModeChange?.('chat')}
                   disabled={disabled}
-                  className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium transition-colors ${
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
                     inputMode === 'chat'
                       ? 'bg-accent/15 text-accent border border-accent/30'
                       : 'bg-surface-2 text-text-2 border border-transparent hover:text-text'
                   } disabled:opacity-50`}
                 >
-                  <MessageSquare className="w-3 h-3" />
+                  <MessageSquare className="w-3.5 h-3.5" />
                   Chat
                 </button>
                 <button
                   onClick={() => onModeChange?.('plan')}
                   disabled={disabled}
-                  className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium transition-colors ${
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
                     inputMode === 'plan'
                       ? 'bg-accent/15 text-accent border border-accent/30'
                       : 'bg-surface-2 text-text-2 border border-transparent hover:text-text'
                   } disabled:opacity-50`}
                 >
-                  <Sparkles className="w-3 h-3" />
+                  <Sparkles className="w-3.5 h-3.5" />
                   Plan
                 </button>
               </div>
               {attachment && (
-                <div className="flex items-center gap-1.5 mb-1 px-2 py-1 rounded-md bg-surface-2 border border-border/50">
+                <div className="flex items-center gap-2 mb-2 px-3 py-1.5 rounded-md bg-surface-2 border border-border/50">
                   {attachmentPreview && attachmentPreview.startsWith('data:') && (
-                    <img src={attachmentPreview} alt="" className="w-6 h-6 rounded object-cover shrink-0" />
+                    <img src={attachmentPreview} alt="" className="w-7 h-7 rounded object-cover shrink-0" />
                   )}
-                  {attachmentPreview === 'audio' && <Volume2 className="w-3.5 h-3.5 text-accent shrink-0" />}
-                  {attachmentPreview === 'video' && <Video className="w-3.5 h-3.5 text-accent shrink-0" />}
-                  {attachmentPreview === 'file' && <FileText className="w-3.5 h-3.5 text-accent shrink-0" />}
-                  <span className="text-[10px] text-text-2 truncate flex-1">{attachment.name}</span>
+                  {attachmentPreview === 'audio' && <Volume2 className="w-4 h-4 text-accent shrink-0" />}
+                  {attachmentPreview === 'video' && <Video className="w-4 h-4 text-accent shrink-0" />}
+                  {attachmentPreview === 'file' && <FileText className="w-4 h-4 text-accent shrink-0" />}
+                  <span className="text-xs text-text-2 truncate flex-1">{attachment.name}</span>
                   <button onClick={() => { setAttachment(null); setAttachmentPreview(null); }} className="text-text-2 hover:text-danger transition-colors">
-                    <X className="w-3 h-3" />
+                    <X className="w-3.5 h-3.5" />
                   </button>
                 </div>
               )}
@@ -1567,14 +1573,14 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
                 className="hidden"
                 accept="image/*,audio/*,video/*,.pdf,.txt,.json,.csv,.doc,.docx,.md"
               />
-              <div className="flex items-end gap-1.5">
+              <div className="flex items-end gap-2">
                 <button
                   onClick={() => fileInputRef.current?.click()}
                   disabled={disabled}
-                  className="p-1.5 rounded-lg border border-border text-text-2 hover:text-accent hover:border-accent/50 disabled:opacity-50 transition-colors mb-0.5"
+                  className="p-2 rounded-lg border border-border text-text-2 hover:text-accent hover:border-accent/50 disabled:opacity-50 transition-colors mb-0.5"
                   title="Attach file"
                 >
-                  <Paperclip className="w-3.5 h-3.5" />
+                  <Paperclip className="w-4 h-4" />
                 </button>
                 <textarea
                   ref={textareaRef}
@@ -1585,23 +1591,23 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
                   placeholder={disabled ? 'Waiting...' : 'Type a message...'}
                   disabled={disabled}
                   rows={1}
-                  className="flex-1 bg-surface-2 border border-border rounded-lg px-2.5 py-1.5 text-xs text-text placeholder:text-text-2 focus:outline-none focus:border-accent disabled:opacity-50 resize-none overflow-hidden"
-                  style={{ minHeight: '32px', maxHeight: '100px' }}
+                  className="flex-1 bg-surface-2 border border-border rounded-lg px-3 py-2 text-sm text-text placeholder:text-text-2 focus:outline-none focus:border-accent disabled:opacity-50 resize-none overflow-hidden"
+                  style={{ minHeight: '38px', maxHeight: '120px' }}
                 />
                 {isProcessing ? (
                   <button
                     onClick={() => onStop?.()}
-                    className="p-1.5 rounded-lg bg-danger text-white hover:bg-danger/80 transition-colors mb-0.5"
+                    className="p-2 rounded-lg bg-danger text-white hover:bg-danger/80 transition-colors mb-0.5"
                     title="Stop"
                   >
-                    <Square className="w-3.5 h-3.5 fill-current" />
+                    <Square className="w-4 h-4 fill-current" />
                   </button>
                 ) : (
                   <button
                     onClick={handleSubmit}
                     disabled={disabled || (!input.trim() && !attachment)}
-                    className="p-1.5 rounded-lg bg-accent text-white hover:bg-accent-hover disabled:opacity-50 transition-colors mb-0.5">
-                    <Send className="w-3.5 h-3.5" />
+                    className="p-2 rounded-lg bg-accent text-white hover:bg-accent-hover disabled:opacity-50 transition-colors mb-0.5">
+                    <Send className="w-4 h-4" />
                   </button>
                 )}
               </div>
