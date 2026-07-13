@@ -83,6 +83,8 @@ class StateMessenger:
                 "tools": a.get("tools", []),
                 "model": a.get("model", ""),
                 "status": a.get("status", "Idle"),
+                "team_id": a.get("team_id"),
+                "is_manager": a.get("is_manager", False),
             }
             for a in agents
         ]

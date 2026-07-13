@@ -8,6 +8,7 @@ export interface Agent {
   model?: string;
   depends_on?: string[];
   status: 'Idle' | 'Busy' | string;
+  is_manager?: boolean;
 }
 
 export interface AgentOutput {

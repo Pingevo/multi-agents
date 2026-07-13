@@ -67,6 +67,8 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const teamAgents = agents.filter((a) => team.agent_ids.includes(a.id));
+  const managerAgent = teamAgents.find((a) => a.is_manager);
+  const regularAgents = teamAgents.filter((a) => !a.is_manager);
   const statusText = connectionStatus === 'connected' ? system_status : 'Connecting...';
 
   const handleConfigAgent = useCallback((agent: Agent) => {
@@ -154,14 +156,32 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({
               <span className="text-[10px] text-text-3">{teamAgents.length}</span>
             </div>
             <div className="flex-1 overflow-auto py-1">
-              {teamAgents.length === 0 ? (
+              {managerAgent && (
+                <div className="px-3 py-1 border-b border-border mb-1">
+                  <span className="text-[10px] font-medium text-text-3 uppercase tracking-wide">Manager</span>
+                  <button
+                    onClick={() => handleConfigAgent(managerAgent)}
+                    className="w-full text-left px-2 py-2 hover:bg-surface-2 rounded transition-colors group mt-1"
+                  >
+                    <div className="flex items-center gap-2">
+                      <div className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-text truncate">{managerAgent.name}</p>
+                        <p className="text-[10px] text-text-3 truncate">{managerAgent.role}</p>
+                      </div>
+                      <Settings className="w-3 h-3 text-text-3 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                    </div>
+                  </button>
+                </div>
+              )}
+              {regularAgents.length === 0 && !managerAgent ? (
                 <p className="text-xs text-text-3 italic px-3 py-4 text-center">
                   No agents yet.
                   <br />
                   Send a message to create some.
                 </p>
               ) : (
-                teamAgents.map((agent) => (
+                regularAgents.map((agent) => (
                   <button
                     key={agent.id}
                     onClick={() => handleConfigAgent(agent)}

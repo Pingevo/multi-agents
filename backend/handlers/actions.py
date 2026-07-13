@@ -396,7 +396,7 @@ async def on_action_reject_tuning(action: cl.Action):
 
 @cl.action_callback("create_team")
 async def on_action_create_team(action: cl.Action):
-    """Create a new team."""
+    """Create a new team with a manager agent."""
     messenger = get_messenger()
     payload = action.payload or {}
     name = payload.get("name", "").strip()
@@ -412,8 +412,24 @@ async def on_action_create_team(action: cl.Action):
     team = team_registry.create_team(name=name, description=description, manager_model=manager_model)
     cl.user_session.set("team_registry", team_registry)
 
+    # Create manager agent for this team
+    registry = cl.user_session.get("registry") or AgentRegistry()
+    manager_agent = registry.add_agent({
+        "name": f"{name} Manager",
+        "role": "Manager",
+        "goal": f"Coordinate the team '{name}' to accomplish user tasks efficiently. Delegate work, run independent tasks in parallel, and synthesize results.",
+        "persona": "You are an experienced project manager who coordinates teams effectively.",
+        "model": manager_model if manager_model != "auto" else "",
+        "tools": [],
+        "team_id": team["id"],
+        "is_manager": True,
+    })
+    team_registry.add_agent(team["id"], manager_agent["id"])
+    cl.user_session.set("registry", registry)
+
     if messenger:
         await messenger.reply_team_list(team_registry)
+        await messenger.update_agents(registry)
         await messenger.notify(f"✅ สร้างทีม {team['name']} สำเร็จ")
 
 

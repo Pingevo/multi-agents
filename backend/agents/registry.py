@@ -65,6 +65,7 @@ class AgentRegistry:
             "depends_on": spec.get("depends_on", []),
             "model": spec.get("model", ""),
             "team_id": spec.get("team_id", None),
+            "is_manager": spec.get("is_manager", False),
             "status": "Idle",
             "created_at": datetime.now().isoformat(),
             "last_used_at": None,
