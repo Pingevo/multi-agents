@@ -1,0 +1,11 @@
+[
+  {
+    "id": "bae76592",
+    "name": "ทดสอบ 1",
+    "description": "ทดสอบสร้างทีม Manual",
+    "manager_model": "auto",
+    "agent_ids": [],
+    "created_at": "2026-07-13T11:11:32.096388",
+    "updated_at": "2026-07-13T11:11:32.096396"
+  }
+]

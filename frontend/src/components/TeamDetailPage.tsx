@@ -204,8 +204,7 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({
 
         {/* Right: Chat panel */}
         {!rightCollapsed && (
-          <div className="w-[420px] bg-surface border-l border-border flex flex-col shrink-0">
-            <ChatPanelRight
+          <ChatPanelRight
               messages={chatMessages}
               activityLog={activityLog}
               isProcessing={isProcessing}
@@ -245,14 +244,13 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({
               preloadedMediaCatalog={preloadedMediaCatalog}
               preloadedMediaSearchResults={preloadedMediaSearchResults}
             />
-          </div>
         )}
 
         {/* Collapse toggle for right panel */}
         <button
           onClick={() => setRightCollapsed(!rightCollapsed)}
           className="absolute right-0 top-1/2 -translate-y-1/2 z-10 w-4 h-12 bg-surface border border-border rounded-l flex items-center justify-center hover:bg-surface-2 transition-colors"
-          style={{ right: rightCollapsed ? 0 : '26.25rem' }}
+          style={{ right: rightCollapsed ? 0 : '22.5rem' }}
         >
           {rightCollapsed ? <ChevronLeft className="w-3 h-3 text-text-3" /> : <ChevronRight className="w-3 h-3 text-text-3" />}
         </button>

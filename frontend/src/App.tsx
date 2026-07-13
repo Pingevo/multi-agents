@@ -609,11 +609,11 @@ function AppContent() {
         }
         prevNotificationsRef.current = [...newNotifications];
 
-        // Only clear activity + isProcessing when no running tasks AND no notifications AND no pending approvals
+        // Only clear activity + isProcessing when no running tasks AND no pending approvals
         const payloadTasks = payload.tasks || [];
         const hasRunning = payloadTasks.some((t: any) => t.status === 'running');
         const hasPendingApprovals = chatMessages.some((m: ChatMessage) => m.messageType === 'image_approval' && m.approvalStatus === 'pending');
-        if (!hasRunning && newNotifications.length === 0 && !hasPendingApprovals) {
+        if (!hasRunning && !hasPendingApprovals) {
           clearActivity();
           setIsProcessing(false);
         }
@@ -922,6 +922,12 @@ function AppContent() {
         open={showCreateModal}
         onClose={() => setShowCreateModal(false)}
         onCreate={(data) => handleAction('create_team', data)}
+        onFetchModelCatalog={() => handleAction('fetch_model_catalog')}
+        onSearchModels={(query) => handleAction('search_models', { query })}
+        modelCatalog={modelCatalogData.recommended}
+        modelSearchResults={modelCatalogData.searchResults}
+        selectedModel={selectedModel}
+        resolvedModel={resolvedModel}
       />
     </>
   );
