@@ -561,7 +561,7 @@ function AppContent() {
           if (reply.modelCatalogResolved) {
             setResolvedModel(reply.modelCatalogResolved);
           }
-          // Store catalog data in separate state
+          // Also store catalog data in separate state for persistence across chat resets
           if (reply.modelCatalogRecommended) {
             const catalogType = (reply as any).catalogType || 'text';
             if (catalogType === 'media') {
@@ -579,8 +579,6 @@ function AppContent() {
               setModelCatalogData(prev => ({ ...prev, recommended: reply.modelCatalogRecommended!, searchResults: reply.modelCatalogSearchResults || [] }));
             }
           }
-          // Don't add model_catalog to chatMessages — it's metadata
-          return;
         }
 
         return;
