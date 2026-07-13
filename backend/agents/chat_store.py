@@ -73,10 +73,13 @@ class ChatStore:
             return True
         return False
 
-    def list_sessions(self, team_id: str | None = None) -> list[dict]:
+    def list_sessions(self, team_id: str | None = None, include_unassigned: bool = False) -> list[dict]:
         sessions = self.sessions
         if team_id is not None:
-            sessions = [s for s in sessions if s.get("team_id") == team_id]
+            if include_unassigned:
+                sessions = [s for s in sessions if s.get("team_id") == team_id or s.get("team_id") is None]
+            else:
+                sessions = [s for s in sessions if s.get("team_id") == team_id]
         return sorted(sessions, key=lambda s: s.get("updated_at", ""), reverse=True)
 
     def save_canvas_state(self, session_id: str, canvas_state: dict):

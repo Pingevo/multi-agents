@@ -782,7 +782,7 @@ async def on_message(message: cl.Message):
             messenger.chat_store.delete_session(session_id)
             # Switch to another session or create new
             current_team_id = cl.user_session.get("current_team_id")
-            remaining = messenger.chat_store.list_sessions(team_id=current_team_id)
+            remaining = messenger.chat_store.list_sessions(team_id=current_team_id, include_unassigned=True)
             if remaining:
                 messenger.current_session_id = remaining[0]["id"]
             else:
@@ -978,8 +978,8 @@ async def on_message(message: cl.Message):
             if team_id:
                 team = team_registry.get_team(team_id)
                 if team and messenger:
-                    # List sessions for this team
-                    sessions = messenger.chat_store.list_sessions(team_id=team_id)
+                    # List sessions for this team (include legacy unassigned sessions)
+                    sessions = messenger.chat_store.list_sessions(team_id=team_id, include_unassigned=True)
                     session_list = [
                         {"id": s["id"], "title": s["title"], "updated_at": s.get("updated_at", "")}
                         for s in sessions
