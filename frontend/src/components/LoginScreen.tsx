@@ -1,12 +1,19 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 
 export function LoginScreen() {
-  const { login } = useAuth();
+  const { login, getLoginUrl } = useAuth();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [oauthUrl, setOauthUrl] = useState('');
+
+  useEffect(() => {
+    getLoginUrl().then((url) => {
+      if (url) setOauthUrl(url);
+    });
+  }, [getLoginUrl]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,6 +34,10 @@ export function LoginScreen() {
     setLoading(false);
   };
 
+  const handleOAuthLogin = () => {
+    if (oauthUrl) window.location.href = oauthUrl;
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
       <div className="w-full max-w-md p-8 bg-slate-800/50 backdrop-blur-sm rounded-2xl border border-slate-700 shadow-2xl">
@@ -34,6 +45,17 @@ export function LoginScreen() {
           <h1 className="text-3xl font-bold text-white mb-2">Multi-Agent Platform</h1>
           <p className="text-slate-400">Sign in to access your workspace</p>
         </div>
+
+        {oauthUrl && (
+          <button
+            type="button"
+            onClick={handleOAuthLogin}
+            disabled={loading}
+            className="w-full py-2.5 px-4 mb-6 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-600 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors"
+          >
+            Login with System81
+          </button>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>

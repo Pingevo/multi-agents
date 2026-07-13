@@ -74,6 +74,7 @@ from backend.handlers.actions import (
     on_action_config_agent,
 )
 from backend.auth.dev_login import DevLoginProvider
+from backend.auth.system81 import System81AuthProvider
 from backend.auth.user_store import UserStore
 from backend.auth.session import SessionManager
 
@@ -142,14 +143,34 @@ if os.path.exists(os.path.join(os.path.dirname(__file__), "public")):
 # ============================================================
 # Auth endpoints
 # ============================================================
-_auth_provider = DevLoginProvider()
+_use_dev_login = os.getenv("USE_DEV_LOGIN", "false").lower() == "true"
+_auth_provider = DevLoginProvider() if _use_dev_login else System81AuthProvider()
 _user_store = UserStore()
 _session_mgr = SessionManager()
 
 
+@_cl_server.app.get("/api/auth/login-url")
+async def _auth_login_url():
+    """Return the external OAuth login URL (if the provider supports redirect)."""
+    url = _auth_provider.get_login_url()
+    return JSONResponse({"login_url": url or ""})
+
+# Chainlit registers a catch-all `GET /{full_path:path}` route when
+# `chainlit.server` is imported, before this route is added — Starlette
+# matches in registration order, so the catch-all would otherwise shadow
+# this route and serve the SPA HTML instead of JSON. Move this route ahead
+# of the catch-all so it actually gets matched.
+_login_url_route = _cl_server.app.router.routes.pop()
+_included_router_idx = next(
+    i for i, r in enumerate(_cl_server.app.router.routes)
+    if type(r).__name__ == "_IncludedRouter"
+)
+_cl_server.app.router.routes.insert(_included_router_idx, _login_url_route)
+
+
 @_cl_server.app.post("/api/auth/login")
 async def _auth_login(request: Request):
-    """Login with username (DevLogin) or OAuth credentials."""
+    """Login with username/password or a System81/OAuth token."""
     try:
         body = await request.json()
         user = await _auth_provider.authenticate(body)

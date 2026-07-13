@@ -15,6 +15,8 @@ interface AuthContextValue {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  loginWithToken: (externalToken: string) => Promise<{ success: boolean; error?: string }>;
+  getLoginUrl: () => Promise<string>;
   logout: () => void;
 }
 
@@ -30,45 +32,97 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // On mount: check stored token
-  useEffect(() => {
-    const storedToken = localStorage.getItem(TOKEN_KEY);
-    const storedUser = localStorage.getItem(USER_KEY);
+  const setSession = useCallback((newToken: string, newUser: AuthUser) => {
+    setToken(newToken);
+    setUser(newUser);
+    localStorage.setItem(TOKEN_KEY, newToken);
+    localStorage.setItem(USER_KEY, JSON.stringify(newUser));
+  }, []);
 
-    if (storedToken && storedUser) {
-      // Verify token with backend
-      fetch(`${BACKEND_URL}/api/auth/verify`, {
+  const clearSession = useCallback(() => {
+    setToken(null);
+    setUser(null);
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
+  }, []);
+
+  const loginWithToken = useCallback(async (externalToken: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: storedToken }),
-      })
-        .then((res) => res.json())
-        .then((data) => {
-          if (data.valid && data.user) {
-            setToken(storedToken);
-            setUser(data.user);
-            localStorage.setItem(USER_KEY, JSON.stringify(data.user));
-          } else {
-            localStorage.removeItem(TOKEN_KEY);
-            localStorage.removeItem(USER_KEY);
-          }
-        })
-        .catch(() => {
-          // Network error — use stored user as fallback
-          try {
-            const parsed = JSON.parse(storedUser);
-            setToken(storedToken);
-            setUser(parsed);
-          } catch {
-            localStorage.removeItem(TOKEN_KEY);
-            localStorage.removeItem(USER_KEY);
-          }
-        })
-        .finally(() => setIsLoading(false));
-    } else {
-      setIsLoading(false);
+        body: JSON.stringify({ token: externalToken }),
+      });
+      const data = await res.json();
+      if (data.token && data.user) {
+        setSession(data.token, data.user);
+        return { success: true };
+      }
+      return { success: false, error: data.error || 'Token login failed' };
+    } catch (e) {
+      return { success: false, error: String(e) };
+    }
+  }, [setSession]);
+
+  const getLoginUrl = useCallback(async (): Promise<string> => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/auth/login-url`);
+      const data = await res.json();
+      return data.login_url || '';
+    } catch {
+      return '';
     }
   }, []);
+
+  // On mount: handle OAuth redirect token, then verify stored token
+  useEffect(() => {
+    let handled = false;
+
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const oauthToken = params.get('token');
+      if (oauthToken) {
+        handled = true;
+        // Remove token from URL to avoid replay on refresh
+        const cleanUrl = window.location.pathname + window.location.hash;
+        window.history.replaceState({}, document.title, cleanUrl);
+        loginWithToken(oauthToken).finally(() => setIsLoading(false));
+      }
+    }
+
+    if (!handled) {
+      const storedToken = localStorage.getItem(TOKEN_KEY);
+      const storedUser = localStorage.getItem(USER_KEY);
+
+      if (storedToken && storedUser) {
+        fetch(`${BACKEND_URL}/api/auth/verify`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: storedToken }),
+        })
+          .then((res) => res.json())
+          .then((data) => {
+            if (data.valid && data.user) {
+              setSession(storedToken, data.user);
+            } else {
+              clearSession();
+            }
+          })
+          .catch(() => {
+            // Network error — use stored user as fallback
+            try {
+              const parsed = JSON.parse(storedUser);
+              setSession(storedToken, parsed);
+            } catch {
+              clearSession();
+            }
+          })
+          .finally(() => setIsLoading(false));
+      } else {
+        setIsLoading(false);
+      }
+    }
+  }, [loginWithToken, setSession, clearSession]);
 
   const login = useCallback(async (username: string, password: string): Promise<{ success: boolean; error?: string }> => {
     try {
@@ -79,17 +133,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
       const data = await res.json();
       if (data.token && data.user) {
-        setToken(data.token);
-        setUser(data.user);
-        localStorage.setItem(TOKEN_KEY, data.token);
-        localStorage.setItem(USER_KEY, JSON.stringify(data.user));
+        setSession(data.token, data.user);
         return { success: true };
       }
       return { success: false, error: data.error || 'Login failed' };
     } catch (e) {
       return { success: false, error: String(e) };
     }
-  }, []);
+  }, [setSession]);
 
   const logout = useCallback(() => {
     if (token) {
@@ -99,11 +150,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify({ token }),
       }).catch(() => {});
     }
-    setToken(null);
-    setUser(null);
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(USER_KEY);
-  }, [token]);
+    clearSession();
+  }, [token, clearSession]);
 
   return (
     <AuthContext.Provider
@@ -113,6 +161,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAuthenticated: !!user && !!token,
         isLoading,
         login,
+        loginWithToken,
+        getLoginUrl,
         logout,
       }}
     >
