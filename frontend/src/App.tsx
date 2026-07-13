@@ -850,6 +850,12 @@ function AppContent() {
           open={showCreateModal}
           onClose={() => setShowCreateModal(false)}
           onCreate={(data) => handleAction('create_team', data)}
+          onFetchModelCatalog={() => handleAction('fetch_model_catalog')}
+          onSearchModels={(query) => handleAction('search_models', { query })}
+          modelCatalog={modelCatalogData.recommended}
+          modelSearchResults={modelCatalogData.searchResults}
+          selectedModel={selectedModel}
+          resolvedModel={resolvedModel}
         />
         <AICreateTeamModal
           open={showAICreateModal}
@@ -864,7 +870,11 @@ function AppContent() {
             setAiChatMessages([]);
             setAiThinkingText('');
           }}
-          onSelectModel={() => handleAction('fetch_model_catalog')}
+          onFetchModelCatalog={() => handleAction('fetch_model_catalog')}
+          onSearchModels={(query) => handleAction('search_models', { query })}
+          onSelectModel={(modelId) => handleAction('set_selected_model', { model_id: modelId })}
+          modelCatalog={modelCatalogData.recommended}
+          modelSearchResults={modelCatalogData.searchResults}
           selectedModel={selectedModel}
           resolvedModel={resolvedModel}
           isThinking={aiIsThinking}

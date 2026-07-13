@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
-import { X, Sparkles, Send, Check, Edit } from 'lucide-react';
+import { X, Sparkles, Send, Check, Edit, Cpu, ChevronDown } from 'lucide-react';
+import { ModelPicker, PROVIDER_FAVICONS, getProvider, findModelName } from './ModelPicker';
+import type { ModelCatalogEntry } from './ModelPicker';
 import type { ChatMessage } from './chatTypes';
 
 interface AICreateTeamModalProps {
@@ -8,7 +10,11 @@ interface AICreateTeamModalProps {
   onSend: (message: string) => void;
   chatMessages: ChatMessage[];
   onCreateTeam: (data: { name: string; description: string; manager_model: string }) => void;
-  onSelectModel: () => void;
+  onFetchModelCatalog?: () => void;
+  onSearchModels?: (query: string) => void;
+  onSelectModel?: (modelId: string) => void;
+  modelCatalog?: Record<string, ModelCatalogEntry[]>;
+  modelSearchResults?: ModelCatalogEntry[];
   selectedModel?: string;
   resolvedModel?: string;
   isThinking?: boolean;
@@ -28,7 +34,11 @@ export const AICreateTeamModal: React.FC<AICreateTeamModalProps> = ({
   onSend,
   chatMessages,
   onCreateTeam,
+  onFetchModelCatalog,
+  onSearchModels,
   onSelectModel,
+  modelCatalog = {},
+  modelSearchResults = [],
   selectedModel,
   resolvedModel,
   isThinking,
@@ -39,7 +49,9 @@ export const AICreateTeamModal: React.FC<AICreateTeamModalProps> = ({
   const [editMode, setEditMode] = useState(false);
   const [editedName, setEditedName] = useState('');
   const [editedDesc, setEditedDesc] = useState('');
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const modelBarRef = useRef<HTMLDivElement>(null);
 
   const modalMessages = chatMessages.filter(
     (m) => m.messageType === 'text' || m.messageType === 'thinking' || m.messageType === 'thinking_done'
@@ -121,13 +133,46 @@ export const AICreateTeamModal: React.FC<AICreateTeamModalProps> = ({
         </div>
 
         {/* Model selector */}
-        <div className="flex items-center gap-2 px-5 py-2 border-b border-border shrink-0">
-          <span className="text-xs text-text-3">Model:</span>
+        <div ref={modelBarRef} className="px-5 py-2 border-b border-border shrink-0 relative">
+          {modelPickerOpen && (
+            <ModelPicker
+              recommended={modelCatalog}
+              searchResults={modelSearchResults}
+              selectedModel={selectedModel || ''}
+              onSelect={(modelId) => { onSelectModel?.(modelId); }}
+              onSearch={(q) => onSearchModels?.(q)}
+              onClose={() => setModelPickerOpen(false)}
+              anchorRef={modelBarRef}
+            />
+          )}
           <button
-            onClick={onSelectModel}
-            className="text-xs px-2 py-1 bg-surface-2 border border-border rounded text-text-2 hover:border-accent/50 transition-colors"
+            onClick={() => {
+              if (modelPickerOpen) { setModelPickerOpen(false); return; }
+              if (Object.keys(modelCatalog).length === 0 && onFetchModelCatalog) onFetchModelCatalog();
+              setModelPickerOpen(true);
+            }}
+            className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg border transition-colors text-left ${
+              modelPickerOpen
+                ? 'bg-accent/10 border-accent/40 text-text'
+                : 'bg-surface-2 border-border text-text-2 hover:text-text hover:border-border/80'
+            }`}
           >
-            {selectedModel || resolvedModel || 'Auto'}
+            {(() => {
+              const modelId = selectedModel || resolvedModel || '';
+              const provider = getProvider(modelId);
+              const favicon = PROVIDER_FAVICONS[provider];
+              if (favicon) {
+                return <img src={favicon} alt="" className="w-4 h-4 rounded shrink-0 object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />;
+              }
+              return <Cpu className={`w-3.5 h-3.5 shrink-0 ${modelPickerOpen ? 'text-accent' : ''}`} />;
+            })()}
+            <span className="text-[10px] font-medium text-text flex-1 truncate">
+              {selectedModel || resolvedModel ? findModelName(selectedModel || resolvedModel || '', modelCatalog, modelSearchResults) : 'Auto Router'}
+            </span>
+            <span className={`text-[9px] px-1.5 py-0.5 rounded-full shrink-0 ${selectedModel ? 'bg-accent/15 text-accent' : 'bg-emerald-500/15 text-emerald-500'}`}>
+              {selectedModel ? 'Manual' : 'Auto'}
+            </span>
+            <ChevronDown className={`w-3 h-3 shrink-0 transition-transform ${modelPickerOpen ? 'rotate-180' : ''}`} />
           </button>
         </div>
 

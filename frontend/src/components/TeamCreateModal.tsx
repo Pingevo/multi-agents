@@ -1,28 +1,71 @@
-import { useState } from 'react';
-import { X } from 'lucide-react';
+import { useState, useRef } from 'react';
+import { X, Cpu, ChevronDown } from 'lucide-react';
+import { ModelPicker, PROVIDER_FAVICONS, getProvider, findModelName } from './ModelPicker';
+import type { ModelCatalogEntry } from './ModelPicker';
 
 interface TeamCreateModalProps {
   open: boolean;
   onClose: () => void;
   onCreate: (data: { name: string; description: string; manager_model: string }) => void;
+  onFetchModelCatalog?: () => void;
+  onSearchModels?: (query: string) => void;
+  modelCatalog?: Record<string, ModelCatalogEntry[]>;
+  modelSearchResults?: ModelCatalogEntry[];
+  selectedModel?: string;
+  resolvedModel?: string;
 }
 
-export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({ open, onClose, onCreate }) => {
+export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
+  open,
+  onClose,
+  onCreate,
+  onFetchModelCatalog,
+  onSearchModels,
+  modelCatalog = {},
+  modelSearchResults = [],
+  selectedModel: externalSelectedModel,
+  resolvedModel,
+}) => {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [managerModel, setManagerModel] = useState('auto');
+  const [managerModel, setManagerModel] = useState('');
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const inputBarRef = useRef<HTMLDivElement>(null);
 
   if (!open) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
-    onCreate({ name: name.trim(), description: description.trim(), manager_model: managerModel });
+    onCreate({ name: name.trim(), description: description.trim(), manager_model: managerModel || 'auto' });
     setName('');
     setDescription('');
-    setManagerModel('auto');
+    setManagerModel('');
     onClose();
   };
+
+  const handleOpenModelPicker = () => {
+    if (modelPickerOpen) {
+      setModelPickerOpen(false);
+      return;
+    }
+    if (Object.keys(modelCatalog).length === 0 && onFetchModelCatalog) {
+      onFetchModelCatalog();
+    }
+    setModelPickerOpen(true);
+  };
+
+  const handleSelectModel = (modelId: string) => {
+    setManagerModel(modelId);
+  };
+
+  const handleSearchModels = (query: string) => {
+    if (onSearchModels) {
+      onSearchModels(query);
+    }
+  };
+
+  const displayModel = managerModel || externalSelectedModel || resolvedModel || '';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={onClose}>
@@ -61,17 +104,44 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({ open, onClose,
             />
           </div>
 
-          <div>
+          <div ref={inputBarRef}>
+            {modelPickerOpen && (
+              <ModelPicker
+                recommended={modelCatalog}
+                searchResults={modelSearchResults}
+                selectedModel={managerModel}
+                onSelect={handleSelectModel}
+                onSearch={handleSearchModels}
+                onClose={() => setModelPickerOpen(false)}
+                anchorRef={inputBarRef}
+              />
+            )}
             <label className="block text-xs font-medium text-text-2 mb-1.5">Manager Model</label>
-            <select
-              value={managerModel}
-              onChange={(e) => setManagerModel(e.target.value)}
-              className="w-full px-3 py-2 bg-bg border border-border rounded-lg text-sm text-text focus:outline-none focus:ring-2 focus:ring-accent/50"
+            <button
+              type="button"
+              onClick={handleOpenModelPicker}
+              className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors text-left ${
+                modelPickerOpen
+                  ? 'bg-accent/10 border-accent/40 text-text'
+                  : 'bg-bg border-border text-text-2 hover:text-text hover:border-border/80'
+              }`}
             >
-              <option value="auto">Auto (OpenRouter selects)</option>
-              <option value="openrouter/auto">openrouter/auto</option>
-              <option value="openrouter/free">openrouter/free</option>
-            </select>
+              {(() => {
+                const provider = getProvider(displayModel);
+                const favicon = PROVIDER_FAVICONS[provider];
+                if (favicon) {
+                  return <img src={favicon} alt="" className="w-4 h-4 rounded shrink-0 object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />;
+                }
+                return <Cpu className={`w-3.5 h-3.5 shrink-0 ${modelPickerOpen ? 'text-accent' : ''}`} />;
+              })()}
+              <span className="text-sm font-medium text-text flex-1 truncate">
+                {displayModel ? findModelName(displayModel, modelCatalog, modelSearchResults) : 'Auto Router'}
+              </span>
+              <span className={`text-[9px] px-1.5 py-0.5 rounded-full shrink-0 ${managerModel ? 'bg-accent/15 text-accent' : 'bg-emerald-500/15 text-emerald-500'}`}>
+                {managerModel ? 'Manual' : 'Auto'}
+              </span>
+              <ChevronDown className={`w-3.5 h-3.5 shrink-0 transition-transform ${modelPickerOpen ? 'rotate-180' : ''}`} />
+            </button>
           </div>
 
           <div className="flex items-center gap-2 pt-2">
