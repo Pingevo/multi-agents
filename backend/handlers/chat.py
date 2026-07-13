@@ -442,7 +442,34 @@ async def execute_task_with_agent(
 
 @cl.on_chat_start
 async def on_chat_start():
-    registry = AgentRegistry()
+    # Auth check — get token from user_env (passed via socket userEnv field)
+    user_env = cl.user_session.get("env") or {}
+    auth_token = ""
+    if isinstance(user_env, dict):
+        auth_token = user_env.get("authToken") or user_env.get("auth_token") or ""
+    if not auth_token:
+        auth_token = cl.user_session.get("authToken") or cl.user_session.get("auth_token") or ""
+    user_id = None
+    username = ""
+
+    if auth_token:
+        from backend.auth.session import SessionManager
+        from backend.auth.user_store import UserStore
+        _session_mgr = SessionManager()
+        _user_store = UserStore()
+        user_id = _session_mgr.verify_token(auth_token)
+        if user_id:
+            profile = _user_store.get_by_id(user_id)
+            if profile:
+                username = profile.get("username", "")
+                _user_store.update_last_login(user_id)
+        else:
+            cl.user_session.set("auth_token", None)
+
+    # Fallback: dev mode without auth — use legacy paths
+    cl.user_session.set("user_id", user_id)
+
+    registry = AgentRegistry(user_id=user_id)
     cl.user_session.set("registry", registry)
     cl.user_session.set("state", STATE_IDLE)
     cl.user_session.set("current_agent_specs", None)
@@ -450,10 +477,10 @@ async def on_chat_start():
     cl.user_session.set("current_registry_id", None)
     cl.user_session.set("conversation_history", [])
 
-    team_registry = TeamRegistry()
+    team_registry = TeamRegistry(user_id=user_id)
     cl.user_session.set("team_registry", team_registry)
 
-    chat_store = ChatStore()
+    chat_store = ChatStore(user_id=user_id)
     # Create default session if none exists
     sessions = chat_store.list_sessions()
     if not sessions:
@@ -462,7 +489,7 @@ async def on_chat_start():
     else:
         current_session_id = sessions[0]["id"]
 
-    messenger = StateMessenger(task_store=TaskStore(), chat_store=chat_store)
+    messenger = StateMessenger(task_store=TaskStore(user_id=user_id), chat_store=chat_store)
     messenger.current_session_id = current_session_id
     cl.user_session.set("messenger", messenger)
     await messenger.init(registry)

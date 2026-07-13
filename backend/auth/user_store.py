@@ -1,6 +1,5 @@
 """UserStore — JSON-backed user profile storage at data/users.json."""
 
-import hashlib
 import json
 import os
 from datetime import datetime
@@ -8,18 +7,8 @@ from datetime import datetime
 from backend.auth.base import User
 
 
-def _hash_password(password: str) -> str:
-    """Hash password with SHA-256 + salt."""
-    salt = "my_agent_app_2026"  # Fixed salt for dev — will improve with bcrypt later
-    return hashlib.sha256(f"{salt}:{password}".encode()).hexdigest()
-
-
-def _verify_password(password: str, hashed: str) -> bool:
-    return _hash_password(password) == hashed
-
-
 class UserStore:
-    """เก็บข้อมูล user profile + password hash ใน JSON file"""
+    """เก็บข้อมูล user profile ใน JSON file"""
 
     def __init__(self, filepath: str | None = None):
         if filepath is None:
@@ -44,37 +33,8 @@ class UserStore:
         with open(self.filepath, "w", encoding="utf-8") as f:
             json.dump(self.users, f, ensure_ascii=False, indent=2)
 
-    def register(self, username: str, password: str) -> dict | None:
-        """Register a new user. Returns profile if success, None if username taken."""
-        user_id = f"dev_{username.lower()}"
-        if self.get_by_id(user_id):
-            return None  # Username already exists
-        profile = {
-            "user_id": user_id,
-            "username": username,
-            "email": "",
-            "provider": "dev",
-            "avatar_url": "",
-            "password_hash": _hash_password(password),
-            "created_at": datetime.now().isoformat(),
-            "last_login": datetime.now().isoformat(),
-        }
-        self.users.append(profile)
-        self._save()
-        return profile
-
-    def verify_password(self, user_id: str, password: str) -> bool:
-        """Verify password for a user."""
-        u = self.get_by_id(user_id)
-        if not u:
-            return False
-        stored_hash = u.get("password_hash", "")
-        if not stored_hash:
-            return False  # No password set (legacy user)
-        return _verify_password(password, stored_hash)
-
     def get_or_create(self, user: User) -> dict:
-        """Get existing user profile or create new one (for OAuth — no password)."""
+        """Get existing user profile or create new one."""
         existing = self.get_by_id(user.user_id)
         if existing:
             existing["last_login"] = datetime.now().isoformat()

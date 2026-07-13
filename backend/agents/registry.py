@@ -3,12 +3,14 @@
 import json
 import uuid
 from datetime import datetime
-from backend.globals import AGENT_REGISTRY_FILE
+from backend.globals import AGENT_REGISTRY_FILE, resolve_data_path
 
 class AgentRegistry:
     """คลาสสำหรับเก็บข้อมูล Agent ทั้งหมด (ID, Name, Role, Persona, Status)"""
 
-    def __init__(self, filepath: str = AGENT_REGISTRY_FILE):
+    def __init__(self, filepath: str = AGENT_REGISTRY_FILE, user_id: str | None = None):
+        if user_id:
+            filepath = resolve_data_path("agent_registry.json", user_id)
         self.filepath = filepath
         self.agents: list[dict] = []
         self._load()

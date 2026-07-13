@@ -3,12 +3,14 @@
 import json
 import uuid
 from datetime import datetime
-from backend.globals import CHAT_SESSIONS_FILE
+from backend.globals import CHAT_SESSIONS_FILE, resolve_data_path
 
 class ChatStore:
     """เก็บประวัติแชทหลาย session ลง JSON file"""
 
-    def __init__(self, filepath: str = CHAT_SESSIONS_FILE):
+    def __init__(self, filepath: str = CHAT_SESSIONS_FILE, user_id: str | None = None):
+        if user_id:
+            filepath = resolve_data_path("chat_sessions.json", user_id)
         self.filepath = filepath
         self.sessions: list[dict] = []
         self._load()

@@ -3,12 +3,14 @@
 import json
 import uuid
 from datetime import datetime
-from backend.globals import TASK_REGISTRY_FILE
+from backend.globals import TASK_REGISTRY_FILE, resolve_data_path
 
 class TaskStore:
     """เก็บประวัติ Task ลง JSON file เพื่อไม่ให้หายเมื่อ refresh"""
 
-    def __init__(self, filepath: str = TASK_REGISTRY_FILE):
+    def __init__(self, filepath: str = TASK_REGISTRY_FILE, user_id: str | None = None):
+        if user_id:
+            filepath = resolve_data_path("task_registry.json", user_id)
         self.filepath = filepath
         self.tasks: list[dict] = []
         self._load()

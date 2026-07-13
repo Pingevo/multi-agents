@@ -107,3 +107,34 @@ Skills คือหลักการทำงาน ไม่ใช่ one-shot
 
 ## 7. Maintenance
 - ทุกครั้งที่ปิดโปรเจกต์หรือจบงาน: อัปเดต `DEVELOPER_LOG.md` ให้เป็นปัจจุบันที่สุด
+
+## 8. Account System (Per-User Data Isolation)
+
+### Architecture
+- **AuthProvider** (pluggable interface): ตอนนี้ใช้ `DevLoginProvider` (username ง่ายๆ) อนาคตรองรับ OAuth, LDAP, SAML
+- **UserStore**: เก็บ user profile ใน `data/users.json`
+- **SessionManager**: สร้าง/verify session token เก็บใน `data/sessions.json` (TTL 7 วัน)
+- **Per-user data**: แยกไฟล์ข้อมูลทุกประเภทตาม `data/users/{user_id}/`
+  - `agent_registry.json` — agents ของ user นั้น
+  - `task_registry.json` — tasks ของ user นั้น
+  - `chat_sessions.json` — chat history ของ user นั้น
+
+### Auth Flow
+1. Frontend ส่ง username ไป `/api/auth/login` → ได้ token + user profile
+2. Frontend เก็บ token ใน localStorage แล้วส่งใน socket auth (`authToken`)
+3. Backend `on_chat_start` อ่าน token → verify → ได้ `user_id` → สร้าง stores ด้วย `user_id`
+4. ถ้าไม่มี token → dev mode ใช้ legacy paths (backward compatible)
+
+### Pluggable Auth
+คนที่มาเชื่อม SSO ขององค์กร แค่ implement `AuthProvider` ใหม่:
+```python
+class OAuthProvider(AuthProvider):     # Google/Azure AD
+class LDAPProvider(AuthProvider):      # Active Directory
+class SAMLProvider(AuthProvider):      # SAML SSO
+```
+ไม่ต้องแก้ code อื่นนอกจาก auth module
+
+### API Endpoints
+- `POST /api/auth/login` — login ด้วย username หรือ OAuth credentials
+- `POST /api/auth/verify` — verify session token
+- `POST /api/auth/logout` — revoke session token
