@@ -1054,7 +1054,8 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
       )}
 
       <div className="flex-1 flex flex-col bg-bg border-l border-border min-w-0">
-        {/* Header — session dropdown */}
+        {/* Header — session dropdown (hidden when fillContainer, sessions shown in left sidebar) */}
+        {!fillContainer && (
         <div className="px-2 py-1.5 border-b border-border shrink-0 relative" ref={dropdownRef}>
           <div className="flex items-center gap-1.5">
             <button
@@ -1128,6 +1129,7 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
             </div>
           )}
         </div>
+        )}
 
         {/* Messages */}
         <div ref={scrollRef} className="flex-1 overflow-y-auto p-2.5 space-y-2">

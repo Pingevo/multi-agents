@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
-import { X, Save } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { X, Save, Cpu, ChevronDown } from 'lucide-react';
+import { ModelPicker, type ModelCatalogEntry } from './ModelPicker';
 import type { Agent } from '../types/platform';
 
 interface AgentConfigModalProps {
@@ -8,6 +9,19 @@ interface AgentConfigModalProps {
   availableTools: Array<{ name: string; description: string }>;
   onClose: () => void;
   onSave: (data: { agent_id: string; name: string; role: string; goal: string; persona: string; model: string; tools: string[] }) => void;
+  modelCatalog?: Record<string, ModelCatalogEntry[]>;
+  modelSearchResults?: ModelCatalogEntry[];
+  onSearchModels?: (query: string) => void;
+  onFetchModelCatalog?: () => void;
+}
+
+function findModelName(modelId: string, catalog: Record<string, ModelCatalogEntry[]> | undefined): string {
+  if (!modelId || !catalog) return modelId || 'auto';
+  for (const category of Object.values(catalog)) {
+    const found = category.find((m) => m.id === modelId);
+    if (found) return found.name;
+  }
+  return modelId;
 }
 
 export const AgentConfigModal: React.FC<AgentConfigModalProps> = ({
@@ -16,6 +30,10 @@ export const AgentConfigModal: React.FC<AgentConfigModalProps> = ({
   availableTools,
   onClose,
   onSave,
+  modelCatalog,
+  modelSearchResults,
+  onSearchModels,
+  onFetchModelCatalog,
 }) => {
   const [name, setName] = useState('');
   const [role, setRole] = useState('');
@@ -23,6 +41,8 @@ export const AgentConfigModal: React.FC<AgentConfigModalProps> = ({
   const [persona, setPersona] = useState('');
   const [model, setModel] = useState('');
   const [tools, setTools] = useState<string[]>([]);
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const modelBtnRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (agent) {
@@ -63,7 +83,9 @@ export const AgentConfigModal: React.FC<AgentConfigModalProps> = ({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-base font-semibold text-text">Configure Agent</h2>
+          <h2 className="text-base font-semibold text-text">
+            Configure {agent.is_manager ? 'Manager' : 'Agent'}
+          </h2>
           <button onClick={onClose} className="p-1 text-text-3 hover:text-text transition-colors">
             <X className="w-5 h-5" />
           </button>
@@ -112,13 +134,46 @@ export const AgentConfigModal: React.FC<AgentConfigModalProps> = ({
 
           <div>
             <label className="block text-xs font-medium text-text-2 mb-1.5">Model</label>
-            <input
-              type="text"
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              placeholder="auto"
-              className="w-full px-3 py-2 bg-bg border border-border rounded-lg text-sm text-text placeholder-text-3 focus:outline-none focus:ring-2 focus:ring-accent/50"
-            />
+            <button
+              ref={modelBtnRef}
+              onClick={() => {
+                if (onFetchModelCatalog) onFetchModelCatalog();
+                setModelPickerOpen(true);
+              }}
+              className="w-full flex items-center gap-2 px-3 py-2 bg-bg border border-border rounded-lg text-sm text-text hover:border-accent/50 transition-colors"
+            >
+              <Cpu className="w-4 h-4 text-text-2" />
+              <span className={`flex-1 text-left truncate ${model ? 'text-text' : 'text-text-3'}`}>
+                {model ? findModelName(model, modelCatalog) : 'auto'}
+              </span>
+              {model && (
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-success/15 text-success font-medium">Manual</span>
+              )}
+              {!model && (
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-success/15 text-success font-medium">Auto</span>
+              )}
+              <ChevronDown className="w-3 h-3 text-text-2" />
+            </button>
+            {modelPickerOpen && modelBtnRef.current && (
+              <ModelPicker
+                recommended={modelCatalog || {}}
+                searchResults={modelSearchResults || []}
+                selectedModel={model}
+                onSelect={(modelId) => { setModel(modelId); setModelPickerOpen(false); }}
+                onSearch={(query) => onSearchModels?.(query)}
+                onClose={() => setModelPickerOpen(false)}
+                anchorRef={modelBtnRef}
+                showAutoRouter
+              />
+            )}
+            {model && (
+              <button
+                onClick={() => setModel('')}
+                className="text-[10px] text-text-3 hover:text-text mt-1"
+              >
+                Reset to auto
+              </button>
+            )}
           </div>
 
           <div>

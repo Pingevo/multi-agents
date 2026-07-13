@@ -321,6 +321,10 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({
         availableTools={available_tools || []}
         onClose={() => setConfigAgent(null)}
         onSave={handleSaveConfig}
+        modelCatalog={preloadedModelCatalog}
+        modelSearchResults={preloadedModelSearchResults}
+        onSearchModels={(query) => onAction('search_models', { query })}
+        onFetchModelCatalog={() => onAction('fetch_model_catalog')}
       />
     </div>
   );
