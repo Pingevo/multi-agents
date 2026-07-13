@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { ArrowLeft, ChevronLeft, ChevronRight, MessageSquare, Plus, Settings, Trash2, Users } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, Plus, Settings, Trash2, Users, Cpu } from 'lucide-react';
 import { usePlatform } from '../context/PlatformContext';
 import { StoryboardArea } from './StoryboardArea';
 import { ChatPanelRight } from './ChatPanelRight';
@@ -152,57 +152,62 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({
         {!leftCollapsed && (
           <div className="w-56 bg-surface border-r border-border flex flex-col shrink-0">
             {/* Chat Sessions */}
-            <div className="px-3 py-2 border-b border-border flex items-center justify-between">
-              <span className="text-[10px] font-medium text-text-3 uppercase tracking-wide">Chat Sessions</span>
+            <div className="px-4 py-3 pb-2 flex items-center justify-between">
+              <span className="text-[11px] font-semibold text-text-2 uppercase tracking-wide">Chat Sessions</span>
               <button
                 onClick={() => onAction('new_chat')}
-                className="text-text-3 hover:text-text transition-colors"
+                className="w-5 h-5 rounded bg-surface-2 text-text-3 hover:text-text hover:bg-surface-3 flex items-center justify-center transition-colors"
               >
                 <Plus className="w-3 h-3" />
               </button>
             </div>
-            <div className="overflow-auto py-1 max-h-[35%]">
+            <div className="overflow-y-auto px-2 pb-2 max-h-[35%]">
               {chatSessions.length === 0 ? (
                 <p className="text-xs text-text-3 italic px-3 py-2 text-center">No sessions</p>
               ) : (
                 chatSessions.map((session) => (
-                  <button
+                  <div
                     key={session.id}
                     onClick={() => onAction('switch_chat', { session_id: session.id })}
-                    className={`w-full text-left px-3 py-1.5 hover:bg-surface-2 rounded transition-colors group ${activeSessionId === session.id ? 'bg-accent/10 border border-accent/20' : ''}`}
+                    className={`px-2.5 py-2 rounded-lg cursor-pointer mb-0.5 group ${activeSessionId === session.id ? 'bg-accent/10 border border-accent/30' : 'hover:bg-surface-2'}`}
                   >
-                    <div className="flex items-center gap-1.5">
-                      <MessageSquare className="w-3 h-3 text-text-3 shrink-0" />
-                      <span className="text-xs text-text truncate flex-1">{session.title}</span>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium text-text truncate flex-1">{session.title}</span>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); onAction('delete_chat', { session_id: session.id }); }}
+                        className="text-text-3 opacity-0 group-hover:opacity-100 hover:text-error transition-all shrink-0 ml-2"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
                     </div>
-                  </button>
+                  </div>
                 ))
               )}
             </div>
 
             {/* Agents */}
-            <div className="px-3 py-2 border-t border-b border-border flex items-center justify-between">
-              <span className="text-[10px] font-medium text-text-3 uppercase tracking-wide">Agents</span>
+            <div className="px-4 py-2 border-t border-border flex items-center justify-between">
+              <span className="text-[11px] font-semibold text-text-2 uppercase tracking-wide">Agents</span>
               <span className="text-[10px] text-text-3">{teamAgents.length}</span>
             </div>
-            <div className="flex-1 overflow-auto py-1">
+            <div className="flex-1 overflow-y-auto px-2 pb-2">
               {managerAgent && (
-                <div className="px-3 py-1 border-b border-border mb-1">
-                  <span className="text-[10px] font-medium text-text-3 uppercase tracking-wide">Manager</span>
-                  <button
-                    onClick={() => handleConfigAgent(managerAgent)}
-                    className="w-full text-left px-2 py-2 hover:bg-surface-2 rounded transition-colors group mt-1"
-                  >
-                    <div className="flex items-center gap-2">
-                      <div className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium text-text truncate">{managerAgent.name}</p>
-                        <p className="text-[10px] text-text-3 truncate">{managerAgent.role}</p>
-                      </div>
-                      <Settings className="w-3 h-3 text-text-3 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
-                    </div>
-                  </button>
-                </div>
+                <button
+                  onClick={() => handleConfigAgent(managerAgent)}
+                  className="w-full text-left px-2.5 py-2 bg-accent/10 border border-accent/30 rounded-lg mb-1.5 hover:bg-accent/15 transition-colors group"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${managerAgent.status === 'Busy' ? 'bg-warning' : 'bg-success'}`} />
+                    <span className="text-xs font-medium text-purple-400 truncate flex-1">{managerAgent.name}</span>
+                    <span className="text-[8px] px-1 py-0.5 bg-accent/20 text-purple-400 rounded font-semibold">MGR</span>
+                    <Settings className="w-3 h-3 text-text-3 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                  </div>
+                  <p className="text-[10px] text-text-3 ml-3.5 mt-0.5">{managerAgent.role}</p>
+                  <div className="flex items-center gap-1 ml-3.5 mt-1">
+                    <Cpu className="w-2.5 h-2.5 text-text-3" />
+                    <span className="text-[9px] text-text-3">{managerAgent.model || 'auto'}</span>
+                  </div>
+                </button>
               )}
               {regularAgents.length === 0 && !managerAgent ? (
                 <p className="text-xs text-text-3 italic px-3 py-4 text-center">
@@ -215,16 +220,25 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({
                   <button
                     key={agent.id}
                     onClick={() => handleConfigAgent(agent)}
-                    className="w-full text-left px-3 py-2 hover:bg-surface-2 transition-colors group"
+                    className="w-full text-left px-2.5 py-2 bg-surface-2 rounded-lg mb-1.5 hover:bg-surface-3 transition-colors group"
                   >
-                    <div className="flex items-center gap-2">
-                      <div className="w-1.5 h-1.5 rounded-full bg-accent/50 shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium text-text truncate">{agent.name}</p>
-                        <p className="text-[10px] text-text-3 truncate">{agent.role}</p>
-                      </div>
+                    <div className="flex items-center gap-1.5">
+                      <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${agent.status === 'Busy' ? 'bg-warning' : 'bg-success'}`} />
+                      <span className="text-xs font-medium text-text truncate flex-1">{agent.name}</span>
                       <Settings className="w-3 h-3 text-text-3 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
                     </div>
+                    <p className="text-[10px] text-text-3 ml-3.5 mt-0.5">{agent.role}</p>
+                    <div className="flex items-center gap-1 ml-3.5 mt-1">
+                      <Cpu className="w-2.5 h-2.5 text-text-3" />
+                      <span className="text-[9px] text-text-3">{agent.model || 'auto'}</span>
+                    </div>
+                    {agent.tools && agent.tools.length > 0 && (
+                      <div className="flex flex-wrap gap-1 ml-3.5 mt-1">
+                        {agent.tools.map((tool) => (
+                          <span key={tool} className="text-[8px] px-1.5 py-0.5 bg-bg rounded text-text-2">{tool}</span>
+                        ))}
+                      </div>
+                    )}
                   </button>
                 ))
               )}
@@ -289,8 +303,8 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({
         {/* Right: Storyboard (collapsible) */}
         {!rightCollapsed && (
           <div className="w-[380px] bg-surface border-l border-border flex flex-col shrink-0">
-            <div className="px-3 py-2 border-b border-border shrink-0">
-              <span className="text-[10px] font-medium text-text-3 uppercase tracking-wide">Storyboard</span>
+            <div className="px-4 py-2.5 border-b border-border shrink-0">
+              <span className="text-[11px] font-semibold text-text-2 uppercase tracking-wide">Storyboard</span>
             </div>
             <div className="flex-1 min-w-0 overflow-hidden">
               <StoryboardArea
