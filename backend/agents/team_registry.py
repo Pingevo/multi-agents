@@ -3,13 +3,15 @@
 import json
 import uuid
 from datetime import datetime
-from backend.globals import TEAM_REGISTRY_FILE
+from backend.globals import TEAM_REGISTRY_FILE, resolve_data_path
 
 
 class TeamRegistry:
     """คลาสสำหรับเก็บข้อมูล Team ทั้งหมด"""
 
-    def __init__(self, filepath: str = TEAM_REGISTRY_FILE):
+    def __init__(self, filepath: str = TEAM_REGISTRY_FILE, user_id: str | None = None):
+        if user_id:
+            filepath = resolve_data_path("team_registry.json", user_id)
         self.filepath = filepath
         self.teams: list[dict] = []
         self._load()
