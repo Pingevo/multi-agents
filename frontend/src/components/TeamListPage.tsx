@@ -1,10 +1,35 @@
 import { useState } from 'react';
-import { Users, Plus, Sparkles, Trash2, Wallet } from 'lucide-react';
+import { Users, Plus, Trash2, Wallet, MessageSquare } from 'lucide-react';
 import type { Team } from '../types/team';
 import type { Agent } from '../types/platform';
 import type { CreditsInfo } from '../types/platform';
 import { useAuth } from '../context/AuthContext';
 import { LogOut } from 'lucide-react';
+
+const GRADIENTS = [
+  'from-accent to-purple-500',
+  'from-amber-500 to-red-500',
+  'from-emerald-500 to-cyan-500',
+  'from-pink-500 to-rose-500',
+  'from-blue-500 to-indigo-500',
+];
+
+function teamGradient(teamId: string) {
+  let hash = 0;
+  for (let i = 0; i < teamId.length; i++) hash = teamId.charCodeAt(i) + ((hash << 5) - hash);
+  return GRADIENTS[Math.abs(hash) % GRADIENTS.length];
+}
+
+function timeAgo(dateStr: string) {
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diff = Math.floor((now.getTime() - date.getTime()) / 1000);
+  if (diff < 60) return 'เมื่อกี้';
+  if (diff < 3600) return `${Math.floor(diff / 60)} นาทีที่แล้ว`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)} ชั่วโมงที่แล้ว`;
+  if (diff < 604800) return `${Math.floor(diff / 86400)} วันที่แล้ว`;
+  return `${Math.floor(diff / 604800)} สัปดาห์ที่แล้ว`;
+}
 
 interface TeamListPageProps {
   teams: Team[];
@@ -83,45 +108,50 @@ export const TeamListPage: React.FC<TeamListPageProps> = ({
       </header>
 
       {/* Content */}
-      <div className="flex-1 overflow-auto p-6">
-        <div className="max-w-5xl mx-auto">
-          {/* Action buttons */}
-          <div className="flex items-center gap-3 mb-6">
-            <button
-              onClick={onCreateTeam}
-              className="flex items-center gap-2 px-4 py-2 bg-accent text-white rounded-lg text-sm font-medium hover:bg-accent/90 transition-colors"
-            >
-              <Plus className="w-4 h-4" />
-              Create Team
-            </button>
+      <div className="flex-1 overflow-auto px-10 py-8">
+        <div className="max-w-6xl mx-auto">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-8">
+            <div>
+              <h1 className="text-2xl font-bold text-text">Teams</h1>
+              <p className="text-sm text-text-2 mt-1">เลือกทีมเพื่อเริ่มทำงาน หรือสร้างทีมใหม่</p>
+            </div>
             <button
               onClick={onAICreateTeam}
-              className="flex items-center gap-2 px-4 py-2 bg-surface-2 text-text border border-border rounded-lg text-sm font-medium hover:border-accent/50 transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-surface-2 text-text border border-border rounded-lg text-sm font-medium hover:bg-surface-3 transition-colors"
             >
-              <Sparkles className="w-4 h-4 text-accent" />
-              Create with AI
+              <MessageSquare className="w-4 h-4 text-accent" />
+              คุยกับ AI สร้างทีม
             </button>
           </div>
 
           {/* Team cards */}
           {teams.length === 0 ? (
-            <div className="text-center py-20">
-              <Users className="w-12 h-12 text-text-3 mx-auto mb-3" />
-              <p className="text-text-2 text-sm">ยังไม่มีทีม สร้างทีมใหม่เพื่อเริ่มใช้งาน</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              <button
+                onClick={onCreateTeam}
+                className="border border-dashed border-border rounded-xl flex flex-col items-center justify-center min-h-[200px] text-text-3 hover:text-text hover:border-accent/50 transition-colors"
+              >
+                <Plus className="w-8 h-8 mb-1" />
+                <span className="text-sm">สร้างทีมใหม่</span>
+              </button>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
               {teams.map((team) => {
                 const teamAgents = getTeamAgents(team);
+                const manager = teamAgents.find((a) => a.is_manager);
+                const regularAgents = teamAgents.filter((a) => !a.is_manager);
+                const displayAgents = manager ? [manager, ...regularAgents] : regularAgents;
                 return (
                   <div
                     key={team.id}
-                    className="bg-surface border border-border rounded-xl p-4 hover:border-accent/30 transition-all cursor-pointer group relative"
+                    className="bg-surface border border-border rounded-xl p-5 cursor-pointer hover:border-accent hover:bg-surface-2/30 transition-all group relative"
                     onClick={() => onSelectTeam(team.id)}
                   >
-                    {/* Delete button */}
+                    {/* Delete action */}
                     {confirmDelete === team.id ? (
-                      <div className="absolute top-2 right-2 flex items-center gap-1 z-10" onClick={(e) => e.stopPropagation()}>
+                      <div className="absolute top-4 right-4 flex items-center gap-1 z-10" onClick={(e) => e.stopPropagation()}>
                         <button
                           onClick={() => { onDeleteTeam(team.id); setConfirmDelete(null); }}
                           className="px-2 py-1 bg-error text-white text-[10px] rounded font-medium"
@@ -138,53 +168,66 @@ export const TeamListPage: React.FC<TeamListPageProps> = ({
                     ) : (
                       <button
                         onClick={(e) => { e.stopPropagation(); setConfirmDelete(team.id); }}
-                        className="absolute top-2 right-2 p-1.5 text-text-3 hover:text-error opacity-0 group-hover:opacity-100 transition-opacity"
+                        className="absolute top-4 right-4 p-1.5 rounded-md bg-surface-2 border border-border text-text-3 hover:text-error opacity-0 group-hover:opacity-100 transition-opacity"
                         title="Delete team"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     )}
 
-                    <h3 className="text-sm font-semibold text-text mb-1 pr-8">{team.name}</h3>
-                    {team.description && (
-                      <p className="text-xs text-text-2 mb-3 line-clamp-2">{team.description}</p>
-                    )}
-
-                    {/* Agent count + list preview */}
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="text-[10px] text-text-3 uppercase tracking-wide">Agents</span>
-                      <span className="text-xs text-text-2 font-medium">{teamAgents.length}</span>
+                    <div className="flex items-center gap-3 mb-3">
+                      <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${teamGradient(team.id)} flex items-center justify-center text-lg font-bold text-white shrink-0`}>
+                        {team.name.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="min-w-0 pr-10">
+                        <h3 className="text-[15px] font-semibold text-text truncate">{team.name}</h3>
+                        {team.description && <p className="text-xs text-text-2 truncate">{team.description}</p>}
+                      </div>
                     </div>
 
-                    {teamAgents.length > 0 ? (
-                      <div className="space-y-1">
-                        {teamAgents.slice(0, 4).map((agent) => (
-                          <div key={agent.id} className="flex items-center gap-2 text-xs text-text-2">
-                            <div className="w-1.5 h-1.5 rounded-full bg-accent/50" />
-                            <span className="font-medium text-text">{agent.name}</span>
-                            <span className="text-text-3 truncate">{agent.role}</span>
-                          </div>
-                        ))}
-                        {teamAgents.length > 4 && (
-                          <p className="text-[10px] text-text-3 pl-3.5">+{teamAgents.length - 4} more</p>
-                        )}
-                      </div>
-                    ) : (
-                      <p className="text-xs text-text-3 italic">No agents yet</p>
-                    )}
+                    <div className="flex items-center gap-3 text-[11px] text-text-2 mb-3">
+                      <span className="flex items-center gap-1">
+                        <MessageSquare className="w-3 h-3" />
+                        {(team as any).session_count ?? 0} sessions
+                      </span>
+                      <span>📅 {timeAgo(team.created_at)}</span>
+                    </div>
 
-                    {/* Footer */}
-                    <div className="mt-3 pt-3 border-t border-border flex items-center justify-between">
-                      <span className="text-[10px] text-text-3">
-                        {team.manager_model !== 'auto' ? team.manager_model : 'Auto model'}
-                      </span>
-                      <span className="text-[10px] text-text-3">
-                        {new Date(team.created_at).toLocaleDateString()}
-                      </span>
+                    <div className="flex flex-wrap gap-1.5 pt-3 border-t border-border">
+                      {displayAgents.slice(0, 8).map((agent) => (
+                        <div
+                          key={agent.id}
+                          className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] ${agent.is_manager ? 'bg-accent/10 border border-accent/30' : 'bg-surface-2'}`}
+                        >
+                          <div className={`w-1.5 h-1.5 rounded-full ${agent.status === 'Busy' ? 'bg-warning' : 'bg-success'}`} />
+                          <span className={`font-medium ${agent.is_manager ? 'text-purple-400' : 'text-text'}`}>{agent.name}</span>
+                          {agent.role && <span className="text-text-3 text-[9px]">{agent.role}</span>}
+                        </div>
+                      ))}
+                      {displayAgents.length > 8 && (
+                        <span className="text-[10px] text-text-3 px-1 py-1">+{displayAgents.length - 8}</span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center justify-between pt-3 mt-3 border-t border-border">
+                      <div className="flex items-center gap-1.5 text-[10px] text-text-2">
+                        <span className={`px-1.5 py-0.5 rounded text-[9px] ${team.manager_model && team.manager_model !== 'auto' ? 'bg-accent/15 text-purple-400' : 'bg-success/15 text-success'}`}>
+                          {team.manager_model && team.manager_model !== 'auto' ? team.manager_model : 'Auto'}
+                        </span>
+                        <span>Manager model</span>
+                      </div>
                     </div>
                   </div>
                 );
               })}
+              {/* Create team card */}
+              <button
+                onClick={onCreateTeam}
+                className="border border-dashed border-border rounded-xl flex flex-col items-center justify-center min-h-[200px] text-text-3 hover:text-text hover:border-accent/50 transition-colors"
+              >
+                <Plus className="w-8 h-8 mb-1" />
+                <span className="text-sm">สร้างทีมใหม่</span>
+              </button>
             </div>
           )}
         </div>
