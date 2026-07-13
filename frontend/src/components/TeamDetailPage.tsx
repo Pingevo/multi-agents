@@ -29,6 +29,10 @@ interface TeamDetailPageProps {
   isThinking?: boolean;
   inputMode?: 'chat' | 'plan';
   onModeChange?: (mode: 'chat' | 'plan') => void;
+  preloadedModelCatalog?: Record<string, any[]>;
+  preloadedModelSearchResults?: any[];
+  preloadedMediaCatalog?: Record<string, any[]>;
+  preloadedMediaSearchResults?: any[];
 }
 
 export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({
@@ -51,6 +55,10 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({
   isThinking,
   inputMode,
   onModeChange,
+  preloadedModelCatalog,
+  preloadedModelSearchResults,
+  preloadedMediaCatalog,
+  preloadedMediaSearchResults,
 }) => {
   const { agents, current_plan, system_status, available_tools, credits } = usePlatform();
   const [leftCollapsed, setLeftCollapsed] = useState(false);
@@ -232,6 +240,10 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({
               inputMode={inputMode}
               onModeChange={onModeChange}
               disabled={connectionStatus !== 'connected' || isProcessing || !!current_plan}
+              preloadedModelCatalog={preloadedModelCatalog}
+              preloadedModelSearchResults={preloadedModelSearchResults}
+              preloadedMediaCatalog={preloadedMediaCatalog}
+              preloadedMediaSearchResults={preloadedMediaSearchResults}
             />
           </div>
         )}

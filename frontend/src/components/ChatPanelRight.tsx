@@ -47,6 +47,10 @@ interface ChatPanelRightProps {
   inputMode?: 'chat' | 'plan';
   onModeChange?: (mode: 'chat' | 'plan') => void;
   disabled?: boolean;
+  preloadedModelCatalog?: Record<string, ModelCatalogEntry[]>;
+  preloadedModelSearchResults?: ModelCatalogEntry[];
+  preloadedMediaCatalog?: Record<string, ModelCatalogEntry[]>;
+  preloadedMediaSearchResults?: ModelCatalogEntry[];
 }
 
 // ============================================================
@@ -814,6 +818,7 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
   onAcceptPlan, onRejectPlan, onConfirmTuning, onRejectTuning, onApproveImage, onRejectImage, onRetryImage, onEditImagePrompt,
   onFetchModelCatalog, onFetchMediaCatalog, onSearchModels, onSelectModel, onChangeAgentModel, onChangeManagerModel, onChangeMediaModel,
   selectedModel, resolvedModel, thinkingText, thinkingDuration, isThinking, inputMode, onModeChange, disabled,
+  preloadedModelCatalog, preloadedModelSearchResults, preloadedMediaCatalog, preloadedMediaSearchResults,
 }) => {
   const [width, setWidth] = useState(360);
   const [input, setInput] = useState('');
@@ -904,6 +909,22 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
       setMediaSearchResults(mergedSearch);
     }
   }, [messages]);
+
+  // Use preloaded catalog data if available (from App-level state)
+  useEffect(() => {
+    if (preloadedModelCatalog && Object.keys(preloadedModelCatalog).length > 0) {
+      setModelCatalog(prev => Object.keys(prev).length > 0 ? prev : preloadedModelCatalog);
+    }
+    if (preloadedModelSearchResults && preloadedModelSearchResults.length > 0) {
+      setModelSearchResults(prev => prev.length > 0 ? prev : preloadedModelSearchResults);
+    }
+    if (preloadedMediaCatalog && Object.keys(preloadedMediaCatalog).length > 0) {
+      setMediaCatalog(prev => Object.keys(prev).length > 0 ? prev : preloadedMediaCatalog);
+    }
+    if (preloadedMediaSearchResults && preloadedMediaSearchResults.length > 0) {
+      setMediaSearchResults(prev => prev.length > 0 ? prev : preloadedMediaSearchResults);
+    }
+  }, [preloadedModelCatalog, preloadedModelSearchResults, preloadedMediaCatalog, preloadedMediaSearchResults]);
 
   const handleOpenModelPicker = () => {
     if (modelPickerOpen) {

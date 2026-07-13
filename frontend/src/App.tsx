@@ -363,6 +363,7 @@ function AppContent() {
   const [aiIsThinking, setAiIsThinking] = useState(false);
   const [aiThinkingText, setAiThinkingText] = useState<string>('');
   const aiModalOpenRef = useRef(false);
+  const [modelCatalogData, setModelCatalogData] = useState<{ recommended: Record<string, any[]>; searchResults: any[]; mediaCatalog: Record<string, any[]>; mediaSearchResults: any[] }>({ recommended: {}, searchResults: [], mediaCatalog: {}, mediaSearchResults: [] });
   const socketRef = useRef<Socket | null>(null);
   const prevNotificationsRef = useRef<string[]>([]);
 
@@ -560,6 +561,26 @@ function AppContent() {
           if (reply.modelCatalogResolved) {
             setResolvedModel(reply.modelCatalogResolved);
           }
+          // Store catalog data in separate state
+          if (reply.modelCatalogRecommended) {
+            const catalogType = (reply as any).catalogType || 'text';
+            if (catalogType === 'media') {
+              setModelCatalogData(prev => {
+                const merged = { ...prev.mediaCatalog };
+                for (const [provider, models] of Object.entries(reply.modelCatalogRecommended!)) {
+                  if (!merged[provider]) merged[provider] = [];
+                  for (const m of models) {
+                    if (!merged[provider].some((x: any) => x.id === m.id)) merged[provider].push(m);
+                  }
+                }
+                return { ...prev, mediaCatalog: merged, mediaSearchResults: [...prev.mediaSearchResults, ...(reply.modelCatalogSearchResults || [])] };
+              });
+            } else {
+              setModelCatalogData(prev => ({ ...prev, recommended: reply.modelCatalogRecommended!, searchResults: reply.modelCatalogSearchResults || [] }));
+            }
+          }
+          // Don't add model_catalog to chatMessages — it's metadata
+          return;
         }
 
         return;
@@ -884,6 +905,10 @@ function AppContent() {
         isThinking={isThinking}
         inputMode={inputMode}
         onModeChange={setInputMode}
+        preloadedModelCatalog={modelCatalogData.recommended}
+        preloadedModelSearchResults={modelCatalogData.searchResults}
+        preloadedMediaCatalog={modelCatalogData.mediaCatalog}
+        preloadedMediaSearchResults={modelCatalogData.mediaSearchResults}
       />
       <TeamCreateModal
         open={showCreateModal}
