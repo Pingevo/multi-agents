@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { ArrowLeft, ChevronLeft, ChevronRight, Settings, Trash2, Users } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, MessageSquare, Plus, Settings, Trash2, Users } from 'lucide-react';
 import { usePlatform } from '../context/PlatformContext';
 import { StoryboardArea } from './StoryboardArea';
 import { ChatPanelRight } from './ChatPanelRight';
@@ -146,12 +146,42 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({
         </div>
       </div>
 
-      {/* 3-column layout: Agent list | Storyboard | Chat */}
+      {/* 3-column layout: Sessions+Agents | Chat | Storyboard */}
       <div className="flex-1 flex min-h-0 relative">
-        {/* Left: Agent list */}
+        {/* Left: Chat Sessions (top) + Agents (bottom) */}
         {!leftCollapsed && (
           <div className="w-56 bg-surface border-r border-border flex flex-col shrink-0">
+            {/* Chat Sessions */}
             <div className="px-3 py-2 border-b border-border flex items-center justify-between">
+              <span className="text-[10px] font-medium text-text-3 uppercase tracking-wide">Chat Sessions</span>
+              <button
+                onClick={() => onAction('new_chat')}
+                className="text-text-3 hover:text-text transition-colors"
+              >
+                <Plus className="w-3 h-3" />
+              </button>
+            </div>
+            <div className="overflow-auto py-1 max-h-[35%]">
+              {chatSessions.length === 0 ? (
+                <p className="text-xs text-text-3 italic px-3 py-2 text-center">No sessions</p>
+              ) : (
+                chatSessions.map((session) => (
+                  <button
+                    key={session.id}
+                    onClick={() => onAction('switch_chat', { session_id: session.id })}
+                    className={`w-full text-left px-3 py-1.5 hover:bg-surface-2 rounded transition-colors group ${activeSessionId === session.id ? 'bg-accent/10 border border-accent/20' : ''}`}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <MessageSquare className="w-3 h-3 text-text-3 shrink-0" />
+                      <span className="text-xs text-text truncate flex-1">{session.title}</span>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+
+            {/* Agents */}
+            <div className="px-3 py-2 border-t border-b border-border flex items-center justify-between">
               <span className="text-[10px] font-medium text-text-3 uppercase tracking-wide">Agents</span>
               <span className="text-[10px] text-text-3">{teamAgents.length}</span>
             </div>
@@ -211,20 +241,10 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({
           {leftCollapsed ? <ChevronRight className="w-3 h-3 text-text-3" /> : <ChevronLeft className="w-3 h-3 text-text-3" />}
         </button>
 
-        {/* Middle: Storyboard */}
-        <div className="flex-1 min-w-0 overflow-hidden">
-          <StoryboardArea
-            chatMessages={chatMessages}
-            onApproveImage={(approvalId) => onAction('approve_image', { approval_id: approvalId })}
-            onRejectImage={(approvalId) => onAction('reject_image', { approval_id: approvalId })}
-            onRetryImage={(approvalId) => onAction('retry_image', { approval_id: approvalId })}
-            onEditImagePrompt={(approvalId, newPrompt) => onAction('edit_image_prompt', { approval_id: approvalId, new_prompt: newPrompt })}
-          />
-        </div>
-
-        {/* Right: Chat panel */}
-        {!rightCollapsed && (
+        {/* Center: Chat */}
+        <div className="flex-1 min-w-0 flex">
           <ChatPanelRight
+              fillContainer
               messages={chatMessages}
               activityLog={activityLog}
               isProcessing={isProcessing}
@@ -264,13 +284,31 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({
               preloadedMediaCatalog={preloadedMediaCatalog}
               preloadedMediaSearchResults={preloadedMediaSearchResults}
             />
+        </div>
+
+        {/* Right: Storyboard (collapsible) */}
+        {!rightCollapsed && (
+          <div className="w-[380px] bg-surface border-l border-border flex flex-col shrink-0">
+            <div className="px-3 py-2 border-b border-border shrink-0">
+              <span className="text-[10px] font-medium text-text-3 uppercase tracking-wide">Storyboard</span>
+            </div>
+            <div className="flex-1 min-w-0 overflow-hidden">
+              <StoryboardArea
+                chatMessages={chatMessages}
+                onApproveImage={(approvalId) => onAction('approve_image', { approval_id: approvalId })}
+                onRejectImage={(approvalId) => onAction('reject_image', { approval_id: approvalId })}
+                onRetryImage={(approvalId) => onAction('retry_image', { approval_id: approvalId })}
+                onEditImagePrompt={(approvalId, newPrompt) => onAction('edit_image_prompt', { approval_id: approvalId, new_prompt: newPrompt })}
+              />
+            </div>
+          </div>
         )}
 
         {/* Collapse toggle for right panel */}
         <button
           onClick={() => setRightCollapsed(!rightCollapsed)}
           className="absolute right-0 top-1/2 -translate-y-1/2 z-10 w-4 h-12 bg-surface border border-border rounded-l flex items-center justify-center hover:bg-surface-2 transition-colors"
-          style={{ right: rightCollapsed ? 0 : '22.5rem' }}
+          style={{ right: rightCollapsed ? 0 : '23.75rem' }}
         >
           {rightCollapsed ? <ChevronLeft className="w-3 h-3 text-text-3" /> : <ChevronRight className="w-3 h-3 text-text-3" />}
         </button>

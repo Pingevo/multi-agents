@@ -51,6 +51,7 @@ interface ChatPanelRightProps {
   preloadedModelSearchResults?: ModelCatalogEntry[];
   preloadedMediaCatalog?: Record<string, ModelCatalogEntry[]>;
   preloadedMediaSearchResults?: ModelCatalogEntry[];
+  fillContainer?: boolean;
 }
 
 // ============================================================
@@ -819,6 +820,7 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
   onFetchModelCatalog, onFetchMediaCatalog, onSearchModels, onSelectModel, onChangeAgentModel, onChangeManagerModel, onChangeMediaModel,
   selectedModel, resolvedModel, thinkingText, thinkingDuration, isThinking, inputMode, onModeChange, disabled,
   preloadedModelCatalog, preloadedModelSearchResults, preloadedMediaCatalog, preloadedMediaSearchResults,
+  fillContainer = false,
 }) => {
   const [width, setWidth] = useState(360);
   const [input, setInput] = useState('');
@@ -1042,12 +1044,14 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
   };
 
   return (
-    <div className="flex shrink-0 relative" style={{ width }}>
-      {/* Resize handle */}
-      <div
-        onMouseDown={startResize}
-        className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-accent/30 transition-colors -translate-x-0.5 z-10"
-      />
+    <div className={fillContainer ? "flex-1 flex flex-col min-w-0" : "flex shrink-0 relative"} style={fillContainer ? undefined : { width }}>
+      {/* Resize handle — only when not filling container */}
+      {!fillContainer && (
+        <div
+          onMouseDown={startResize}
+          className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-accent/30 transition-colors -translate-x-0.5 z-10"
+        />
+      )}
 
       <div className="flex-1 flex flex-col bg-bg border-l border-border min-w-0">
         {/* Header — session dropdown */}
