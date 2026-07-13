@@ -65,7 +65,17 @@ from backend.handlers.actions import (
     on_action_delete_agent,
     on_action_assign_task_form,
     on_action_agent_feedback,
+    on_action_confirm_tuning,
+    on_action_reject_tuning,
+    on_action_create_team,
+    on_action_update_team,
+    on_action_delete_team,
+    on_action_delete_chat_session,
+    on_action_config_agent,
 )
+from backend.auth.dev_login import DevLoginProvider
+from backend.auth.user_store import UserStore
+from backend.auth.session import SessionManager
 
 # Constants needed by tests and handlers
 URL_REGEX = r'https?://[^\s<>"{}|\\^`]+'
@@ -128,3 +138,75 @@ if os.path.exists(os.path.join(os.path.dirname(__file__), "public")):
     if not _already_mounted:
         from fastapi.staticfiles import StaticFiles
         _cl_server.app.mount(_mount_point, StaticFiles(directory=_public_dir), name="public")
+
+# ============================================================
+# Auth endpoints
+# ============================================================
+_auth_provider = DevLoginProvider()
+_user_store = UserStore()
+_session_mgr = SessionManager()
+
+
+@_cl_server.app.post("/api/auth/login")
+async def _auth_login(request: Request):
+    """Login with username (DevLogin) or OAuth credentials."""
+    try:
+        body = await request.json()
+        user = await _auth_provider.authenticate(body)
+        if not user:
+            return JSONResponse({"error": "Authentication failed"}, status_code=401)
+        profile = _user_store.get_or_create(user)
+        token = _session_mgr.create_session(user.user_id)
+        return JSONResponse({
+            "token": token,
+            "user": {
+                "user_id": profile["user_id"],
+                "username": profile["username"],
+                "email": profile.get("email", ""),
+                "provider": profile.get("provider", "dev"),
+                "avatar_url": profile.get("avatar_url", ""),
+            },
+        })
+    except Exception as e:
+        print(f"[AUTH] Login failed: {_sanitize_error(e)}", flush=True)
+        return JSONResponse({"error": _sanitize_error(e)}, status_code=500)
+
+
+@_cl_server.app.post("/api/auth/verify")
+async def _auth_verify(request: Request):
+    """Verify a session token."""
+    try:
+        body = await request.json()
+        token = body.get("token", "")
+        user_id = _session_mgr.verify_token(token)
+        if not user_id:
+            return JSONResponse({"valid": False}, status_code=401)
+        profile = _user_store.get_by_id(user_id)
+        if not profile:
+            return JSONResponse({"valid": False}, status_code=401)
+        return JSONResponse({
+            "valid": True,
+            "user": {
+                "user_id": profile["user_id"],
+                "username": profile["username"],
+                "email": profile.get("email", ""),
+                "provider": profile.get("provider", "dev"),
+                "avatar_url": profile.get("avatar_url", ""),
+            },
+        })
+    except Exception as e:
+        print(f"[AUTH] Verify failed: {_sanitize_error(e)}", flush=True)
+        return JSONResponse({"valid": False}, status_code=401)
+
+
+@_cl_server.app.post("/api/auth/logout")
+async def _auth_logout(request: Request):
+    """Revoke a session token."""
+    try:
+        body = await request.json()
+        token = body.get("token", "")
+        _session_mgr.revoke_session(token)
+        return JSONResponse({"success": True})
+    except Exception as e:
+        print(f"[AUTH] Logout failed: {_sanitize_error(e)}", flush=True)
+        return JSONResponse({"error": _sanitize_error(e)}, status_code=500)

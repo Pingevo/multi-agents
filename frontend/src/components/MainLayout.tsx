@@ -195,6 +195,8 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
           }}
           onAcceptPlan={() => onAction('accept_plan')}
           onRejectPlan={() => onAction('reject_plan')}
+          onConfirmTuning={() => onAction('confirm_tuning')}
+          onRejectTuning={() => onAction('reject_tuning')}
           onApproveImage={(approvalId) => onAction('approve_image', { approval_id: approvalId })}
           onRejectImage={(approvalId) => onAction('reject_image', { approval_id: approvalId })}
           onRetryImage={(approvalId) => onAction('retry_image', { approval_id: approvalId })}

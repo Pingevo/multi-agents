@@ -67,11 +67,16 @@ class CentralSecretary:
         valid_model_ids: set[str] | None = None,
         media_catalog: str | None = None,
         stream_callback=None,
+        last_task_context: dict | None = None,
+        registry_agents: list[dict] | None = None,
+        team_agents: list[dict] | None = None,
+        team_name: str | None = None,
     ) -> dict:
         """Unified call: assess + analyze + model assignment in one LLM response.
 
         Returns same format as assess() for chat/info/ask paths.
         For plan path, includes 'agents' and 'model_assignment' keys.
+        For feedback path, includes 'feedback_text' and 'target_agent' keys.
         Falls back to assess() on parse error.
         """
         history_text = ""
@@ -88,6 +93,48 @@ class CentralSecretary:
 
         models_text = model_table or "none"
 
+        # Build last task context (if any)
+        last_task_text = ""
+        if last_task_context:
+            last_task_text = "\nLast completed task:\n"
+            last_task_text += f"- User request: {last_task_context.get('user_input', '')[:200]}\n"
+            last_task_text += f"- Result summary: {last_task_context.get('result', '')[:500]}\n"
+            agents_ctx = last_task_context.get('agents', [])
+            for a in agents_ctx:
+                name = a.get('name', 'Agent')
+                role = a.get('role', '')
+                persona = a.get('persona', a.get('backstory', ''))
+                personality = a.get('personality', {})
+                tone = personality.get('tone', '') if isinstance(personality, dict) else ''
+                style = personality.get('communication_style', '') if isinstance(personality, dict) else ''
+                last_task_text += f"- Agent: {name} ({role}) | tone={tone} | style={style} | persona={persona[:100]}\n"
+
+        # Build registry agents text — always available for tuning
+        registry_text = ""
+        if registry_agents:
+            registry_text = "\nAvailable agents in registry:\n"
+            for a in registry_agents:
+                name = a.get('name', 'Agent')
+                aid = a.get('id', '')
+                role = a.get('role', '')
+                personality = a.get('personality', {})
+                tone = personality.get('tone', '') if isinstance(personality, dict) else ''
+                style = personality.get('communication_style', '') if isinstance(personality, dict) else ''
+                registry_text += f"- {name} (id={aid}) | role={role} | tone={tone} | style={style}\n"
+
+        # Build team context text
+        team_text = ""
+        if team_agents:
+            team_label = f"Team '{team_name}'" if team_name else "Current team"
+            team_text = f"\n{team_label} agents (use these for tasks when possible):\n"
+            for a in team_agents:
+                name = a.get('name', 'Agent')
+                aid = a.get('id', '')
+                role = a.get('role', '')
+                model = a.get('model', 'auto')
+                tools = a.get('tools', [])
+                team_text += f"- {name} (id={aid}) | role={role} | model={model} | tools={tools}\n"
+
         prompt = (
             "You are the Central Secretary of an Agent Management Platform.\n"
             "Evaluate the user's message and respond with a single JSON object.\n\n"
@@ -95,21 +142,22 @@ class CentralSecretary:
             "- chat: greetings, small talk, general questions, self-introduction requests\n"
             "- info: questions about system/agents/status\n"
             "- ask: user wants work done but needs are unclear\n"
-            "- plan: user wants specific work produced (content, images, videos, analysis, etc.)\n\n"
-
-            "Examples:\n"
-            '  "Hello" → {"action": "chat", "message": "Hi! How can I help?"}\n'
-            '  "แนะนำตัวหน่อย" → {"action": "chat", "message": "สวัสดีครับ ผมคือ..."}\n'
-            '  "What can you do?" → {"action": "info", "message": "I can create content plans..."}\n'
-            '  "สร้าง content plan สำหรับร้านกาแฟ" → {"action": "plan", ...}\n\n'
+            "- plan: user wants specific work produced (content, images, videos, analysis, etc.)\n"
+            "- tuning: user wants to adjust, refine, or change how an agent behaves — tone, style, personality, expertise, or any aspect.\n"
+            "  This can happen at ANY time: after a task, before a task, or even with no task at all.\n"
+            "  If the user mentions a specific agent, tune that one. If not, use context to determine which agent(s) to tune.\n\n"
 
             "IMPORTANT: Do NOT create a plan for greetings, self-introductions, or simple questions.\n"
-            "Only create a plan when the user explicitly asks for work to be done.\n\n"
+            "Only create a plan when the user explicitly asks for work to be done.\n"
+            "Use 'tuning' when the user wants to modify agent behavior — not when asking for new work.\n\n"
 
             "For chat/info/ask, respond with:\n"
             '  {"action": "chat", "message": "your reply"}\n'
             '  {"action": "info", "message": "your reply"}\n'
             '  {"action": "ask", "questions": ["q1", "q2", ...]}\n\n'
+
+            "For tuning, respond with:\n"
+            '  {"action": "tuning", "tuning_text": "what the user wants to change", "target_agent": "agent name or empty if unclear"}\n\n'
 
             "For plan, respond with a complete plan including agents AND model assignments:\n"
             "{\n"
@@ -182,6 +230,9 @@ class CentralSecretary:
             f"Available text models:\n{models_text}\n\n"
             f"Specialized AI models:\n{media_catalog or 'none'}\n\n"
             f"{history_text}"
+            f"{last_task_text}"
+            f"{registry_text}"
+            f"{team_text}"
             f"User message: {user_input}\n\n"
             "Output ONLY the JSON object, no explanation:"
         )
@@ -315,6 +366,91 @@ class CentralSecretary:
                 f"ลองเปลี่ยนโมเดลแล้วส่งใหม่อีกครั้ง"
             )
         }
+
+    async def analyze_feedback(
+        self,
+        feedback_text: str,
+        agent_specs: list[dict],
+        task_result: str = "",
+    ) -> dict:
+        """Analyze user feedback/tuning request and propose persona changes for agents.
+
+        Works with agents from last task OR from registry — tuning can happen anytime.
+
+        Returns: {
+            "tuning_proposals": [
+                {
+                    "agent_name": "...",
+                    "agent_id": "...",
+                    "changes": [
+                        {"field": "personality.tone", "old_value": "...", "new_value": "...", "reason": "..."},
+                        ...
+                    ]
+                },
+                ...
+            ]
+        }
+        """
+        agents_info = []
+        for spec in agent_specs:
+            personality = spec.get("personality", {})
+            agents_info.append({
+                "name": spec.get("name", "Agent"),
+                "id": spec.get("registry_id", spec.get("id", "")),
+                "role": spec.get("role", ""),
+                "persona": spec.get("backstory", spec.get("persona", ""))[:200],
+                "personality": personality,
+                "expertise": spec.get("expertise", []),
+                "brand_context": spec.get("brand_context", {}),
+            })
+
+        prompt = (
+            "You are the Central Secretary analyzing a user request to tune/adjust agents.\n"
+            "Based on the user's request, propose specific tuning changes to agent personas.\n\n"
+            f"User request: {feedback_text}\n\n"
+        )
+        if task_result:
+            prompt += f"Last task result (for context):\n{task_result[:1000]}\n\n"
+        prompt += (
+            f"Agents available for tuning:\n{json.dumps(agents_info, ensure_ascii=False, indent=2)}\n\n"
+            "Analyze the request and decide which agent(s) need persona adjustments.\n"
+            "For each agent, specify which fields to change and why.\n\n"
+            "Tunable fields:\n"
+            "- personality.tone (e.g. professional, casual, friendly, formal)\n"
+            "- personality.communication_style (e.g. concise, detailed, conversational)\n"
+            "- personality.language (e.g. th, en, mixed)\n"
+            "- persona/backstory (free text describing the agent's character)\n"
+            "- expertise (list of skills/knowledge areas)\n"
+            "- brand_context.guidelines (tone/style rules)\n\n"
+            "Respond with ONLY this JSON (no other text):\n"
+            "{\n"
+            '  "tuning_proposals": [\n'
+            "    {\n"
+            '      "agent_name": "Agent Name",\n'
+            '      "agent_id": "agent_id",\n'
+            '      "changes": [\n'
+            '        {"field": "personality.tone", "old_value": "current value", "new_value": "new value", "reason": "why this change"}\n'
+            "      ]\n"
+            "    }\n"
+            "  ]\n"
+            "}\n\n"
+            "Rules:\n"
+            "- Only include agents that need changes\n"
+            "- Be specific with old_value and new_value\n"
+            "- Use dot notation for nested fields (e.g. personality.tone)\n"
+            "- Provide clear reasons in the same language as the feedback\n"
+            "- If no tuning is needed, return empty tuning_proposals array\n"
+        )
+
+        response = (await self.llm_manager.call_async(prompt)).strip()
+        try:
+            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            if json_match:
+                result = json.loads(json_match.group())
+                return result
+        except (json.JSONDecodeError, AttributeError):
+            pass
+        return {"tuning_proposals": []}
 
     async def chat_response(self, user_input: str) -> str:
         """ตอบกลับทักทาย/คำถามทั่วไป"""

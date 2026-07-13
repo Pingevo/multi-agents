@@ -14,7 +14,7 @@ export interface ResultAgent {
   output: string;
 }
 
-export type ChatMessageType = 'text' | 'plan' | 'plan_validation_error' | 'progress' | 'result' | 'image_approval' | 'image_result' | 'agent_progress' | 'model_catalog' | 'thinking' | 'thinking_done' | 'audio_result' | 'transcription_result' | 'video_result' | 'file_result';
+export type ChatMessageType = 'text' | 'plan' | 'plan_validation_error' | 'progress' | 'result' | 'image_approval' | 'image_result' | 'agent_progress' | 'model_catalog' | 'thinking' | 'thinking_done' | 'audio_result' | 'transcription_result' | 'video_result' | 'file_result' | 'tuning_proposal';
 
 export type PlanStatus = 'pending' | 'approved' | 'rejected';
 
@@ -78,6 +78,7 @@ export interface ChatMessage {
   attachmentUrl?: string;
   attachmentName?: string;
   attachmentMime?: string;
+  tuningProposals?: TuningProposal[];
 }
 
 export interface AgentProgressEntry {
@@ -91,6 +92,19 @@ export interface AgentProgressEntry {
   tool_description?: string;
   model?: string;
   thinking?: string;
+}
+
+export interface TuningChange {
+  field: string;
+  old_value: string;
+  new_value: string;
+  reason: string;
+}
+
+export interface TuningProposal {
+  agent_name: string;
+  agent_id: string;
+  changes: TuningChange[];
 }
 
 export interface ActivityEntry {

@@ -11,6 +11,7 @@ from backend.agents.task_store import TaskStore
 from backend.agents.chat_store import ChatStore
 from backend.agents.registry import AgentRegistry
 from backend.agents.tool_registry import ToolRegistry
+from backend.agents.team_registry import TeamRegistry
 from backend.llm.manager import LLMManager
 from schemas import (
     PlanAgentItem, ResultAgentItem, AgentProgressEntry,
@@ -396,6 +397,18 @@ class StateMessenger:
         payload["payload"]["resolvedModel"] = resolved_model
         await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
 
+    async def reply_tuning_proposal(self, proposals: list[dict]):
+        """Send a tuning proposal card to the frontend for user confirmation."""
+        payload = {
+            "type": "chat_reply",
+            "payload": {
+                "messageType": "tuning_proposal",
+                "proposals": proposals,
+            }
+        }
+        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
+        self.persist_message({"role": "assistant", "messageType": "tuning_proposal", "proposals": proposals})
+
     async def reply_chat_history(self, session_id: str):
         """Send full chat history for a session, including canvas state"""
         session = self.chat_store.get_session(session_id)
@@ -517,6 +530,30 @@ class StateMessenger:
         self.task_store.delete_task(task_id)
         self.state["tasks"] = self.task_store.list_tasks()
         await self._send()
+
+    async def reply_team_list(self, team_registry: TeamRegistry):
+        """Send list of all teams to the frontend."""
+        teams = team_registry.list_teams()
+        team_list = [
+            {
+                "id": t.get("id"),
+                "name": t.get("name", ""),
+                "description": t.get("description", ""),
+                "manager_model": t.get("manager_model", "auto"),
+                "agent_ids": t.get("agent_ids", []),
+                "created_at": t.get("created_at", ""),
+                "updated_at": t.get("updated_at", ""),
+            }
+            for t in teams
+        ]
+        payload = {
+            "type": "chat_reply",
+            "payload": {
+                "messageType": "team_list",
+                "teams": team_list,
+            },
+        }
+        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
 
 
 

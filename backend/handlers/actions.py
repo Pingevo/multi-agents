@@ -10,6 +10,8 @@ from backend.utils import _sanitize_error, _debug
 from backend.llm.manager import LLMManager
 from backend.agents.registry import AgentRegistry
 from backend.agents.tool_registry import ToolRegistry
+from backend.agents.team_registry import TeamRegistry
+from backend.agents.chat_store import ChatStore
 from backend.core.orchestrator import ExecutionOrchestrator
 from backend.core.messenger import StateMessenger
 from schemas import chat_reply
@@ -90,18 +92,25 @@ async def on_action_accept(action: cl.Action):
             spec["model"] = pre_assigned["workers"][name]
 
     # Register all new agents in the plan
+    current_team_id = cl.user_session.get("current_team_id")
+    team_registry = cl.user_session.get("team_registry") or TeamRegistry()
     registered_specs = []
     for spec in agent_specs:
         if spec.get("registry_id"):
             # Already registered
             registered_specs.append(spec)
         else:
+            if current_team_id:
+                spec["team_id"] = current_team_id
             new_agent = registry.add_agent(spec)
             merged = registry.to_spec(new_agent)
             merged["task_description"] = spec.get("task_description", user_input)
             merged["depends_on"] = spec.get("depends_on", [])
             merged["registry_id"] = new_agent.get("id")
+            if current_team_id:
+                team_registry.add_agent(current_team_id, new_agent.get("id"))
             registered_specs.append(merged)
+    cl.user_session.set("team_registry", team_registry)
 
     cl.user_session.set("current_agent_specs", registered_specs)
     if messenger:
@@ -303,6 +312,212 @@ async def on_action_agent_feedback(action: cl.Action):
     if messenger:
         agent_name = agent.get("name", "Agent")
         await messenger.notify(f"📝 บันทึก feedback ให้ {agent_name} แล้ว — agent จะใช้ในการปรับปรุงครั้งต่อไป")
+
+
+@cl.action_callback("confirm_tuning")
+async def on_action_confirm_tuning(action: cl.Action):
+    """Apply tuning proposal to agent registry — no auto re-run."""
+    registry = cl.user_session.get("registry") or AgentRegistry()
+    messenger = get_messenger()
+    proposals = cl.user_session.get("pending_tuning_proposal") or []
+
+    if not proposals:
+        if messenger:
+            await messenger.notify("❌ ไม่พบ tuning proposal ที่รอยืนยัน")
+        return
+
+    applied_count = 0
+    for proposal in proposals:
+        agent_id = proposal.get("agent_id", "")
+        changes = proposal.get("changes", [])
+        if not agent_id or not changes:
+            continue
+
+        agent = registry.get_by_id(agent_id)
+        if not agent:
+            continue
+
+        # Build update fields from changes
+        update_fields = {}
+        for change in changes:
+            field = change.get("field", "")
+            new_value = change.get("new_value", "")
+            if not field:
+                continue
+
+            # Handle dot notation: personality.tone → nested dict
+            if "." in field:
+                parts = field.split(".")
+                if parts[0] == "personality":
+                    personality = dict(agent.get("personality", {}))
+                    if len(parts) == 2:
+                        personality[parts[1]] = new_value
+                    update_fields["personality"] = personality
+                elif parts[0] == "brand_context":
+                    brand_context = dict(agent.get("brand_context", {}))
+                    if len(parts) == 2:
+                        brand_context[parts[1]] = new_value
+                    update_fields["brand_context"] = brand_context
+            else:
+                # Direct field: persona, expertise, goal, etc.
+                if field in ("persona", "backstory"):
+                    update_fields["persona"] = new_value
+                elif field == "expertise":
+                    update_fields["expertise"] = new_value if isinstance(new_value, list) else [new_value]
+                elif field in ("goal", "name", "role", "model", "team_id"):
+                    update_fields[field] = new_value
+
+        if update_fields:
+            registry.update_agent(agent_id, update_fields)
+            applied_count += 1
+
+    cl.user_session.set("pending_tuning_proposal", None)
+
+    if messenger:
+        await messenger.update_agents(registry)
+        if applied_count > 0:
+            await messenger.notify(f"✅ ปรับแต่ง agent แล้ว ({applied_count} agent) — พร้อมใช้งานในครั้งถัดไป")
+        else:
+            await messenger.notify("⚠️ ไม่สามารถปรับแต่งได้ — ตรวจสอบ agent_id และฟิลด์อีกครั้ง")
+
+
+@cl.action_callback("reject_tuning")
+async def on_action_reject_tuning(action: cl.Action):
+    """Reject tuning proposal — clear and return to idle."""
+    messenger = get_messenger()
+    cl.user_session.set("pending_tuning_proposal", None)
+    if messenger:
+        await messenger.notify("❌ ยกเลิกการปรับแต่ง agent")
+
+
+# ============================================================
+# Team Actions
+# ============================================================
+
+@cl.action_callback("create_team")
+async def on_action_create_team(action: cl.Action):
+    """Create a new team."""
+    messenger = get_messenger()
+    payload = action.payload or {}
+    name = payload.get("name", "").strip()
+    description = payload.get("description", "").strip()
+    manager_model = payload.get("manager_model", "auto")
+
+    if not name:
+        if messenger:
+            await messenger.notify("❌ ต้องระบุชื่อทีม")
+        return
+
+    team_registry = cl.user_session.get("team_registry") or TeamRegistry()
+    team = team_registry.create_team(name=name, description=description, manager_model=manager_model)
+    cl.user_session.set("team_registry", team_registry)
+
+    if messenger:
+        await messenger.reply_team_list(team_registry)
+        await messenger.notify(f"✅ สร้างทีม {team['name']} สำเร็จ")
+
+
+@cl.action_callback("update_team")
+async def on_action_update_team(action: cl.Action):
+    """Update team settings."""
+    messenger = get_messenger()
+    payload = action.payload or {}
+    team_id = payload.get("team_id", "")
+    if not team_id:
+        if messenger:
+            await messenger.notify("❌ ไม่พบ Team ID")
+        return
+
+    team_registry = cl.user_session.get("team_registry") or TeamRegistry()
+    fields = {}
+    for key in ("name", "description", "manager_model"):
+        if key in payload:
+            fields[key] = payload[key]
+    team_registry.update_team(team_id, fields)
+    cl.user_session.set("team_registry", team_registry)
+
+    if messenger:
+        await messenger.reply_team_list(team_registry)
+        await messenger.notify("✅ อัปเดตทีมสำเร็จ")
+
+
+@cl.action_callback("delete_team")
+async def on_action_delete_team(action: cl.Action):
+    """Delete a team and unlink its agents."""
+    messenger = get_messenger()
+    team_id = action.payload.get("team_id", "")
+    if not team_id:
+        if messenger:
+            await messenger.notify("❌ ไม่พบ Team ID")
+        return
+
+    team_registry = cl.user_session.get("team_registry") or TeamRegistry()
+    registry = cl.user_session.get("registry") or AgentRegistry()
+
+    team = team_registry.get_team(team_id)
+    if not team:
+        if messenger:
+            await messenger.notify("❌ ไม่พบทีมที่ต้องการลบ")
+        return
+
+    # Unlink agents from this team (set team_id=None, don't delete agents)
+    for agent_id in team.get("agent_ids", []):
+        registry.update_agent(agent_id, {"team_id": None})
+
+    team_registry.delete_team(team_id)
+    cl.user_session.set("team_registry", team_registry)
+
+    if messenger:
+        await messenger.reply_team_list(team_registry)
+        await messenger.notify(f"🗑 ลบทีม {team.get('name', '')} แล้ว")
+
+
+@cl.action_callback("delete_chat_session")
+async def on_action_delete_chat_session(action: cl.Action):
+    """Delete a chat session."""
+    messenger = get_messenger()
+    session_id = action.payload.get("session_id", "")
+    if not session_id:
+        if messenger:
+            await messenger.notify("❌ ไม่พบ Session ID")
+        return
+
+    chat_store = cl.user_session.get("chat_store") or ChatStore()
+    chat_store.delete_session(session_id)
+
+    if messenger:
+        await messenger.reply_chat_sessions()
+        await messenger.notify("🗑 ลบแชทแล้ว")
+
+
+@cl.action_callback("config_agent")
+async def on_action_config_agent(action: cl.Action):
+    """Update agent configuration from modal."""
+    messenger = get_messenger()
+    payload = action.payload or {}
+    agent_id = payload.get("agent_id", "")
+    if not agent_id:
+        if messenger:
+            await messenger.notify("❌ ไม่พบ Agent ID")
+        return
+
+    registry = cl.user_session.get("registry") or AgentRegistry()
+    agent = registry.get_by_id(agent_id)
+    if not agent:
+        if messenger:
+            await messenger.notify("❌ ไม่พบ Agent")
+        return
+
+    fields = {}
+    for key in ("name", "role", "goal", "persona", "model", "tools"):
+        if key in payload:
+            fields[key] = payload[key]
+
+    if fields:
+        registry.update_agent(agent_id, fields)
+        if messenger:
+            await messenger.update_agents(registry)
+            await messenger.notify(f"✅ อัปเดต {agent.get('name', 'Agent')} แล้ว")
 
 
 

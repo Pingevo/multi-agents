@@ -24,10 +24,11 @@ class ChatStore:
         with open(self.filepath, "w", encoding="utf-8") as f:
             json.dump(self.sessions, f, ensure_ascii=False, indent=2)
 
-    def create_session(self, title: str = "New Chat") -> dict:
+    def create_session(self, title: str = "New Chat", team_id: str | None = None) -> dict:
         session = {
             "id": str(uuid.uuid4())[:8],
             "title": title,
+            "team_id": team_id,
             "messages": [],
             "created_at": datetime.now().isoformat(),
             "updated_at": datetime.now().isoformat(),
@@ -72,8 +73,11 @@ class ChatStore:
             return True
         return False
 
-    def list_sessions(self) -> list[dict]:
-        return sorted(self.sessions, key=lambda s: s.get("updated_at", ""), reverse=True)
+    def list_sessions(self, team_id: str | None = None) -> list[dict]:
+        sessions = self.sessions
+        if team_id is not None:
+            sessions = [s for s in sessions if s.get("team_id") == team_id]
+        return sorted(sessions, key=lambda s: s.get("updated_at", ""), reverse=True)
 
     def save_canvas_state(self, session_id: str, canvas_state: dict):
         """Save canvas state (nodes + edges) for a session"""

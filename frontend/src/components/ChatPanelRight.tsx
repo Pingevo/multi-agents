@@ -26,6 +26,8 @@ interface ChatPanelRightProps {
   onDeleteChat: (id: string) => void;
   onAcceptPlan?: () => void;
   onRejectPlan?: () => void;
+  onConfirmTuning?: () => void;
+  onRejectTuning?: () => void;
   onApproveImage?: (approvalId: string) => void;
   onRejectImage?: (approvalId: string) => void;
   onRetryImage?: (approvalId: string) => void;
@@ -809,7 +811,7 @@ const ImageResultCard: React.FC<{
 export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
   messages, activityLog, isProcessing, chatSessions, activeSessionId,
   onSend, onStop, onNewChat, onSwitchChat, onRenameChat, onDeleteChat,
-  onAcceptPlan, onRejectPlan, onApproveImage, onRejectImage, onRetryImage, onEditImagePrompt,
+  onAcceptPlan, onRejectPlan, onConfirmTuning, onRejectTuning, onApproveImage, onRejectImage, onRetryImage, onEditImagePrompt,
   onFetchModelCatalog, onFetchMediaCatalog, onSearchModels, onSelectModel, onChangeAgentModel, onChangeManagerModel, onChangeMediaModel,
   selectedModel, resolvedModel, thinkingText, thinkingDuration, isThinking, inputMode, onModeChange, disabled,
 }) => {
@@ -1218,6 +1220,59 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
                     // image_approval, image_result, and model_catalog are not shown as chat messages
                     if (msgType === 'image_approval' || msgType === 'image_result' || msgType === 'model_catalog') {
                       return null;
+                    }
+
+                    if (msgType === 'tuning_proposal' && msg.tuningProposals) {
+                      return (
+                        <div key={msg.id} className="flex gap-1.5 flex-row">
+                          <div className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 bg-surface-2 text-accent">
+                            <Bot className="w-3 h-3" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="rounded-xl border border-accent/30 bg-surface/80 backdrop-blur-sm overflow-hidden">
+                              <div className="flex items-center gap-2 px-3 py-2 border-b border-accent/20 bg-accent/5">
+                                <span className="font-semibold text-xs text-text">📝 ปรับแต่ง Agent</span>
+                              </div>
+                              <div className="p-3 space-y-3">
+                                {msg.tuningProposals.map((proposal, pi) => (
+                                  <div key={pi} className="space-y-2">
+                                    <div className="text-xs font-medium text-text">{proposal.agent_name}</div>
+                                    {proposal.changes.map((change, ci) => (
+                                      <div key={ci} className="space-y-1">
+                                        <div className="text-[10px] text-text-2 font-medium">{change.field}</div>
+                                        <div className="flex items-center gap-2 text-[11px]">
+                                          <span className="px-2 py-0.5 rounded bg-surface-2 text-text-2 line-through opacity-60">
+                                            {change.old_value || '(empty)'}
+                                          </span>
+                                          <span className="text-text-2">→</span>
+                                          <span className="px-2 py-0.5 rounded bg-accent/10 text-accent font-medium">
+                                            {change.new_value}
+                                          </span>
+                                        </div>
+                                        <div className="text-[10px] text-text-2 italic">{change.reason}</div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ))}
+                                <div className="flex gap-2 pt-1">
+                                  <button
+                                    onClick={() => onConfirmTuning?.()}
+                                    className="px-3 py-1.5 rounded-lg bg-success/10 text-success text-xs font-medium hover:bg-success/20 transition-colors"
+                                  >
+                                    ยืนยัน
+                                  </button>
+                                  <button
+                                    onClick={() => onRejectTuning?.()}
+                                    className="px-3 py-1.5 rounded-lg bg-danger/10 text-danger text-xs font-medium hover:bg-danger/20 transition-colors"
+                                  >
+                                    ปฏิเสธ
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
                     }
 
                     if (msgType === 'audio_result') {

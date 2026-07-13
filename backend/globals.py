@@ -17,6 +17,7 @@ STATE_EXECUTING = "EXECUTING"
 AGENT_REGISTRY_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "agent_registry.json")
 TASK_REGISTRY_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "task_registry.json")
 CHAT_SESSIONS_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "chat_sessions.json")
+TEAM_REGISTRY_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "team_registry.json")
 
 # ============================================================
 # Global callback for progress updates from tools

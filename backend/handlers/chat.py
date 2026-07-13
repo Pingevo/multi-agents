@@ -26,6 +26,7 @@ from backend.agents.registry import AgentRegistry
 from backend.agents.task_store import TaskStore
 from backend.agents.chat_store import ChatStore
 from backend.agents.tool_registry import ToolRegistry
+from backend.agents.team_registry import TeamRegistry
 from backend.core.secretary import CentralSecretary
 from backend.core.orchestrator import ExecutionOrchestrator
 from backend.core.messenger import StateMessenger
@@ -41,6 +42,11 @@ from backend.handlers.actions import (
     on_action_edit_agent_form,
     on_action_delete_agent,
     on_action_assign_task_form,
+    on_action_create_team,
+    on_action_update_team,
+    on_action_delete_team,
+    on_action_delete_chat_session,
+    on_action_config_agent,
 )
 from schemas import (
     PlanAgentItem, ResultAgentItem, AgentProgressEntry,
@@ -128,6 +134,11 @@ async def execute_multi_agent_task(
 
         raw_output = result.get("raw", str(result))
         agent_outputs = result.get("agent_outputs", [])
+
+        # Store last task context for feedback tuning
+        cl.user_session.set("last_task_result", raw_output[:2000])
+        cl.user_session.set("last_agent_specs", agent_specs)
+        cl.user_session.set("last_user_input", user_input)
 
         if messenger:
             final_agents = []
@@ -376,6 +387,11 @@ async def execute_task_with_agent(
         result = await orchestrator.run_async(user_input, [agent_spec])
         task_result = result
 
+        # Store last task context for feedback tuning
+        cl.user_session.set("last_task_result", str(result)[:2000])
+        cl.user_session.set("last_agent_specs", [agent_spec])
+        cl.user_session.set("last_user_input", user_input)
+
         if messenger:
             cl.run_sync(
                 messenger.update_task(
@@ -434,6 +450,9 @@ async def on_chat_start():
     cl.user_session.set("current_registry_id", None)
     cl.user_session.set("conversation_history", [])
 
+    team_registry = TeamRegistry()
+    cl.user_session.set("team_registry", team_registry)
+
     chat_store = ChatStore()
     # Create default session if none exists
     sessions = chat_store.list_sessions()
@@ -449,6 +468,7 @@ async def on_chat_start():
     await messenger.init(registry)
     await messenger.set_status("Ready")
     await messenger.reply_chat_sessions()
+    await messenger.reply_team_list(team_registry)
     await messenger.reply_chat_history(current_session_id)
 
     # Restore plan approval state if last message is a pending plan
@@ -721,7 +741,8 @@ async def on_message(message: cl.Message):
                 await messenger.reply(f"❌ ยกเลิกการสร้างสื่อ (ID: {approval_id})")
                 cl.user_session.set(f"pending_media_{approval_id}", None)
         elif action_name == "new_chat":
-            session = messenger.chat_store.create_session("New Chat")
+            current_team_id = cl.user_session.get("current_team_id")
+            session = messenger.chat_store.create_session("New Chat", team_id=current_team_id)
             messenger.current_session_id = session["id"]
             await messenger.reply_chat_sessions()
             await messenger.reply_chat_history(session["id"])
@@ -760,11 +781,12 @@ async def on_message(message: cl.Message):
             session_id = payload.get("session_id", "")
             messenger.chat_store.delete_session(session_id)
             # Switch to another session or create new
-            remaining = messenger.chat_store.list_sessions()
+            current_team_id = cl.user_session.get("current_team_id")
+            remaining = messenger.chat_store.list_sessions(team_id=current_team_id)
             if remaining:
                 messenger.current_session_id = remaining[0]["id"]
             else:
-                new_s = messenger.chat_store.create_session("New Chat")
+                new_s = messenger.chat_store.create_session("New Chat", team_id=current_team_id)
                 messenger.current_session_id = new_s["id"]
             await messenger.reply_chat_sessions()
             await messenger.reply_chat_history(messenger.current_session_id)
@@ -939,6 +961,47 @@ async def on_message(message: cl.Message):
                 except Exception as e:
                     if messenger:
                         await messenger.reply(f"❌ Upload failed: {_sanitize_error(e)}")
+        elif action_name == "create_team":
+            await on_action_create_team(cl.Action(name="create_team", payload=payload))
+        elif action_name == "update_team":
+            await on_action_update_team(cl.Action(name="update_team", payload=payload))
+        elif action_name == "delete_team":
+            await on_action_delete_team(cl.Action(name="delete_team", payload=payload))
+        elif action_name == "delete_chat_session":
+            await on_action_delete_chat_session(cl.Action(name="delete_chat_session", payload=payload))
+        elif action_name == "config_agent":
+            await on_action_config_agent(cl.Action(name="config_agent", payload=payload))
+        elif action_name == "select_team":
+            team_id = payload.get("team_id", "")
+            cl.user_session.set("current_team_id", team_id if team_id else None)
+            team_registry = cl.user_session.get("team_registry") or TeamRegistry()
+            if team_id:
+                team = team_registry.get_team(team_id)
+                if team and messenger:
+                    # List sessions for this team
+                    sessions = messenger.chat_store.list_sessions(team_id=team_id)
+                    session_list = [
+                        {"id": s["id"], "title": s["title"], "updated_at": s.get("updated_at", "")}
+                        for s in sessions
+                    ]
+                    payload_sessions = {
+                        "type": "chat_reply",
+                        "payload": {
+                            "messageType": "chat_sessions",
+                            "sessions": session_list,
+                            "currentSessionId": messenger.current_session_id,
+                        },
+                    }
+                    await cl.Message(content=json.dumps(payload_sessions, ensure_ascii=False)).send()
+                    # List agents for this team
+                    registry = cl.user_session.get("registry") or AgentRegistry()
+                    team_agents = registry.list_agents(team_id=team_id)
+                    if messenger:
+                        await messenger.update_agents(registry)
+        elif action_name == "list_teams":
+            team_registry = cl.user_session.get("team_registry") or TeamRegistry()
+            if messenger:
+                await messenger.reply_team_list(team_registry)
         return
 
     # Persist user message to chat session
@@ -1108,12 +1171,42 @@ async def on_message(message: cl.Message):
                 if messenger:
                     await messenger.reply_thinking(chunk, thinking_id)
 
+            # Build last task context (optional — tuning can happen without it)
+            last_task_context = None
+            last_result = cl.user_session.get("last_task_result")
+            last_specs = cl.user_session.get("last_agent_specs")
+            last_input = cl.user_session.get("last_user_input")
+            if last_result and last_specs:
+                last_task_context = {
+                    "user_input": last_input or "",
+                    "result": last_result,
+                    "agents": last_specs,
+                }
+
+            # Always pass registry agents so secretary can handle tuning anytime
+            registry_agents = registry.list_agents()
+
+            # Pass team agents if a team is selected
+            team_agents = None
+            team_name = None
+            current_team_id = cl.user_session.get("current_team_id")
+            if current_team_id:
+                team_registry = cl.user_session.get("team_registry") or TeamRegistry()
+                team = team_registry.get_team(current_team_id)
+                if team:
+                    team_name = team.get("name", "")
+                    team_agents = registry.list_agents(team_id=current_team_id)
+
             result = await secretary.assess_and_plan(
                 user_input_for_ai, conversation_history,
                 model_table=model_table,
                 valid_model_ids=valid_model_ids,
                 media_catalog=media_catalog,
                 stream_callback=_stream_cb,
+                last_task_context=last_task_context,
+                registry_agents=registry_agents,
+                team_agents=team_agents,
+                team_name=team_name,
             ) if not multimodal_blocks else await secretary.assess_and_plan_multimodal(
                 user_input, multimodal_blocks, multimodal_plugins,
                 conversation_history=conversation_history,
@@ -1139,6 +1232,64 @@ async def on_message(message: cl.Message):
                 conversation_history.append({"role": "user", "content": user_input})
                 conversation_history.append({"role": "assistant", "content": response})
                 cl.user_session.set("conversation_history", conversation_history)
+                return
+
+            if action == "tuning":
+                cl.user_session.set("state", STATE_IDLE)
+                tuning_text = result.get("tuning_text", user_input)
+                target_agent = result.get("target_agent", "")
+                if messenger:
+                    await messenger.notify("📝 กำลังวิเคราะห์การปรับแต่ง agent...")
+
+                # Use last task agents if available, otherwise use all registry agents
+                last_specs = cl.user_session.get("last_agent_specs") or []
+                last_result = cl.user_session.get("last_task_result") or ""
+                all_agents = registry.list_agents()
+
+                # Build agent list for analysis: prefer last task agents, fallback to registry
+                if last_specs:
+                    agent_specs_for_tuning = last_specs
+                elif all_agents:
+                    # Convert registry agents to spec format
+                    agent_specs_for_tuning = []
+                    for a in all_agents:
+                        spec = registry.to_spec(a)
+                        spec["registry_id"] = a.get("id", "")
+                        agent_specs_for_tuning.append(spec)
+                else:
+                    if messenger:
+                        await messenger.reply("ยังไม่มี agent ในระบบ กรุณาสร้าง agent ก่อน หรือสั่งงานใหม่")
+                    return
+
+                # If user specified a target agent, filter to that one
+                if target_agent:
+                    filtered = [s for s in agent_specs_for_tuning if target_agent.lower() in s.get("name", "").lower()]
+                    if filtered:
+                        agent_specs_for_tuning = filtered
+
+                tuning = await secretary.analyze_feedback(tuning_text, agent_specs_for_tuning, last_result)
+                proposals = tuning.get("tuning_proposals", [])
+
+                if not proposals:
+                    if messenger:
+                        await messenger.reply("วิเคราะห์แล้ว — ไม่พบสิ่งที่ต้องปรับแต่งในตอนนี้")
+                    return
+
+                # Store tuning proposal in session for confirm/reject actions
+                cl.user_session.set("pending_tuning_proposal", proposals)
+
+                # Store feedback as learning for each affected agent
+                for proposal in proposals:
+                    agent_id = proposal.get("agent_id", "")
+                    if agent_id:
+                        registry.add_learning(agent_id, {
+                            "type": "user_feedback",
+                            "lesson": tuning_text,
+                            "timestamp": datetime.now().isoformat(),
+                        })
+
+                if messenger:
+                    await messenger.reply_tuning_proposal(proposals)
                 return
 
             if action == "info":

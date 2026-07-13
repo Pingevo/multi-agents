@@ -30,6 +30,14 @@ export default defineConfig({
         target: 'http://localhost:8000',
         changeOrigin: true,
       },
+      '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+      '/public': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
       '/favicon': {
         target: 'http://localhost:8000',
         changeOrigin: true,

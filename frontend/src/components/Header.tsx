@@ -1,5 +1,6 @@
-import { LayoutDashboard, Wallet } from 'lucide-react';
+import { LayoutDashboard, Wallet, LogOut } from 'lucide-react';
 import type { CreditsInfo } from '../types/platform';
+import { useAuth } from '../context/AuthContext';
 
 interface HeaderProps {
   systemStatus: string;
@@ -8,6 +9,7 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({ systemStatus, credits }) => {
   const isConnected = systemStatus !== 'Connecting...';
+  const { user, logout } = useAuth();
   return (
     <header className="h-12 bg-surface border-b border-border flex items-center justify-between px-4 shrink-0">
       <div className="flex items-center gap-2">
@@ -33,6 +35,27 @@ export const Header: React.FC<HeaderProps> = ({ systemStatus, credits }) => {
           <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-success' : 'bg-warning'} ${isConnected ? '' : 'animate-pulse'}`} />
           <span>{systemStatus}</span>
         </div>
+        {user && (
+          <div className="flex items-center gap-2 pl-3 ml-1 border-l border-border">
+            <div className="flex items-center gap-1.5 text-xs text-text-2">
+              {user.avatar_url ? (
+                <img src={user.avatar_url} alt="" className="w-5 h-5 rounded-full" />
+              ) : (
+                <div className="w-5 h-5 rounded-full bg-accent/20 flex items-center justify-center text-[10px] font-medium text-accent">
+                  {user.username.charAt(0).toUpperCase()}
+                </div>
+              )}
+              <span>{user.username}</span>
+            </div>
+            <button
+              onClick={logout}
+              className="p-1 text-text-2 hover:text-error transition-colors"
+              title="Logout"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          </div>
+        )}
       </div>
     </header>
   );

@@ -1,11 +1,17 @@
 import { useEffect, useCallback, useState, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { PlatformProvider, usePlatform } from './context/PlatformContext';
-import { MainLayout } from './components/MainLayout';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import { LoginScreen } from './components/LoginScreen';
+import { TeamListPage } from './components/TeamListPage';
+import { TeamDetailPage } from './components/TeamDetailPage';
+import { TeamCreateModal } from './components/TeamCreateModal';
+import { AICreateTeamModal } from './components/AICreateTeamModal';
 import type { ChatMessage, ActivityEntry, PlanAgent } from './components/chatTypes';
 import type { ChatSession } from './components/ChatSidebar';
 import type { ChatReplyEnvelope, ChatReplyPayload, ChatReplyPlan } from './schemas/messages';
 import type { Agent, Plan } from './types/platform';
+import type { Team } from './types/team';
 
 const planAgentsToAgents = (planAgents: PlanAgent[]): Agent[] =>
   planAgents.map((pa, idx) => ({
@@ -226,12 +232,36 @@ const parseChatReply = (message: any): Omit<ChatMessage, 'id' | 'timestamp'> | n
         };
       }
 
+      // Tuning proposal
+      if (msgType === 'tuning_proposal') {
+        return {
+          role: 'assistant',
+          content: '',
+          messageType: 'tuning_proposal',
+          tuningProposals: (p as any).proposals || [],
+        };
+      }
+
       // Default: text reply
       return {
         role: 'assistant',
         content: (p as any).message || '',
         messageType: 'text',
       };
+    }
+  } catch {
+    return null;
+  }
+  return null;
+};
+
+const parseTeamList = (message: any): Team[] | null => {
+  const text = message?.output || message?.content || '';
+  if (!text) return null;
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed.type === 'chat_reply' && parsed.payload?.messageType === 'team_list') {
+      return (parsed.payload.teams || []) as Team[];
     }
   } catch {
     return null;
@@ -297,6 +327,7 @@ const parseChatSessionMessage = (message: any): { sessions: ChatSession[]; curre
           sttModel: m.sttModel,
           visionModel: m.visionModel,
           managerModel: m.managerModel,
+          tuningProposals: m.proposals,
         }));
         return { messages, canvasState: p.canvasState || null, selectedModel: p.selectedModel || '' };
       }
@@ -308,7 +339,8 @@ const parseChatSessionMessage = (message: any): { sessions: ChatSession[]; curre
 };
 
 function AppContent() {
-  const { updateState } = usePlatform();
+  const { updateState, agents, credits, system_status } = usePlatform();
+  const { isAuthenticated, token, isLoading: authLoading } = useAuth();
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
@@ -323,6 +355,14 @@ function AppContent() {
   const thinkingStartRef = useRef<number | null>(null);
   const [inputMode, setInputMode] = useState<'chat' | 'plan'>('plan');
   const [canvasStateFromBackend, setCanvasStateFromBackend] = useState<any>(null);
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showAICreateModal, setShowAICreateModal] = useState(false);
+  const [aiChatMessages, setAiChatMessages] = useState<ChatMessage[]>([]);
+  const [aiIsThinking, setAiIsThinking] = useState(false);
+  const [aiThinkingText, setAiThinkingText] = useState<string>('');
+  const aiModalOpenRef = useRef(false);
   const socketRef = useRef<Socket | null>(null);
   const prevNotificationsRef = useRef<string[]>([]);
 
@@ -354,6 +394,10 @@ function AppContent() {
     });
   }, []);
 
+  useEffect(() => {
+    aiModalOpenRef.current = showAICreateModal;
+  }, [showAICreateModal]);
+
   const addActivity = useCallback((text: string) => {
     setActivityLog((prev) => {
       const updated = prev.map((entry) => ({ ...entry, status: 'completed' as const }));
@@ -369,6 +413,7 @@ function AppContent() {
   }, []);
 
   useEffect(() => {
+    if (!isAuthenticated || !token) return;
     const sessionId = generateUUIDv4();
     const socket = io(BACKEND_URL, {
       path: SOCKET_PATH,
@@ -383,7 +428,7 @@ function AppContent() {
         clientType: 'webapp',
         sessionId,
         threadId: '',
-        userEnv: JSON.stringify({}),
+        userEnv: JSON.stringify({ authToken: token }),
         chatProfile: '',
       },
     });
@@ -412,6 +457,13 @@ function AppContent() {
     });
 
     const handleStateMessage = (message: any) => {
+      // Check for team list first
+      const teamList = parseTeamList(message);
+      if (teamList) {
+        setTeams(teamList);
+        return;
+      }
+
       // Check for chat session list or history first
       const sessionData = parseChatSessionMessage(message);
       if (sessionData) {
@@ -434,6 +486,22 @@ function AppContent() {
       // Check for chat reply
       const reply = parseChatReply(message);
       if (reply) {
+        // Route to AI modal if open and message is text/thinking
+        if (aiModalOpenRef.current && (reply.messageType === 'text' || reply.messageType === 'thinking' || reply.messageType === 'thinking_done')) {
+          if (reply.messageType === 'thinking') {
+            setAiThinkingText(prev => (prev || '') + (reply.content || ''));
+            setAiIsThinking(true);
+            return;
+          }
+          if (reply.messageType === 'thinking_done') {
+            setAiIsThinking(false);
+            return;
+          }
+          setAiChatMessages(prev => [...prev, { ...reply, id: generateUUIDv4(), timestamp: Date.now() }]);
+          setAiThinkingText('');
+          return;
+        }
+
         // Handle thinking chunks as streaming (not regular chat messages)
         if (reply.messageType === 'thinking') {
           setThinkingDuration(null);
@@ -454,7 +522,7 @@ function AppContent() {
         clearActivity();
 
         // Set isProcessing based on message type — only false for terminal types
-        const TERMINAL_TYPES = ['result', 'text', 'plan', 'plan_validation_error', 'image_result', 'audio_result', 'video_result', 'file_result', 'transcription_result'];
+        const TERMINAL_TYPES = ['result', 'text', 'plan', 'plan_validation_error', 'image_result', 'audio_result', 'video_result', 'file_result', 'transcription_result', 'tuning_proposal'];
         if (reply.messageType === 'agent_progress' || reply.messageType === 'progress') {
           setIsProcessing(true);
         } else if (TERMINAL_TYPES.includes(reply.messageType)) {
@@ -539,7 +607,7 @@ function AppContent() {
     return () => {
       socket.disconnect();
     };
-  }, [updateState]);
+  }, [updateState, isAuthenticated, token]);
 
   const sendMessage = useCallback((output: string) => {
     const socket = socketRef.current;
@@ -727,34 +795,112 @@ function AppContent() {
     addActivity('Stopped');
   }, [sendMessage, addActivity]);
 
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-900">
+        <div className="text-slate-400 text-lg">Loading...</div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <LoginScreen />;
+  }
+
+  const selectedTeam = teams.find((t) => t.id === selectedTeamId) || null;
+  const statusText = connectionStatus === 'connected' ? system_status : 'Connecting...';
+
+  // Team list page
+  if (!selectedTeam) {
+    return (
+      <>
+        <TeamListPage
+          teams={teams}
+          agents={agents}
+          credits={credits}
+          systemStatus={statusText}
+          onCreateTeam={() => setShowCreateModal(true)}
+          onAICreateTeam={() => setShowAICreateModal(true)}
+          onSelectTeam={(teamId) => {
+            setSelectedTeamId(teamId);
+            handleAction('select_team', { team_id: teamId });
+          }}
+          onDeleteTeam={(teamId) => handleAction('delete_team', { team_id: teamId })}
+        />
+        <TeamCreateModal
+          open={showCreateModal}
+          onClose={() => setShowCreateModal(false)}
+          onCreate={(data) => handleAction('create_team', data)}
+        />
+        <AICreateTeamModal
+          open={showAICreateModal}
+          onClose={() => { setShowAICreateModal(false); setAiChatMessages([]); setAiThinkingText(''); }}
+          onSend={(msg) => {
+            setAiChatMessages(prev => [...prev, { id: generateUUIDv4(), timestamp: Date.now(), role: 'user', content: msg, messageType: 'text' }]);
+            handleSendCommand(msg);
+          }}
+          chatMessages={aiChatMessages}
+          onCreateTeam={(data) => {
+            handleAction('create_team', data);
+            setAiChatMessages([]);
+            setAiThinkingText('');
+          }}
+          onSelectModel={() => handleAction('fetch_model_catalog')}
+          selectedModel={selectedModel}
+          resolvedModel={resolvedModel}
+          isThinking={aiIsThinking}
+          thinkingText={aiThinkingText}
+        />
+      </>
+    );
+  }
+
+  // Team detail page
   return (
-    <MainLayout
-      onSendCommand={handleSendCommand}
-      onStop={handleStop}
-      onAction={handleAction}
-      connectionStatus={connectionStatus}
-      chatMessages={chatMessages}
-      activityLog={activityLog}
-      isProcessing={isProcessing}
-      chatSessions={chatSessions}
-      activeSessionId={activeSessionId}
-      canvasStateFromBackend={canvasStateFromBackend}
-      selectedModel={selectedModel}
-      resolvedModel={resolvedModel}
-      thinkingText={thinkingText}
-      thinkingDuration={thinkingDuration}
-      isThinking={isThinking}
-      inputMode={inputMode}
-      onModeChange={setInputMode}
-    />
+    <>
+      <TeamDetailPage
+        team={selectedTeam}
+        onBack={() => {
+          setSelectedTeamId(null);
+          handleAction('select_team', { team_id: '' });
+        }}
+        onDeleteTeam={(teamId) => {
+          handleAction('delete_team', { team_id: teamId });
+          setSelectedTeamId(null);
+        }}
+        onSendCommand={handleSendCommand}
+        onStop={handleStop}
+        onAction={handleAction}
+        connectionStatus={connectionStatus}
+        chatMessages={chatMessages}
+        activityLog={activityLog}
+        isProcessing={isProcessing}
+        chatSessions={chatSessions}
+        activeSessionId={activeSessionId}
+        selectedModel={selectedModel}
+        resolvedModel={resolvedModel}
+        thinkingText={thinkingText}
+        thinkingDuration={thinkingDuration}
+        isThinking={isThinking}
+        inputMode={inputMode}
+        onModeChange={setInputMode}
+      />
+      <TeamCreateModal
+        open={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        onCreate={(data) => handleAction('create_team', data)}
+      />
+    </>
   );
 }
 
 function App() {
   return (
-    <PlatformProvider>
-      <AppContent />
-    </PlatformProvider>
+    <AuthProvider>
+      <PlatformProvider>
+        <AppContent />
+      </PlatformProvider>
+    </AuthProvider>
   );
 }
 

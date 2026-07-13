@@ -70,7 +70,8 @@ export type ChatMessageType =
   | 'audio_result'
   | 'transcription_result'
   | 'video_result'
-  | 'file_result';
+  | 'file_result'
+  | 'tuning_proposal';
 
 export interface ChatReplyText {
   messageType: 'text';
@@ -208,6 +209,24 @@ export interface ChatReplyPlanValidationError {
   errors: string[];
 }
 
+export interface TuningChangeItem {
+  field: string;
+  old_value: string;
+  new_value: string;
+  reason: string;
+}
+
+export interface TuningProposalItem {
+  agent_name: string;
+  agent_id: string;
+  changes: TuningChangeItem[];
+}
+
+export interface ChatReplyTuningProposal {
+  messageType: 'tuning_proposal';
+  proposals: TuningProposalItem[];
+}
+
 export type ChatReplyPayload =
   | ChatReplyText
   | ChatReplyPlan
@@ -223,7 +242,8 @@ export type ChatReplyPayload =
   | ChatReplyFileResult
   | ChatReplyModelCatalog
   | ChatReplyThinking
-  | ChatReplyThinkingDone;
+  | ChatReplyThinkingDone
+  | ChatReplyTuningProposal;
 
 export interface ChatReplyEnvelope {
   type: 'chat_reply';

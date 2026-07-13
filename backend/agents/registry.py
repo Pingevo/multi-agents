@@ -120,8 +120,10 @@ class AgentRegistry:
             return True
         return False
 
-    def list_agents(self) -> list[dict]:
-        return self.agents
+    def list_agents(self, team_id: str | None = None) -> list[dict]:
+        if team_id is None:
+            return self.agents
+        return [a for a in self.agents if a.get("team_id") == team_id]
 
     def to_spec(self, agent: dict) -> dict:
         """แปลงข้อมูล Agent ในทะเบียนให้เป็น spec ที่ AgentFactory ใช้ได้"""
