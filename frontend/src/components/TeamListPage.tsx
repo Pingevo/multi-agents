@@ -70,12 +70,19 @@ export const TeamListPage: React.FC<TeamListPageProps> = ({
         </div>
         <div className="flex items-center gap-3">
           {credits && (
-            <div className="flex items-center gap-1.5 text-xs text-text-2" title={`Daily: $${credits.usage_daily?.toFixed(4) ?? 0} | Monthly: $${credits.usage_monthly?.toFixed(4) ?? 0}`}>
+            <div className="flex items-center gap-1.5 text-xs text-text-2" title={`Daily: $${credits.usage_daily?.toFixed(4) ?? 0} | Weekly: $${credits.usage_weekly?.toFixed(4) ?? 0} | Monthly: $${credits.usage_monthly?.toFixed(4) ?? 0} | All-time: $${credits.usage?.toFixed(4) ?? 0}`}>
               <Wallet className="w-3.5 h-3.5" />
               {credits.limit !== null && credits.limit > 0 ? (
-                <span className={credits.limit_remaining !== null && credits.limit_remaining < 1 ? 'text-warning' : ''}>
-                  ${credits.usage?.toFixed(2) ?? '0'} / ${credits.limit?.toFixed(2) ?? '—'}
-                </span>
+                (() => {
+                  const usedThisPeriod = (credits.limit ?? 0) - (credits.limit_remaining ?? 0);
+                  const isLow = (credits.limit_remaining ?? 0) < 1;
+                  return (
+                    <span className={isLow ? 'text-warning' : ''}>
+                      ${usedThisPeriod.toFixed(2)} / ${credits.limit?.toFixed(2) ?? '—'}
+                      {credits.limit_reset && <span className="text-text-3 ml-1">({credits.limit_reset})</span>}
+                    </span>
+                  );
+                })()
               ) : credits.is_free_tier ? (
                 <span className="text-warning">Free Tier</span>
               ) : (
@@ -118,7 +125,7 @@ export const TeamListPage: React.FC<TeamListPageProps> = ({
             </div>
             <button
               onClick={onAICreateTeam}
-              className="flex items-center gap-2 px-4 py-2 bg-surface-2 text-text border border-border rounded-lg text-sm font-medium hover:bg-surface-3 transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-accent/10 text-accent border border-accent/30 rounded-lg text-sm font-medium hover:bg-accent/20 transition-colors"
             >
               <MessageSquare className="w-4 h-4 text-accent" />
               คุยกับ AI สร้างทีม

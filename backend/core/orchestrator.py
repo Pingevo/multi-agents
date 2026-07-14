@@ -173,9 +173,16 @@ class ExecutionOrchestrator:
             idx = self._match_agent_index(event.agent_role)
             if idx >= 0:
                 task_desc = ""
+                delegated_by = []
                 if idx < len(self._agent_specs):
                     task_desc = self._agent_specs[idx].get("task_description", "")
-                _merge_and_send({idx: {"status": "running", "progress": 30, "current_task": task_desc, "current_tool": "", "tool_description": ""}})
+                    deps = self._agent_specs[idx].get("depends_on", [])
+                    if deps:
+                        delegated_by = deps
+                upd = {"status": "running", "progress": 30, "current_task": task_desc, "current_tool": "", "tool_description": ""}
+                if delegated_by:
+                    upd["delegated_by"] = delegated_by
+                _merge_and_send({idx: upd})
 
         def on_tool_started(source, event: ToolUsageStartedEvent):
             idx = self._match_agent_index(event.agent_role)

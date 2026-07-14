@@ -30,6 +30,8 @@ export interface ChatMessage {
   planTaskDescription?: string;
   planType?: string;
   planStatus?: PlanStatus;
+  teamName?: string;
+  teamDescription?: string;
   progressId?: string;
   progressPercent?: number;
   progressLabel?: string;
@@ -66,6 +68,7 @@ export interface ChatMessage {
   hasSttTool?: boolean;
   hasVisionTool?: boolean;
   managerModel?: string;
+  estimatedCost?: string;
   audioUrl?: string;
   audioPrompt?: string;
   voice?: string;
@@ -92,6 +95,7 @@ export interface AgentProgressEntry {
   tool_description?: string;
   model?: string;
   thinking?: string;
+  delegated_by?: string[];
 }
 
 export interface TuningChange {

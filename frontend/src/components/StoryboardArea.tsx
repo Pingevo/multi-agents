@@ -1,8 +1,8 @@
 import { useState, useMemo } from 'react';
 import {
-  Loader2, CheckCircle, XCircle, Bot, User as UserIcon, Zap, Image as ImageIcon,
+  Loader2, CheckCircle, XCircle, Bot, Zap, Image as ImageIcon,
   Video, PenTool, ChevronDown, ChevronUp, Pencil, Brain,
-  ArrowRight, GitBranch, Cpu, Download, RotateCw, Copy, Sparkles,
+  GitBranch, Cpu, Download, RotateCw, Copy,
 } from 'lucide-react';
 import type { Agent, PendingApproval, ImageResult } from '../types/platform';
 import type { ChatMessage, AgentProgressEntry, PlanAgent, ResultAgent, PlanStatus } from './chatTypes';
@@ -18,6 +18,8 @@ interface StoryboardProps {
   onRejectImage?: (approvalId: string) => void;
   onRetryImage?: (approvalId: string) => void;
   onEditImagePrompt?: (approvalId: string, newPrompt: string) => void;
+  onRetryTask?: () => void;
+  onRateTask?: (rating: number) => void;
 }
 
 interface StoryboardRun {
@@ -45,20 +47,6 @@ const getAgentIcon = (name: string): React.ReactNode => {
   if (lower.includes('review') || lower.includes('qa')) return <CheckCircle className="w-4 h-4" />;
   if (lower.includes('plan') || lower.includes('strateg')) return <Brain className="w-4 h-4" />;
   return <Bot className="w-4 h-4" />;
-};
-
-const avatarColors = [
-  'from-blue-500/20 to-blue-600/10 text-blue-400',
-  'from-green-500/20 to-green-600/10 text-green-400',
-  'from-purple-500/20 to-purple-600/10 text-purple-400',
-  'from-orange-500/20 to-orange-600/10 text-orange-400',
-  'from-pink-500/20 to-pink-600/10 text-pink-400',
-  'from-cyan-500/20 to-cyan-600/10 text-cyan-400',
-];
-
-const getAvatarColor = (name: string) => {
-  const hash = name.charCodeAt(0) + (name.charCodeAt(1) || 0);
-  return avatarColors[hash % avatarColors.length];
 };
 
 interface WaveGroup {
@@ -153,7 +141,8 @@ function computeWaves(agents: Agent[]): WaveGroup[] {
 const FinalResultCard: React.FC<{
   result: { summary: string; agents?: ResultAgent[]; error?: boolean };
   agentCount: number;
-}> = ({ result, agentCount }) => {
+  onRetry?: () => void;
+}> = ({ result, agentCount, onRetry }) => {
   const [expanded, setExpanded] = useState(true);
   const [copied, setCopied] = useState(false);
   const isError = result.error || false;
@@ -164,15 +153,30 @@ const FinalResultCard: React.FC<{
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleDownload = () => {
+    const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    let content = `# Task Result\n\nGenerated: ${new Date().toLocaleString()}\nAgents: ${agentCount}\n\n---\n\n${result.summary}`;
+    if (result.agents && result.agents.length > 0) {
+      content += '\n\n---\n\n## Agent Outputs\n\n';
+      for (const a of result.agents) {
+        content += `### ${a.name} (${a.role})\n\n${a.output || 'N/A'}\n\n`;
+      }
+    }
+    const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `task-result-${timestamp}.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   return (
-    <div className="relative pl-10 mb-5 storyboard-fade-in">
-      <div className={`absolute left-0 top-1 w-8 h-8 rounded-full flex items-center justify-center ${
-        isError ? 'bg-danger/20 border-2 border-danger/40' : 'bg-success/20 border-2 border-success/40'
-      }`}>
-        {isError ? <XCircle className="w-3.5 h-3.5 text-danger" /> : <Sparkles className="w-3.5 h-3.5 text-success" />}
-      </div>
-      <div className={`rounded-xl border overflow-hidden ${
-        isError ? 'border-danger/30' : 'border-success/30'
+    <div className="mb-3 storyboard-fade-in">
+      <div className={`rounded-[10px] border overflow-hidden ${
+        isError ? 'border-danger/40' : 'border-success/40'
       }`}>
         {/* Header bar */}
         <div
@@ -204,12 +208,30 @@ const FinalResultCard: React.FC<{
               {copied ? <CheckCircle className="w-3 h-3 text-success" /> : <Copy className="w-3 h-3" />}
               {copied ? 'Copied' : 'Copy'}
             </button>
+            {!isError && (
+              <button
+                onClick={(e) => { e.stopPropagation(); handleDownload(); }}
+                className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded text-text-3 hover:text-text hover:bg-surface-2 transition-colors"
+              >
+                <Download className="w-3 h-3" />
+                Download
+              </button>
+            )}
+            {isError && onRetry && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onRetry(); }}
+                className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded text-accent hover:text-accent-light hover:bg-accent/10 transition-colors"
+              >
+                <RotateCw className="w-3 h-3" />
+                Retry
+              </button>
+            )}
             {expanded ? <ChevronUp className="w-3.5 h-3.5 text-text-3" /> : <ChevronDown className="w-3.5 h-3.5 text-text-3" />}
           </div>
         </div>
         {/* Content */}
         {expanded && (
-          <div className="p-3 bg-surface/50">
+          <div className="p-3 bg-bg">
             <div className="text-sm text-text whitespace-pre-wrap leading-relaxed">
               {result.summary}
             </div>
@@ -233,7 +255,8 @@ const AgentCard: React.FC<{
   onRejectImage?: (approvalId: string) => void;
   onRetryImage?: (approvalId: string) => void;
   onEditImagePrompt?: (approvalId: string, newPrompt: string) => void;
-}> = ({ agent, progress, pendingApprovals, imageResults, onApproveImage, onRejectImage, onRetryImage, onEditImagePrompt }) => {
+  isCreated?: boolean;
+}> = ({ agent, progress, pendingApprovals, imageResults, onApproveImage, onRejectImage, onRetryImage, onEditImagePrompt, isCreated }) => {
   const [showOutput, setShowOutput] = useState(false);
 
   const status = progress?.status || 'pending';
@@ -246,7 +269,7 @@ const AgentCard: React.FC<{
   const hasOutput = !!progress?.output && progress.output.length > 0;
 
   const borderClass = isRunning
-    ? 'border-accent/50'
+    ? 'border-warning/50'
     : isComplete
     ? 'border-success/40'
     : isError
@@ -257,54 +280,46 @@ const AgentCard: React.FC<{
     ? 'border-warning/30'
     : 'border-border';
 
+  const statusBadge = isRunning ? (
+    <span className="text-[8px] px-1.5 py-0.5 rounded bg-warning/20 text-warning font-semibold">RUN</span>
+  ) : isComplete ? (
+    <span className="text-[8px] px-1.5 py-0.5 rounded bg-success/20 text-success font-semibold">DONE</span>
+  ) : isError ? (
+    <span className="text-[8px] px-1.5 py-0.5 rounded bg-danger/20 text-danger font-semibold">ERR</span>
+  ) : isWaitingApproval ? (
+    <span className="text-[8px] px-1.5 py-0.5 rounded bg-purple-400/20 text-purple-400 font-semibold">WAIT</span>
+  ) : isCreated ? (
+    <span className="text-[8px] px-1.5 py-0.5 rounded bg-success/20 text-success font-semibold">CREATED</span>
+  ) : (
+    <span className="text-[8px] px-1.5 py-0.5 rounded bg-surface-2 text-text-3 font-semibold">IDLE</span>
+  );
+
   return (
-    <div className={`relative group rounded-xl border-2 ${borderClass} bg-gradient-to-br ${getAvatarColor(agent.name)} p-3 min-w-[240px] flex-1 transition-all hover:border-accent/60`}>
+    <div className={`rounded-[10px] border bg-bg p-3 w-full transition-all ${borderClass}`}>
       {/* Header */}
-      <div className="flex items-start gap-3 mb-2">
-        <div className="w-9 h-9 rounded-lg bg-surface/80 flex items-center justify-center shrink-0 backdrop-blur-sm">
+      <div className="flex items-center gap-2 mb-1.5">
+        <div className="w-[26px] h-[26px] rounded-lg bg-surface-2 flex items-center justify-center shrink-0 text-[13px]">
           {getAgentIcon(agent.name)}
         </div>
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-semibold text-text">{agent.name}</div>
-          <div className="text-xs text-text-2">{agent.role}</div>
-          {progress?.model && (
-            <div className="flex items-center gap-1 text-[9px] text-text-3 mt-0.5">
-              <Cpu className="w-2 h-2 shrink-0" />
-              <span className="truncate max-w-[120px]" title={progress.model}>{progress.model}</span>
-            </div>
-          )}
+          <div className="text-[11px] font-semibold text-text truncate">{agent.name}</div>
+          <div className="text-[9px] text-text-3">{agent.role}</div>
         </div>
-        <div className="shrink-0">
-          {isRunning ? (
-            <Loader2 className="w-4 h-4 text-accent animate-spin" />
-          ) : isComplete ? (
-            <CheckCircle className="w-4 h-4 text-success" />
-          ) : isError ? (
-            <XCircle className="w-4 h-4 text-danger" />
-          ) : isWaitingApproval ? (
-            <div className="text-[10px] text-purple-400 font-medium px-1.5 py-0.5 rounded bg-purple-500/10">Awaiting Gen</div>
-          ) : isWaiting ? (
-            <div className="text-[10px] text-warning font-medium px-1.5 py-0.5 rounded bg-warning/10">Waiting</div>
-          ) : (
-            <div className="w-4 h-4 rounded-full border-2 border-text-3" />
-          )}
-        </div>
+        {statusBadge}
       </div>
 
-      {/* Waiting for approval indicator */}
-      {isWaitingApproval && (
-        <div className="text-xs text-purple-400 mb-2 bg-purple-500/5 rounded-md p-2 border border-purple-400/20 flex items-center gap-1.5">
-          <PenTool className="w-3 h-3 shrink-0" />
-          <span>รอผู้ใช้กด Generate เพื่อสร้างภาพ/วิดีโอ</span>
-        </div>
-      )}
-
-      {/* Thinking indicator */}
+      {/* Thinking/Running indicator */}
       {isRunning && (
-        <div className="text-xs text-text-2 mb-2 bg-surface/60 rounded-md p-2 backdrop-blur-sm border border-border/30">
+        <div className="text-[10px] text-text-2 mb-2 bg-surface/60 rounded-md p-2 border border-border/30">
+          {progress?.delegated_by && progress.delegated_by.length > 0 && (
+            <div className="text-[9px] text-accent/80 mb-1 flex items-center gap-1">
+              <GitBranch className="w-2.5 h-2.5" />
+              <span>Receives from: {progress.delegated_by.join(', ')}</span>
+            </div>
+          )}
           <div className="flex items-center gap-1.5 mb-1">
             <Loader2 className="w-3 h-3 text-accent animate-spin shrink-0" />
-            <span className="text-text-2 font-medium">Thinking...</span>
+            <span className="text-text-2 font-medium">Working...</span>
           </div>
           {progress?.thinking && (
             <div className="text-[10px] text-text-3 italic mt-1 max-h-24 overflow-y-auto whitespace-pre-wrap leading-relaxed">
@@ -325,57 +340,44 @@ const AgentCard: React.FC<{
 
       {/* Waiting indicator */}
       {isWaiting && (
-        <div className="text-[11px] text-warning bg-warning/5 rounded-md p-2 border border-warning/20 flex items-center gap-1.5">
+        <div className="text-[10px] text-warning bg-warning/5 rounded-md p-2 border border-warning/20 flex items-center gap-1.5 mb-2">
           <GitBranch className="w-3 h-3 shrink-0" />
           <span>Waiting for: {((agent as any).depends_on || []).join(', ')}</span>
         </div>
       )}
 
+      {/* Waiting for approval */}
+      {isWaitingApproval && (
+        <div className="text-[10px] text-purple-400 mb-2 bg-purple-500/5 rounded-md p-2 border border-purple-400/20 flex items-center gap-1.5">
+          <PenTool className="w-3 h-3 shrink-0" />
+          <span>รอผู้ใช้กด Generate</span>
+        </div>
+      )}
+
       {/* Progress bar */}
       {progressPercent > 0 && (
-        <div className="mt-2">
-          <div className="flex items-center justify-between text-xs mb-1">
-            <span className="text-text-2">{isComplete ? 'Done' : isRunning ? 'Working' : 'Pending'}</span>
-            <span className="text-text-2">{progressPercent}%</span>
-          </div>
-          <div className="w-full bg-surface-3 rounded-full h-1.5 overflow-hidden">
+        <div className="mb-2">
+          <div className="w-full bg-surface-2 rounded-full h-1 overflow-hidden">
             <div
-              className={`h-full rounded-full transition-all duration-500 ${isComplete ? 'bg-success' : isError ? 'bg-danger' : isWaitingApproval ? 'bg-purple-400' : 'bg-gradient-to-r from-accent to-accent-light'}`}
+              className={`h-full rounded-full transition-all duration-500 ${isComplete ? 'bg-success' : isError ? 'bg-danger' : isWaitingApproval ? 'bg-purple-400' : 'bg-gradient-to-r from-warning to-amber-500'}`}
               style={{ width: `${progressPercent}%` }}
             />
           </div>
         </div>
       )}
 
-      {/* Goal */}
-      {agent.goal && <div className="mt-1.5 text-[10px] text-text-2">{agent.goal}</div>}
-
-      {/* Tools */}
-      {agent.tools.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-1">
-          {agent.tools.slice(0, 3).map((tool, i) => (
-            <span key={i} className="text-[10px] px-1.5 py-0.5 rounded-full bg-surface/60 text-text-2 backdrop-blur-sm">{tool}</span>
-          ))}
-          {agent.tools.length > 3 && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-surface/60 text-text-2">+{agent.tools.length - 3}</span>
-          )}
-        </div>
-      )}
-
-      {/* Media preview — handled by imageResults below */}
-
       {/* Output */}
       {hasOutput && (
-        <div className="mt-2 border-t border-border/30 pt-2">
+        <div className="mt-1.5">
           <div
-            className="text-xs text-text-2 bg-surface/60 rounded-md p-2 backdrop-blur-sm border border-border/30 max-h-40 overflow-y-auto whitespace-pre-wrap"
-            style={{ display: showOutput ? 'block' : '-webkit-box', WebkitLineClamp: showOutput ? 'unset' : 4, WebkitBoxOrient: 'vertical', overflow: showOutput ? 'auto' : 'hidden' }}
+            className="text-[11px] text-text-3 bg-bg rounded-md p-2 max-h-32 overflow-y-auto whitespace-pre-wrap"
+            style={{ display: showOutput ? 'block' : '-webkit-box', WebkitLineClamp: showOutput ? 'unset' : 3, WebkitBoxOrient: 'vertical', overflow: showOutput ? 'auto' : 'hidden' }}
           >
             {progress?.output}
           </div>
           <button
             onClick={(e) => { e.stopPropagation(); setShowOutput(!showOutput); }}
-            className="flex items-center gap-1 text-[10px] text-text-2 hover:text-text transition-colors mt-1"
+            className="flex items-center gap-1 text-[10px] text-text-3 hover:text-text transition-colors mt-1"
           >
             {showOutput ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
             {showOutput ? 'Show less' : 'Show more'}
@@ -530,14 +532,13 @@ const AgentCard: React.FC<{
 // ============================================================
 
 const HandoffArrow: React.FC<{ from: string; to: string; status: 'sent' | 'waiting' | 'active' }> = ({ from, to, status }) => (
-  <div className="flex items-center justify-center gap-2 my-2 flex-wrap">
-    <span className="text-[11px] text-text-2">{from}</span>
-    <ArrowRight className="w-3 h-3 text-warning" />
-    <span className="text-[11px] text-text-2">{to}</span>
+  <div className="flex items-center gap-1.5 text-[11px]">
+    <span className="text-warning">→</span>
+    <span className="text-text-2">{from} → {to}</span>
     {status === 'sent' && <span className="text-[10px] text-success">✓ sent</span>}
     {status === 'waiting' && <span className="text-[10px] text-warning">waiting...</span>}
     {status === 'active' && (
-      <div className="w-8 h-0.5 bg-warning animate-pulse" style={{ background: 'repeating-linear-gradient(90deg, #f59e0b 0, #f59e0b 4px, transparent 4px, transparent 8px)' }} />
+      <div className="w-8 h-0.5 animate-pulse" style={{ background: 'repeating-linear-gradient(90deg, #fbbf24 0, #fbbf24 4px, transparent 4px, transparent 8px)' }} />
     )}
   </div>
 );
@@ -621,8 +622,8 @@ function buildRuns(chatMessages: ChatMessage[]): StoryboardRun[] {
 
   if (currentRun) runs.push(currentRun);
 
-  // Filter out rejected runs — they should not appear in storyboard
-  const visible = runs.filter(r => r.planStatus !== 'rejected');
+  // Filter out rejected runs and runs with no plan agents (plain chat messages)
+  const visible = runs.filter(r => r.planStatus !== 'rejected' && (r.planAgents.length > 0 || r.result));
 
   // Re-index so run numbers start from 1 sequentially
   visible.forEach((r, i) => { r.runIndex = i; });
@@ -643,7 +644,9 @@ const RunTimeline: React.FC<{
   onRejectImage?: (approvalId: string) => void;
   onRetryImage?: (approvalId: string) => void;
   onEditImagePrompt?: (approvalId: string, newPrompt: string) => void;
-}> = ({ run, onApproveImage, onRejectImage, onRetryImage, onEditImagePrompt }) => {
+  onRetryTask?: () => void;
+  onRateTask?: (rating: number) => void;
+}> = ({ run, onApproveImage, onRejectImage, onRetryImage, onEditImagePrompt, onRetryTask, onRateTask }) => {
   const planPending = run.planStatus === 'pending';
 
   // Convert PlanAgent[] to Agent[] for wave computation
@@ -678,102 +681,67 @@ const RunTimeline: React.FC<{
     <>
       {/* Run separator for non-first runs */}
       {run.runIndex > 0 && (
-        <div className="relative pl-10 mb-4 mt-6">
-          <div className="absolute left-0 top-0 w-8 h-8 rounded-full bg-surface-2 border-2 border-border flex items-center justify-center">
-            <ArrowRight className="w-3.5 h-3.5 text-text-3 rotate-90" />
-          </div>
-          <div className="text-[10px] text-text-3 uppercase tracking-wide">Run {run.runIndex + 1}</div>
+        <div className="mb-4 mt-6 text-[10px] text-text-3 uppercase tracking-wide">
+          Run {run.runIndex + 1}
         </div>
       )}
 
-      {/* User Request */}
-      <div className="relative pl-10 mb-5 storyboard-fade-in">
-        <div className="absolute left-0 top-1 w-8 h-8 rounded-full bg-success/20 border-2 border-success/40 flex items-center justify-center">
-          <UserIcon className="w-3.5 h-3.5 text-success" />
+      {/* Run block */}
+      <div className="mb-6">
+        {/* User Request */}
+        <div className="flex items-center gap-2 mb-3">
+          <div className="w-[22px] h-[22px] rounded-full bg-accent flex items-center justify-center text-[10px] font-semibold text-white shrink-0">U</div>
+          <span className="text-xs font-medium text-text">{run.userMessage}</span>
         </div>
-        <div className="rounded-xl border border-border bg-surface p-3">
-          <div className="text-[10px] text-text-3 uppercase tracking-wide mb-1">User Request</div>
-          <div className="text-sm text-text font-medium">{run.userMessage}</div>
-        </div>
-      </div>
 
-      {/* Manager Plan */}
-      {run.planAgents.length > 0 && (
-        <div className="relative pl-10 mb-5 storyboard-fade-in">
-          <div className="absolute left-0 top-1 w-8 h-8 rounded-full bg-accent/20 border-2 border-accent/40 flex items-center justify-center">
-            <Brain className="w-3.5 h-3.5 text-accent" />
-          </div>
-          <div className={`rounded-xl border bg-surface p-3 ${planPending ? 'border-accent/30 border-dashed' : 'border-accent/20'}`}>
-            <div className="text-[10px] text-text-3 uppercase tracking-wide mb-1">Manager — Plan</div>
-            <div className="text-sm text-text font-medium mb-2">
-              {planPending ? 'Awaiting Approval' : `${run.planAgents.length} agents, ${waves.length} wave${waves.length > 1 ? 's' : ''}`}
+        {/* Manager Plan summary */}
+        {run.planAgents.length > 0 && (
+          <div className={`mb-3 px-3 py-2 rounded-lg border ${run.planType === 'create_agents' ? 'bg-success/5 border-success/20' : 'bg-surface border-accent/20'}`}>
+            <div className="text-[10px] text-text-3 uppercase tracking-wide mb-1">
+              {run.planType === 'create_agents' ? 'Agent Creation' : 'Manager — Plan'}
             </div>
-            <div className="text-xs text-text-2 bg-bg/50 rounded-lg p-2.5 border border-border/50 space-y-1.5">
-              {waves.map((wave, wi) => (
-                <div key={wi}>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-text-3 font-medium text-[11px]">Wave {wi + 1}</span>
-                    {wave.agents.map(({ agent }, ai) => (
-                      <span key={ai} className="text-[11px] px-2 py-0.5 rounded-full bg-surface-2 text-text-2">{agent.name}</span>
-                    ))}
-                    {wave.dependsOn.length > 0 && (
-                      <span className="text-[10px] text-warning flex items-center gap-1">
-                        <ArrowRight className="w-2.5 h-2.5" />depends on {wave.dependsOn.join(', ')}
-                      </span>
-                    )}
-                    {wave.agents.length > 1 && wave.dependsOn.length > 0 && (
-                      <span className="text-[10px] text-text-3">(parallel within wave)</span>
-                    )}
-                  </div>
-                  {wi < waves.length - 1 && <div className="text-text-3 text-[10px] ml-3 my-0.5">↓</div>}
+            <div className="text-xs text-text-2">
+              {planPending ? 'Awaiting Approval' : run.planType === 'create_agents'
+                ? `${run.planAgents.length} agent${run.planAgents.length > 1 ? 's' : ''} created`
+                : `${run.planAgents.length} agents, ${waves.length} wave${waves.length > 1 ? 's' : ''}`}
+            </div>
+          </div>
+        )}
+
+        {/* Wave-by-wave execution */}
+        {waves.map((wave, waveIdx) => {
+          const waveStarted = wave.agents.some(({ agent }) => {
+            const p = run.progress?.find((ap) => ap.name === agent.name);
+            return p?.status === 'running' || p?.status === 'complete' || p?.status === 'error' || p?.status === 'waiting_approval';
+          });
+
+          return (
+            <div key={waveIdx}>
+              {/* Handoff arrow */}
+              {waveIdx > 0 && waveStarted && (
+                <div className="flex items-center gap-2 mb-2 ml-2">
+                  {wave.dependsOn.map((dep) => {
+                    const depProgress = run.progress?.find((ap) => ap.name.toLowerCase() === dep.toLowerCase());
+                    const depStatus = depProgress?.status || 'pending';
+                    const handoffStatus = depStatus === 'complete' ? 'sent' : depStatus === 'running' ? 'active' : 'waiting';
+                    return (
+                      <HandoffArrow key={dep} from={dep} to={wave.agents.map((a) => a.agent.name).join(' + ')} status={handoffStatus as 'sent' | 'waiting' | 'active'} />
+                    );
+                  })}
                 </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
+              )}
 
-      {/* Wave-by-wave execution */}
-      {waves.map((wave, waveIdx) => {
-        const waveStarted = wave.agents.some(({ agent }) => {
-          const p = run.progress?.find((ap) => ap.name === agent.name);
-          return p?.status === 'running' || p?.status === 'complete' || p?.status === 'error' || p?.status === 'waiting_approval';
-        });
-
-        return (
-          <div key={waveIdx}>
-            {waveIdx > 0 && waveStarted && (
-              <div className="pl-10 mb-2">
-                {wave.dependsOn.map((dep) => {
-                  const depProgress = run.progress?.find((ap) => ap.name.toLowerCase() === dep.toLowerCase());
-                  const depStatus = depProgress?.status || 'pending';
-                  const handoffStatus = depStatus === 'complete' ? 'sent' : depStatus === 'running' ? 'active' : 'waiting';
-                  return (
-                    <HandoffArrow key={dep} from={dep} to={wave.agents.map((a) => a.agent.name).join(' + ')} status={handoffStatus as 'sent' | 'waiting' | 'active'} />
-                  );
-                })}
-              </div>
-            )}
-
-            {wave.upstreamWaveIndices.length > 1 && (
-              <div className="pl-10 mb-2 text-[11px] text-warning flex items-center gap-1.5">
-                <GitBranch className="w-3 h-3" />Convergence: waits for {wave.dependsOn.length} upstream agents
-              </div>
-            )}
-
-            <div className="relative pl-10 mb-5 storyboard-fade-in">
-              <div className="absolute left-[3px] top-1 w-[13px] h-[13px] rounded-full border-2 border-text-3 flex items-center justify-center">
-                <div className="w-1 h-1 rounded-full bg-text-3" />
-              </div>
-              <div className="text-[10px] text-text-3 uppercase tracking-wide mb-2 flex items-center gap-2">
-                <span>Wave {waveIdx + 1}</span>
-                <span className="bg-surface-2 px-1.5 py-0.5 rounded text-text-2 normal-case tracking-normal">
+              {/* Wave label */}
+              <div className="flex items-center gap-1.5 mb-1.5 pl-5 relative">
+                <div className="absolute left-1 top-0.5 w-2 h-2 rounded-full border-2 border-border-light" />
+                <span className="text-[10px] text-text-3 uppercase tracking-wide">Wave {waveIdx + 1}</span>
+                <span className="text-[10px] bg-surface-2 px-1.5 py-0.5 rounded text-text-2 normal-case tracking-normal">
                   {wave.agents.length} agent{wave.agents.length > 1 ? 's' : ''}
                 </span>
-                {wave.agents.length > 1 && wave.dependsOn.length > 0 && <span className="text-text-3 normal-case tracking-normal">parallel</span>}
-                {wave.dependsOn.length === 0 && waveIdx === 0 && <span className="text-text-3 normal-case tracking-normal">no dependencies</span>}
               </div>
-              <div className={`flex gap-3 flex-wrap ${wave.agents.length > 1 ? 'flex-row' : ''}`}>
+
+              {/* Agent cards row */}
+              <div className="flex gap-2.5 flex-wrap pl-5 ml-[7px] border-l border-dashed border-border mb-3">
                 {wave.agents.map(({ agent }) => {
                   const nodeProgress = run.progress?.find((p) => p.name === agent.name);
                   const agentApprovals = run.pendingApprovals.filter((pa) => pa.agentName.toLowerCase() === agent.name.toLowerCase());
@@ -783,9 +751,6 @@ const RunTimeline: React.FC<{
                     if (!ir.agentName && agentApprovalIds.has(ir.approvalId)) return true;
                     return false;
                   });
-                  if (run.imageResults.length > 0 && agentImages.length === 0 && agentApprovals.length > 0) {
-                    console.log('[STORYBOARD] Image match failed for agent:', agent.name, 'approvals:', [...agentApprovalIds], 'imageResults:', run.imageResults.map(ir => ({ approvalId: ir.approvalId, agentName: ir.agentName })));
-                  }
                   return (
                     <AgentCard
                       key={agent.id || agent.name}
@@ -797,50 +762,39 @@ const RunTimeline: React.FC<{
                       onRejectImage={onRejectImage}
                       onRetryImage={onRetryImage}
                       onEditImagePrompt={onEditImagePrompt}
+                      isCreated={run.planType === 'create_agents' && !planPending}
                     />
                   );
                 })}
               </div>
             </div>
-          </div>
-        );
-      })}
+          );
+        })}
 
-      {/* Waiting for user to generate images */}
-      {hasWaitingApproval && !run.result && (
-        <div className="relative pl-10 mb-5 storyboard-fade-in">
-          <div className="absolute left-0 top-1 w-8 h-8 rounded-full bg-purple-500/20 border-2 border-purple-400/40 flex items-center justify-center">
-            <PenTool className="w-3.5 h-3.5 text-purple-400" />
-          </div>
-          <div className="rounded-xl border border-purple-400/30 bg-purple-500/5 p-3">
+        {/* Waiting for user to generate images */}
+        {hasWaitingApproval && !run.result && (
+          <div className="mb-3 px-3 py-2 rounded-lg border border-purple-400/30 bg-purple-500/5">
             <div className="text-[10px] text-text-3 uppercase tracking-wide mb-1">Awaiting User Action</div>
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-text-2">รอผู้ใช้กด Generate เพื่อสร้างภาพ/วิดีโอ — งานจะยังไม่เสร็จจนกว่าจะกด Generate</span>
-            </div>
+            <span className="text-xs text-text-2">รอผู้ใช้กด Generate เพื่อสร้างภาพ/วิดีโอ</span>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Manager Synthesizing */}
-      {allComplete && !run.result && !hasWaitingApproval && (
-        <div className="relative pl-10 mb-5 storyboard-fade-in">
-          <div className="absolute left-0 top-1 w-8 h-8 rounded-full bg-accent/20 border-2 border-accent/40 flex items-center justify-center">
-            <Brain className="w-3.5 h-3.5 text-accent animate-pulse" />
-          </div>
-          <div className="rounded-xl border border-accent/30 bg-accent/5 p-3">
+        {/* Manager Synthesizing */}
+        {allComplete && !run.result && !hasWaitingApproval && (
+          <div className="mb-3 px-3 py-2 rounded-lg border border-accent/30 bg-accent/5">
             <div className="text-[10px] text-text-3 uppercase tracking-wide mb-1">Manager — Synthesizing</div>
             <div className="flex items-center gap-2">
               <Loader2 className="w-3.5 h-3.5 text-accent animate-spin" />
-              <span className="text-sm text-text-2">Combining all agent outputs...</span>
+              <span className="text-xs text-text-2">Combining all agent outputs...</span>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Final Result */}
-      {run.result && (
-        <FinalResultCard result={run.result} agentCount={run.planAgents.length} />
-      )}
+        {/* Final Result */}
+        {run.result && (
+          <FinalResultCard result={run.result} agentCount={run.planAgents.length} onRetry={onRetryTask} />
+        )}
+      </div>
     </>
   );
 };
@@ -855,6 +809,8 @@ export const StoryboardArea: React.FC<StoryboardProps> = ({
   onRejectImage,
   onRetryImage,
   onEditImagePrompt,
+  onRetryTask,
+  onRateTask,
 }) => {
   const runs = useMemo(() => buildRuns(chatMessages), [chatMessages]);
 
@@ -871,8 +827,7 @@ export const StoryboardArea: React.FC<StoryboardProps> = ({
 
   return (
     <div className="h-full flex-1 overflow-y-auto bg-bg p-4">
-      <div className="max-w-3xl mx-auto relative">
-        <div className="absolute left-[15px] top-0 bottom-0 w-0.5 bg-border" />
+      <div className="max-w-3xl mx-auto">
         {runs.map((run) => (
           <RunTimeline
             key={run.runIndex}
@@ -881,6 +836,8 @@ export const StoryboardArea: React.FC<StoryboardProps> = ({
             onRejectImage={onRejectImage}
             onRetryImage={onRetryImage}
             onEditImagePrompt={onEditImagePrompt}
+            onRetryTask={onRetryTask}
+            onRateTask={onRateTask}
           />
         ))}
       </div>

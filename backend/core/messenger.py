@@ -54,8 +54,10 @@ class StateMessenger:
                 return {
                     "limit": data.get("limit"),
                     "limit_remaining": data.get("limit_remaining"),
+                    "limit_reset": data.get("limit_reset"),
                     "usage": data.get("usage", 0),
                     "usage_daily": data.get("usage_daily", 0),
+                    "usage_weekly": data.get("usage_weekly", 0),
                     "usage_monthly": data.get("usage_monthly", 0),
                     "is_free_tier": data.get("is_free_tier", True),
                 }
@@ -157,7 +159,7 @@ class StateMessenger:
         }
         await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
 
-    async def reply_plan(self, agents: list[dict], task_description: str, plan_type: str = "new", image_model: str = "", video_model: str = "", search_model: str = "", tts_model: str = "", stt_model: str = "", vision_model: str = "", has_image_tool: bool = False, has_video_tool: bool = False, has_search_tool: bool = False, has_tts_tool: bool = False, has_stt_tool: bool = False, has_vision_tool: bool = False, manager_model: str = "", agent_specs: list = None, model_assignment: dict = None, current_input: str = ""):
+    async def reply_plan(self, agents: list[dict], task_description: str, plan_type: str = "new", image_model: str = "", video_model: str = "", search_model: str = "", tts_model: str = "", stt_model: str = "", vision_model: str = "", has_image_tool: bool = False, has_video_tool: bool = False, has_search_tool: bool = False, has_tts_tool: bool = False, has_stt_tool: bool = False, has_vision_tool: bool = False, manager_model: str = "", agent_specs: list = None, model_assignment: dict = None, current_input: str = "", team_name: str = "", team_description: str = ""):
         """Send a plan card as a chat message"""
         self.state["notifications"] = []
         await self._send()
@@ -173,10 +175,16 @@ class StateMessenger:
             )
             for a in agents
         ]
+
+        # Estimate cost based on models used
+        estimated_cost = self._estimate_plan_cost(agents, manager_model, image_model, video_model, search_model, tts_model, stt_model, vision_model)
+
         payload = chat_reply(ChatReplyPlan(
             planAgents=plan_agents,
             planTaskDescription=task_description,
             planType=plan_type,
+            teamName=team_name,
+            teamDescription=team_description,
             imageModel=image_model,
             videoModel=video_model,
             searchModel=search_model,
@@ -190,9 +198,41 @@ class StateMessenger:
             hasSttTool=has_stt_tool,
             hasVisionTool=has_vision_tool,
             managerModel=manager_model,
+            estimatedCost=estimated_cost,
         ))
         await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
-        self.persist_message({"role": "assistant", "messageType": "plan", "planAgents": payload["payload"]["planAgents"], "planTaskDescription": task_description, "planType": plan_type, "planStatus": "pending", "imageModel": image_model, "videoModel": video_model, "searchModel": search_model, "ttsModel": tts_model, "sttModel": stt_model, "visionModel": vision_model, "managerModel": manager_model, "agentSpecs": agent_specs or [], "modelAssignment": model_assignment or {}, "currentInput": current_input})
+        self.persist_message({"role": "assistant", "messageType": "plan", "planAgents": payload["payload"]["planAgents"], "planTaskDescription": task_description, "planType": plan_type, "planStatus": "pending", "imageModel": image_model, "videoModel": video_model, "searchModel": search_model, "ttsModel": tts_model, "sttModel": stt_model, "visionModel": vision_model, "managerModel": manager_model, "estimatedCost": estimated_cost, "agentSpecs": agent_specs or [], "modelAssignment": model_assignment or {}, "currentInput": current_input})
+
+    def _estimate_plan_cost(self, agents: list[dict], manager_model: str, image_model: str, video_model: str, search_model: str, tts_model: str, stt_model: str, vision_model: str) -> str:
+        """Estimate cost based on model pricing. Returns a human-readable string."""
+        all_models = set()
+        for a in agents:
+            m = a.get("model", "")
+            if m:
+                all_models.add(m)
+        if manager_model:
+            all_models.add(manager_model)
+        for m in [image_model, video_model, search_model, tts_model, stt_model, vision_model]:
+            if m:
+                all_models.add(m)
+
+        if not all_models:
+            return ""
+
+        free_count = 0
+        paid_count = 0
+        for m in all_models:
+            if ":free" in m or m == "openrouter/free" or m == "openrouter/auto":
+                free_count += 1
+            else:
+                paid_count += 1
+
+        if paid_count == 0:
+            return "✅ ฟรีทั้งหมด (0 บาท)"
+        elif free_count > 0:
+            return f"⚠️ ผสม: {free_count} ฟรี, {paid_count} เสียเงิน — ตรวจสอบโมเดลก่อนยืนยัน"
+        else:
+            return f"💰 ใช้โมเดลเสียเงิน {paid_count} ตัว — คาดว่าใช้ ~$0.01-0.05 ต่อ task"
 
     async def reply_progress(self, percent: int, label: str, progress_id: str = ""):
         """Send a progress card as a chat message"""

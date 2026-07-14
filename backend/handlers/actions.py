@@ -117,6 +117,19 @@ async def on_action_accept(action: cl.Action):
         messenger.update_plan_status("approved")
         await messenger.update_agents(registry)
         await messenger.clear_plan()
+
+    # Check if this is a create_agents plan (only create agents, don't run task)
+    plan_type = cl.user_session.get("current_plan_type") or ""
+    if plan_type == "create_agents":
+        cl.user_session.set("state", STATE_IDLE)
+        names = [s.get("name", "Agent") for s in registered_specs]
+        if messenger:
+            await messenger.reply(f"✅ สร้าง agent ในทีมแล้ว: {', '.join(names)}\n\nAgent เหล่านี้พร้อมใช้งาน — สั่งงานได้ทันทีโดยพิมพ์สิ่งที่ต้องการทำ")
+            await messenger.reply_team_list(team_registry)
+        cl.user_session.set("current_plan_type", None)
+        return
+
+    if messenger:
         await messenger.notify("🚀 กำลังเตรียม agents และเริ่มประมวลผล...")
 
     from backend.handlers.chat import execute_multi_agent_task
@@ -317,9 +330,16 @@ async def on_action_agent_feedback(action: cl.Action):
 @cl.action_callback("confirm_tuning")
 async def on_action_confirm_tuning(action: cl.Action):
     """Apply tuning proposal to agent registry — no auto re-run."""
+    print("[DEBUG-CONFIRM-TUNING] on_action_confirm_tuning called", flush=True)
     registry = cl.user_session.get("registry") or AgentRegistry()
     messenger = get_messenger()
     proposals = cl.user_session.get("pending_tuning_proposal") or []
+    # Fallback: use proposals from payload if session lost (e.g. after restart)
+    if not proposals and action.payload:
+        proposals = action.payload.get("proposals", [])
+        if proposals:
+            print(f"[DEBUG-CONFIRM-TUNING] Using proposals from payload (session was empty)", flush=True)
+    print(f"[DEBUG-CONFIRM-TUNING] proposals={proposals}", flush=True)
 
     if not proposals:
         if messenger:
@@ -396,12 +416,20 @@ async def on_action_reject_tuning(action: cl.Action):
 
 @cl.action_callback("create_team")
 async def on_action_create_team(action: cl.Action):
-    """Create a new team with a manager agent."""
+    """Create a new team with a manager agent and optional worker agents."""
     messenger = get_messenger()
     payload = action.payload or {}
     name = payload.get("name", "").strip()
     description = payload.get("description", "").strip()
     manager_model = payload.get("manager_model", "auto")
+    manager_persona = payload.get("manager_persona", "").strip()
+    manager_goal = payload.get("manager_goal", "").strip()
+    agents_list = payload.get("agents", [])
+
+    # Reset state — might be stuck in STATE_AWAITING_APPROVAL from AI modal flow
+    cl.user_session.set("state", STATE_IDLE)
+    cl.user_session.set("current_agent_specs", None)
+    cl.user_session.set("current_input", None)
 
     if not name:
         if messenger:
@@ -414,23 +442,50 @@ async def on_action_create_team(action: cl.Action):
 
     # Create manager agent for this team
     registry = cl.user_session.get("registry") or AgentRegistry()
+    default_goal = f"Coordinate the team '{name}' to accomplish user tasks efficiently. Delegate work, run independent tasks in parallel, and synthesize results."
+    default_persona = "You are an experienced project manager who coordinates teams effectively. You know when tasks can run in parallel and when one must wait for another. You ensure quality by reviewing each agent's output before moving forward."
     manager_agent = registry.add_agent({
         "name": f"{name} Manager",
         "role": "Manager",
-        "goal": f"Coordinate the team '{name}' to accomplish user tasks efficiently. Delegate work, run independent tasks in parallel, and synthesize results.",
-        "persona": "You are an experienced project manager who coordinates teams effectively.",
+        "goal": manager_goal or default_goal,
+        "persona": manager_persona or default_persona,
         "model": manager_model if manager_model != "auto" else "",
         "tools": [],
         "team_id": team["id"],
         "is_manager": True,
     })
     team_registry.add_agent(team["id"], manager_agent["id"])
+
+    # Create worker agents if provided
+    created_agent_names = []
+    for agent_entry in agents_list:
+        agent_role = agent_entry.get("role", "").strip()
+        if not agent_role:
+            continue
+        agent_spec = {
+            "name": agent_entry.get("name", "").strip(),
+            "role": agent_role,
+            "goal": agent_entry.get("goal", "").strip(),
+            "persona": agent_entry.get("persona", "").strip(),
+            "tools": agent_entry.get("tools", []),
+            "model": agent_entry.get("model", "").strip(),
+            "team_id": team["id"],
+        }
+        new_agent = registry.add_agent(agent_spec)
+        team_registry.add_agent(team["id"], new_agent["id"])
+        created_agent_names.append(new_agent.get("name", "Agent"))
+
     cl.user_session.set("registry", registry)
+    cl.user_session.set("team_registry", team_registry)
 
     if messenger:
         await messenger.reply_team_list(team_registry)
         await messenger.update_agents(registry)
-        await messenger.notify(f"✅ สร้างทีม {team['name']} สำเร็จ")
+        agent_count = len(created_agent_names)
+        if agent_count > 0:
+            await messenger.notify(f"✅ สร้างทีม {team['name']} สำเร็จ — Manager + {agent_count} agent(s): {', '.join(created_agent_names)}")
+        else:
+            await messenger.notify(f"✅ สร้างทีม {team['name']} สำเร็จ")
 
 
 @cl.action_callback("update_team")
@@ -459,7 +514,7 @@ async def on_action_update_team(action: cl.Action):
 
 @cl.action_callback("delete_team")
 async def on_action_delete_team(action: cl.Action):
-    """Delete a team and unlink its agents."""
+    """Delete a team and all its agents and chat sessions."""
     messenger = get_messenger()
     team_id = action.payload.get("team_id", "")
     if not team_id:
@@ -476,16 +531,22 @@ async def on_action_delete_team(action: cl.Action):
             await messenger.notify("❌ ไม่พบทีมที่ต้องการลบ")
         return
 
-    # Unlink agents from this team (set team_id=None, don't delete agents)
+    # Delete all agents belonging to this team
     for agent_id in team.get("agent_ids", []):
-        registry.update_agent(agent_id, {"team_id": None})
+        registry.delete_agent(agent_id)
+
+    # Delete all chat sessions belonging to this team
+    chat_store = ChatStore()
+    chat_store.delete_sessions_by_team(team_id)
 
     team_registry.delete_team(team_id)
     cl.user_session.set("team_registry", team_registry)
+    cl.user_session.set("registry", registry)
 
     if messenger:
+        await messenger.update_agents(registry)
         await messenger.reply_team_list(team_registry)
-        await messenger.notify(f"🗑 ลบทีม {team.get('name', '')} แล้ว")
+        await messenger.notify(f"🗑 ลบทีม {team.get('name', '')} และ agent และ chat ทั้งหมดแล้ว")
 
 
 @cl.action_callback("delete_chat_session")
@@ -525,7 +586,7 @@ async def on_action_config_agent(action: cl.Action):
         return
 
     fields = {}
-    for key in ("name", "role", "goal", "persona", "model", "tools"):
+    for key in ("name", "role", "goal", "persona", "model", "tools", "expertise", "personality", "brand_context"):
         if key in payload:
             fields[key] = payload[key]
 

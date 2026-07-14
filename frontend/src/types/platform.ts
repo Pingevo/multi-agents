@@ -62,8 +62,10 @@ export interface ToolCatalogEntry {
 export interface CreditsInfo {
   limit: number | null;
   limit_remaining: number | null;
+  limit_reset?: string | null;
   usage: number;
   usage_daily: number;
+  usage_weekly?: number;
   usage_monthly: number;
   is_free_tier: boolean;
 }

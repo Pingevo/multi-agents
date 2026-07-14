@@ -151,39 +151,13 @@ class LLMManager:
                             yield chunk.choices[0].delta.content
                     if got_content:
                         return
-                    # Empty stream — try a specific model instead of routing model
-                    print(f"[LLMManager] Empty stream from {model_id}, trying specific model", flush=True)
+                    # Empty stream — return error, don't retry with rotator (saves credits)
+                    print(f"[LLMManager] Empty stream from {model_id}", flush=True)
+                    raise RuntimeError(f"Model '{model_id}' returned empty response")
                 except Exception as e:
                     err_msg = _sanitize_error(e)
                     print(f"[LLMManager] Primary LLM streaming error: {err_msg}")
                     self._trigger_cooldown(err_msg)
-
-                # Fallback: use rotator to pick a specific model and retry
-                try:
-                    from backend.llm.rotator import FreeModelRotator
-                    rotator = FreeModelRotator(
-                        api_key=self.api_key,
-                        base_url=self.base_url,
-                        free_only=("free" in (self._selected_model or self._default_model)),
-                    )
-                    models = rotator.get_models()
-                    if models:
-                        smartest = rotator.pick_smartest_model() or models[0]
-                        print(f"[LLMManager] Retrying streaming with {smartest}", flush=True)
-                        from openai import OpenAI
-                        client = OpenAI(base_url=self.base_url, api_key=self.api_key, max_retries=0, timeout=120)
-                        stream = client.chat.completions.create(
-                            model=smartest,
-                            messages=[{"role": "user", "content": prompt}],
-                            temperature=self.temperature,
-                            stream=True,
-                        )
-                        for chunk in stream:
-                            if chunk.choices and chunk.choices[0].delta.content:
-                                yield chunk.choices[0].delta.content
-                        return
-                except Exception as e:
-                    print(f"[LLMManager] Rotator streaming fallback failed: {_sanitize_error(e)}", flush=True)
 
         # Local fallback streaming
         if not self.local_fallback_enabled:

@@ -75,6 +75,14 @@ class ChatStore:
             return True
         return False
 
+    def delete_sessions_by_team(self, team_id: str) -> int:
+        original_len = len(self.sessions)
+        self.sessions = [s for s in self.sessions if s.get("team_id") != team_id]
+        deleted = original_len - len(self.sessions)
+        if deleted > 0:
+            self._save()
+        return deleted
+
     def list_sessions(self, team_id: str | None = None, include_unassigned: bool = False) -> list[dict]:
         sessions = self.sessions
         if team_id is not None:

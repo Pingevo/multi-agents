@@ -103,24 +103,6 @@ export function LoginScreen() {
             {loading ? 'Signing in...' : 'Sign in'}
           </button>
         </form>
-
-        <div className="mt-6 pt-6 border-t border-slate-700">
-          <p className="text-xs text-slate-500 text-center mb-3">More login options (coming soon)</p>
-          <div className="flex gap-3 justify-center">
-            <button
-              disabled
-              className="px-4 py-2 bg-slate-700/50 text-slate-500 rounded-lg text-sm cursor-not-allowed border border-slate-700"
-            >
-              Google
-            </button>
-            <button
-              disabled
-              className="px-4 py-2 bg-slate-700/50 text-slate-500 rounded-lg text-sm cursor-not-allowed border border-slate-700"
-            >
-              LINE
-            </button>
-          </div>
-        </div>
       </div>
     </div>
   );

@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import {
-  Bot, User, Loader2, CheckSquare, CheckCircle, XCircle, ChevronDown, ChevronRight,
-  Wrench, Image, Pencil, Search, PenTool, Eye, Brain, Send, MessageSquare, Plus,
-  Trash2, Check, X, Cpu, Video, Square, Sparkles, Volume2, Mic, Paperclip, FileText, Copy,
+  Bot, User, Loader2, CheckCircle, XCircle, ChevronDown, ChevronRight,
+  Wrench, Image, Pencil, Search, PenTool, Eye, Brain, MessageSquare, Plus,
+  Trash2, Check, X, Cpu, Video, Square, Volume2, Mic, FileText, Copy,
 } from 'lucide-react';
 import type {
   ChatMessage, ActivityEntry, AgentProgressEntry, PlanAgent, ResultAgent,
@@ -26,7 +26,7 @@ interface ChatPanelRightProps {
   onDeleteChat: (id: string) => void;
   onAcceptPlan?: () => void;
   onRejectPlan?: () => void;
-  onConfirmTuning?: () => void;
+  onConfirmTuning?: (proposals?: any[]) => void;
   onRejectTuning?: () => void;
   onApproveImage?: (approvalId: string) => void;
   onRejectImage?: (approvalId: string) => void;
@@ -52,6 +52,8 @@ interface ChatPanelRightProps {
   preloadedMediaCatalog?: Record<string, ModelCatalogEntry[]>;
   preloadedMediaSearchResults?: ModelCatalogEntry[];
   fillContainer?: boolean;
+  mentionText?: string;
+  onMentionConsumed?: () => void;
 }
 
 // ============================================================
@@ -76,6 +78,7 @@ const PlanCard: React.FC<{
   hasSttTool?: boolean;
   hasVisionTool?: boolean;
   managerModel?: string;
+  estimatedCost?: string;
   onAccept?: () => void;
   onReject?: () => void;
   onChangeAgentModel?: (agentName: string, modelId: string) => void;
@@ -88,7 +91,7 @@ const PlanCard: React.FC<{
   onSearchModels?: (query: string) => void;
   onFetchModelCatalog?: () => void;
   onFetchMediaCatalog?: (mediaType: string) => void;
-}> = ({ agents, taskDescription, planType, planStatus, imageModel, videoModel, searchModel, ttsModel, sttModel, visionModel, hasImageTool, hasVideoTool, hasSearchTool, hasTtsTool, hasSttTool, hasVisionTool, managerModel, onAccept, onReject, onChangeAgentModel, onChangeManagerModel, onChangeMediaModel, modelCatalog, modelSearchResults, mediaCatalog, mediaSearchResults, onSearchModels, onFetchModelCatalog, onFetchMediaCatalog }) => {
+}> = ({ agents, taskDescription, planType, planStatus, imageModel, videoModel, searchModel, ttsModel, sttModel, visionModel, hasImageTool, hasVideoTool, hasSearchTool, hasTtsTool, hasSttTool, hasVisionTool, managerModel, estimatedCost, onAccept, onReject, onChangeAgentModel, onChangeManagerModel, onChangeMediaModel, modelCatalog, modelSearchResults, mediaCatalog, mediaSearchResults, onSearchModels, onFetchModelCatalog, onFetchMediaCatalog }) => {
   const isPending = planStatus === 'pending';
   const [editingAgent, setEditingAgent] = useState<string | null>(null);
   const [editingMedia, setEditingMedia] = useState<string | null>(null);
@@ -109,22 +112,31 @@ const PlanCard: React.FC<{
   const [editingManager, setEditingManager] = useState(false);
   const managerModelRef = useRef<HTMLButtonElement | null>(null);
   return (
-    <div className={`rounded-xl border bg-surface/80 backdrop-blur-sm overflow-hidden ${isPending ? 'border-accent/30' : 'border-border'}`}>
-      <div className="flex items-center justify-between px-3 py-2 bg-accent/5 border-b border-accent/20">
+    <div className={`rounded-xl border bg-bg overflow-hidden ${isPending ? 'border-accent/30' : 'border-border'}`}>
+      <div className="flex items-center justify-between px-3.5 py-2.5 bg-accent/5 border-b border-accent/20">
         <div className="flex items-center gap-2">
-          <CheckSquare className="w-4 h-4 text-accent" />
-          <span className="font-semibold text-xs text-text">
-            {planStatus === 'approved' ? 'Plan Approved' : planStatus === 'rejected' ? 'Plan Rejected' : 'Plan Approval'}
+          <span className="text-sm">📋</span>
+          <span className="font-semibold text-[13px] text-accent-light">
+            {planType === 'create_agents'
+              ? (planStatus === 'approved' ? 'สร้าง Agent (อนุมัติแล้ว)' : planStatus === 'rejected' ? 'สร้าง Agent (ปฏิเสธ)' : 'สร้าง Agent')
+              : (planStatus === 'approved' ? 'แผนงาน (อนุมัติแล้ว)' : planStatus === 'rejected' ? 'แผนงาน (ปฏิเสธ)' : 'แผนงาน')}
           </span>
         </div>
-        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-accent/10 text-accent">
-          {agents.length} agent(s) · {planType === 'existing' ? 'Existing' : 'New'}
-        </span>
+        {planType !== 'create_agents' && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-accent/10 text-accent">
+            {agents.length} agent(s) · {planType === 'existing' ? 'Existing' : 'New'}
+          </span>
+        )}
       </div>
-      <div className="p-3 space-y-2">
+      <div className="p-3.5 space-y-2">
         <div className="text-xs text-text-2">
-          Task: <span className="text-text">{taskDescription}</span>
+          {planType === 'create_agents' ? 'คำขอ: ' : 'Task: '}<span className="text-text">{taskDescription}</span>
         </div>
+        {estimatedCost && (
+          <div className="text-[11px] text-text-3 px-2 py-1 rounded-md bg-surface-2 border border-border">
+            {estimatedCost}
+          </div>
+        )}
         {/* Manager model row */}
         <div className="p-2 rounded-lg bg-surface-2 border border-accent/20">
           <div className="flex items-center gap-1.5 mb-0.5">
@@ -181,43 +193,36 @@ const PlanCard: React.FC<{
         </div>
         <div className="space-y-1.5">
           {agents.map((agent, idx) => (
-            <div key={idx} className="p-2 rounded-lg bg-surface-2 border border-border/50">
-              <div className="flex items-center gap-1.5 mb-0.5">
-                <span className="text-[10px] font-mono text-accent">#{idx + 1}</span>
-                <span className="text-xs font-medium text-text">{agent.name}</span>
-                <span className="text-[10px] text-text-2">— {agent.role}</span>
-                {agent.is_existing ? (
-                  <span className="text-[9px] px-1 py-0.5 rounded-full bg-success/10 text-success">Existing</span>
-                ) : (
-                  <span className="text-[9px] px-1 py-0.5 rounded-full bg-accent/10 text-accent">New</span>
-                )}
-              </div>
-              {agent.goal && <div className="text-[10px] text-text-2 ml-5">{agent.goal}</div>}
-              <div className="flex items-center gap-1 mt-0.5 ml-5">
-                <Cpu className="w-2.5 h-2.5 text-text-2 shrink-0" />
-                <span className="text-[9px] text-text-2">Model:</span>
-                {isPending && onChangeAgentModel ? (
-                  <>
-                    <button
-                      ref={(el) => { agentModelRefs.current[agent.name] = el; }}
-                      onClick={() => {
-                        if (editingAgent !== agent.name && modelCatalog && Object.keys(modelCatalog).length === 0 && onFetchModelCatalog) {
-                          onFetchModelCatalog();
-                        }
-                        setEditingAgent(editingAgent === agent.name ? null : agent.name);
-                      }}
-                      className="text-[9px] text-text bg-surface-3 border border-border/50 rounded px-1.5 py-0.5 hover:border-accent/50 transition-colors max-w-[180px] truncate flex items-center gap-1"
-                    >
-                      {(() => {
-                        const modelId = agent.model || '';
-                        if (!modelId) return <span className="text-text-2">Auto (system default)</span>;
-                        const provider = getProvider(modelId);
-                        const favicon = PROVIDER_FAVICONS[provider];
-                        if (favicon) return <img src={favicon} alt="" className="w-3 h-3 rounded shrink-0 object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />;
-                        return null;
-                      })()}
-                      {agent.model ? findModelName(agent.model, modelCatalog || {}, modelSearchResults || []) : ''}
-                    </button>
+            <div key={idx} className="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-bg">
+              <div className="w-2 h-2 rounded-full bg-accent/50 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <div className="text-xs font-medium text-text">{agent.name}</div>
+                <div className="text-[11px] text-text-3">{agent.goal || agent.role}</div>
+                <div className="flex items-center gap-1 mt-0.5">
+                  <Cpu className="w-2.5 h-2.5 text-text-2 shrink-0" />
+                  <span className="text-[9px] text-text-2">Model:</span>
+                  {isPending && onChangeAgentModel ? (
+                    <>
+                      <button
+                        ref={(el) => { agentModelRefs.current[agent.name] = el; }}
+                        onClick={() => {
+                          if (editingAgent !== agent.name && modelCatalog && Object.keys(modelCatalog).length === 0 && onFetchModelCatalog) {
+                            onFetchModelCatalog();
+                          }
+                          setEditingAgent(editingAgent === agent.name ? null : agent.name);
+                        }}
+                        className="text-[9px] text-text bg-surface-3 border border-border/50 rounded px-1.5 py-0.5 hover:border-accent/50 transition-colors max-w-[180px] truncate flex items-center gap-1"
+                      >
+                        {(() => {
+                          const modelId = agent.model || '';
+                          if (!modelId) return <span className="text-text-2">Auto (system default)</span>;
+                          const provider = getProvider(modelId);
+                          const favicon = PROVIDER_FAVICONS[provider];
+                          if (favicon) return <img src={favicon} alt="" className="w-3 h-3 rounded shrink-0 object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />;
+                          return null;
+                        })()}
+                        {agent.model ? findModelName(agent.model, modelCatalog || {}, modelSearchResults || []) : ''}
+                      </button>
                       {editingAgent === agent.name && (
                         <ModelPicker
                           recommended={modelCatalog || {}}
@@ -239,6 +244,12 @@ const PlanCard: React.FC<{
                     <span className="text-[9px] text-text font-mono">{agent.model ? findModelName(agent.model, modelCatalog || {}, modelSearchResults || []) : 'Auto (system default)'}</span>
                   )}
                 </div>
+              </div>
+              {agent.is_existing ? (
+                <span className="text-[9px] px-1 py-0.5 rounded-full bg-success/10 text-success shrink-0">Existing</span>
+              ) : (
+                <span className="text-[9px] px-1 py-0.5 rounded-full bg-accent/10 text-accent shrink-0">New</span>
+              )}
             </div>
           ))}
         </div>
@@ -523,12 +534,12 @@ const PlanCard: React.FC<{
           </div>
         )}
         {isPending && (
-          <div className="flex gap-2">
-            <button onClick={onAccept} className="px-3 py-1 rounded-md bg-accent text-white text-xs font-medium hover:bg-accent-hover transition-colors">
-              ✅ Approve
+          <div className="flex gap-2 mt-3">
+            <button onClick={onAccept} className="px-3 py-1.5 rounded-md bg-success/15 text-success text-xs font-medium hover:bg-success/25 transition-colors">
+              ✓ ยืนยันแผน
             </button>
-            <button onClick={onReject} className="px-3 py-1 rounded-md border border-border text-xs font-medium hover:bg-surface-2 transition-colors">
-              ❌ Reject
+            <button onClick={onReject} className="px-3 py-1.5 rounded-md bg-danger/15 text-danger text-xs font-medium hover:bg-danger/25 transition-colors">
+              ✕ ปฏิเสธ
             </button>
           </div>
         )}
@@ -556,6 +567,8 @@ const ProgressCard: React.FC<{ percent: number; label: string }> = ({ percent, l
 const toolIcon = (toolName: string) => {
   if (toolName === 'search_web') return <Search className="w-3 h-3 text-accent shrink-0" />;
   if (toolName === 'generate_image') return <Image className="w-3 h-3 text-purple-400 shrink-0" />;
+  if (toolName === 'scrape_web') return <Search className="w-3 h-3 text-green-400 shrink-0" />;
+  if (toolName === 'generate_document') return <PenTool className="w-3 h-3 text-orange-400 shrink-0" />;
   if (toolName === 'write_code') return <PenTool className="w-3 h-3 text-blue-400 shrink-0" />;
   return <Wrench className="w-3 h-3 text-text-2 shrink-0" />;
 };
@@ -821,6 +834,8 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
   selectedModel, resolvedModel, thinkingText, thinkingDuration, isThinking, inputMode, onModeChange, disabled,
   preloadedModelCatalog, preloadedModelSearchResults, preloadedMediaCatalog, preloadedMediaSearchResults,
   fillContainer = false,
+  mentionText,
+  onMentionConsumed,
 }) => {
   const [width, setWidth] = useState(360);
   const [input, setInput] = useState('');
@@ -961,6 +976,22 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
   };
 
+  useEffect(() => {
+    if (mentionText) {
+      setInput(prev => prev ? `${prev} ${mentionText}` : mentionText);
+      onMentionConsumed?.();
+      if (textareaRef.current) {
+        textareaRef.current.focus();
+        setTimeout(() => {
+          if (textareaRef.current) {
+            textareaRef.current.style.height = 'auto';
+            textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+          }
+        }, 0);
+      }
+    }
+  }, [mentionText, onMentionConsumed]);
+
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1044,7 +1075,7 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
   };
 
   return (
-    <div className={fillContainer ? "flex-1 flex flex-col min-w-0" : "flex shrink-0 relative"} style={fillContainer ? undefined : { width }}>
+    <div className={fillContainer ? "flex-1 flex flex-col min-w-0 min-h-0" : "flex shrink-0 relative"} style={fillContainer ? undefined : { width }}>
       {/* Resize handle — only when not filling container */}
       {!fillContainer && (
         <div
@@ -1053,7 +1084,7 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
         />
       )}
 
-      <div className="flex-1 flex flex-col bg-bg border-l border-border min-w-0">
+      <div className="flex-1 flex flex-col bg-bg border-l border-border min-w-0 min-h-0">
         {/* Header — chat title (when fillContainer) */}
         {fillContainer && (
           <div className="px-4 py-2.5 border-b border-border shrink-0">
@@ -1138,7 +1169,7 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
         )}
 
         {/* Messages */}
-        <div ref={scrollRef} className="flex-1 overflow-y-auto p-5 space-y-3 flex flex-col">
+        <div ref={scrollRef} className="flex-1 overflow-y-auto p-5 space-y-3 flex flex-col min-h-0">
               {messages.length === 0 && activityLog.length === 0 && !isProcessing ? (
                 <div className="flex flex-col items-center justify-center py-20 text-text-2">
                   <Bot className="w-12 h-12 mb-3 opacity-30" />
@@ -1157,37 +1188,6 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
                             <Bot className="w-3.5 h-3.5" />
                           </div>
                           <div className="flex-1 min-w-0">
-                            {/* Thinking block — inline like ChatGPT/Claude */}
-                            {(isThinking || thinkingText) && (
-                              <div className="mb-2 rounded-lg bg-surface-2/50 border border-border/50">
-                                <button
-                                  onClick={() => {
-                                    thinkingManualExpandRef.current = true;
-                                    setThinkingExpanded(!thinkingExpanded);
-                                  }}
-                                  className="w-full flex items-center gap-2 px-3 py-2 hover:bg-surface-2/80 rounded-lg transition-colors"
-                                >
-                                  {isProcessing ? (
-                                    <Loader2 className="w-3.5 h-3.5 text-accent animate-spin shrink-0" />
-                                  ) : (
-                                    <Brain className="w-3.5 h-3.5 text-text-2 shrink-0" />
-                                  )}
-                                  <span className="text-xs text-text-2 font-medium">
-                                    {isProcessing ? 'กำลังคิด...' : thinkingDuration !== null ? `คิดเสร็จแล้ว (${thinkingDuration}s)` : 'ความคิดของ AI'}
-                                  </span>
-                                  <span className="ml-auto">
-                                    {thinkingExpanded ? <ChevronDown className="w-3.5 h-3.5 text-text-2" /> : <ChevronRight className="w-3.5 h-3.5 text-text-2" />}
-                                  </span>
-                                </button>
-                                {thinkingExpanded && (
-                                  <div className="px-3 pb-2 pt-0.5">
-                                    <div className="text-xs text-text-2 leading-relaxed">
-                                      {isProcessing ? 'AI กำลังวิเคราะห์คำขอและวางแผนการทำงาน...' : 'AI วิเคราะห์คำขอเสร็จแล้ว แผนงานจะแสดงด้านล่าง'}
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            )}
                             <PlanCard agents={msg.planAgents} taskDescription={msg.planTaskDescription || ''}
                               planType={msg.planType || 'new'} planStatus={msg.planStatus || 'pending'}
                               imageModel={msg.imageModel} videoModel={msg.videoModel} searchModel={msg.searchModel}
@@ -1195,6 +1195,7 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
                               hasImageTool={msg.hasImageTool} hasVideoTool={msg.hasVideoTool} hasSearchTool={msg.hasSearchTool}
                               hasTtsTool={msg.hasTtsTool} hasSttTool={msg.hasSttTool} hasVisionTool={msg.hasVisionTool}
                               managerModel={msg.managerModel}
+                              estimatedCost={msg.estimatedCost}
                               onAccept={onAcceptPlan} onReject={onRejectPlan}
                               onChangeAgentModel={onChangeAgentModel}
                               onChangeManagerModel={onChangeManagerModel}
@@ -1289,7 +1290,7 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
                                 ))}
                                 <div className="flex gap-2 pt-1">
                                   <button
-                                    onClick={() => onConfirmTuning?.()}
+                                    onClick={() => onConfirmTuning?.(msg.tuningProposals)}
                                     className="px-3 py-1.5 rounded-lg bg-success/10 text-success text-xs font-medium hover:bg-success/20 transition-colors"
                                   >
                                     ยืนยัน
@@ -1395,7 +1396,7 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
                           {msg.role === 'user' ? <User className="w-3.5 h-3.5" /> : <Bot className="w-3.5 h-3.5" />}
                         </div>
                         <div className={`rounded-xl px-3.5 py-2.5 text-sm whitespace-pre-wrap leading-relaxed ${
-                          msg.role === 'user' ? 'bg-accent text-white' : 'bg-surface border border-border text-text'}`}>
+                          msg.role === 'user' ? 'bg-accent text-white rounded-tr-sm' : 'bg-surface border border-border text-text rounded-tl-sm'}`}>
                           {msg.content}
                           {msg.attachmentUrl && (
                             <div className="mt-2 pt-2 border-t border-white/20">
@@ -1427,49 +1428,22 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
                           <span>{entry.text}</span>
                         </div>
                       ))}
-                      {isProcessing && activityLog.length === 0 && !isThinking && (
-                        <div className="flex items-center gap-2 text-[11px] text-text-2">
-                          <Loader2 className="w-3 h-3 text-accent animate-spin shrink-0" />
-                          <span>Processing...</span>
-                        </div>
-                      )}
                     </div>
                   )}
 
-                  {/* Standalone thinking block — when thinking is active but no plan message yet */}
+                  {/* Standalone thinking indicator — simple ... animation */}
                   {isThinking && !messages.some(m => m.messageType === 'plan') && (
                     <div className="flex gap-2 flex-row max-w-[75%]">
                       <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 bg-surface-2 border border-border text-accent">
                         <Bot className="w-3.5 h-3.5" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="rounded-lg bg-surface-2/50 border border-border/50">
-                          <button
-                            onClick={() => {
-                              thinkingManualExpandRef.current = true;
-                              setThinkingExpanded(!thinkingExpanded);
-                            }}
-                            className="w-full flex items-center gap-2 px-3 py-2 hover:bg-surface-2/80 rounded-lg transition-colors"
-                          >
-                            {isProcessing ? (
-                              <Loader2 className="w-3.5 h-3.5 text-accent animate-spin shrink-0" />
-                            ) : (
-                              <Brain className="w-3.5 h-3.5 text-text-2 shrink-0" />
-                            )}
-                            <span className="text-xs text-text-2 font-medium">
-                              {isProcessing ? 'กำลังคิด...' : thinkingDuration !== null ? `คิดเสร็จแล้ว (${thinkingDuration}s)` : 'ความคิดของ AI'}
-                            </span>
-                            <span className="ml-auto">
-                              {thinkingExpanded ? <ChevronDown className="w-3.5 h-3.5 text-text-2" /> : <ChevronRight className="w-3.5 h-3.5 text-text-2" />}
-                            </span>
-                          </button>
-                          {thinkingExpanded && (
-                            <div className="px-3 pb-2 pt-0.5">
-                              <div className="text-xs text-text-2 leading-relaxed">
-                                {isProcessing ? 'AI กำลังวิเคราะห์คำขอและวางแผนการทำงาน...' : 'AI วิเคราะห์คำขอเสร็จแล้ว'}
-                              </div>
-                            </div>
-                          )}
+                        <div className="px-3 py-2">
+                          <div className="flex gap-1">
+                            <div className="w-2 h-2 rounded-full bg-text-3 animate-bounce" style={{ animationDelay: '0ms' }} />
+                            <div className="w-2 h-2 rounded-full bg-text-3 animate-bounce" style={{ animationDelay: '150ms' }} />
+                            <div className="w-2 h-2 rounded-full bg-text-3 animate-bounce" style={{ animationDelay: '300ms' }} />
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -1495,10 +1469,10 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
               <button
                 onClick={handleOpenModelPicker}
                 disabled={disabled}
-                className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg border mb-2 transition-colors text-left ${
+                className={`w-full flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border mb-1.5 transition-colors text-left ${
                   modelPickerOpen
                     ? 'bg-accent/10 border-accent/40 text-text'
-                    : 'bg-surface-2 border-border text-text-2 hover:text-text hover:border-border/80'
+                    : 'bg-surface border-border text-text-2 hover:text-text hover:border-accent/50'
                 } disabled:opacity-50`}
               >
                 {(() => {
@@ -1506,63 +1480,61 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
                   const provider = getProvider(modelId);
                   const favicon = PROVIDER_FAVICONS[provider];
                   if (favicon) {
-                    return <img src={favicon} alt="" className="w-4 h-4 rounded shrink-0 object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />;
+                    return <img src={favicon} alt="" className="w-3 h-3 rounded shrink-0 object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />;
                   }
-                  return <Cpu className={`w-4 h-4 shrink-0 ${modelPickerOpen ? 'text-accent' : ''}`} />;
+                  return <Cpu className={`w-3 h-3 shrink-0 ${modelPickerOpen ? 'text-accent' : ''}`} />;
                 })()}
                 {selectedModel ? (
                   <>
-                    <span className="text-xs font-medium text-text flex-1 truncate">{findModelName(selectedModel, modelCatalog, modelSearchResults)}</span>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-accent/15 text-accent shrink-0">Manual</span>
+                    <span className="text-[10px] font-medium text-text flex-1 truncate">{findModelName(selectedModel, modelCatalog, modelSearchResults)}</span>
+                    <span className="text-[8px] px-1.5 py-0.5 rounded bg-accent/15 text-accent shrink-0">Manual</span>
                   </>
                 ) : (
                   <>
-                    <span className="text-xs font-medium text-text flex-1 truncate">
+                    <span className="text-[10px] font-medium text-text flex-1 truncate">
                       {resolvedModel ? findModelName(resolvedModel, modelCatalog, modelSearchResults) : 'Resolving...'}
                     </span>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-500 shrink-0">Auto</span>
+                    <span className="text-[8px] px-1.5 py-0.5 rounded bg-success/15 text-success shrink-0">Auto</span>
                   </>
                 )}
-                <ChevronDown className={`w-3.5 h-3.5 shrink-0 transition-transform ${modelPickerOpen ? 'rotate-180' : ''}`} />
+                <ChevronDown className={`w-3 h-3 shrink-0 transition-transform ${modelPickerOpen ? 'rotate-180' : ''}`} />
               </button>
               {/* Mode toggle: Chat / Plan */}
-              <div className="flex items-center gap-1.5 mb-2">
+              <div className="flex items-center gap-1 mb-1.5">
                 <button
                   onClick={() => onModeChange?.('chat')}
                   disabled={disabled}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium transition-colors ${
                     inputMode === 'chat'
-                      ? 'bg-accent/15 text-accent border border-accent/30'
-                      : 'bg-surface-2 text-text-2 border border-transparent hover:text-text'
+                      ? 'bg-accent/15 text-accent-light border border-accent/30'
+                      : 'bg-surface text-text-3 border border-transparent hover:text-text'
                   } disabled:opacity-50`}
                 >
-                  <MessageSquare className="w-3.5 h-3.5" />
-                  Chat
+                  💬 Chat
                 </button>
                 <button
                   onClick={() => onModeChange?.('plan')}
                   disabled={disabled}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium transition-colors ${
                     inputMode === 'plan'
-                      ? 'bg-accent/15 text-accent border border-accent/30'
-                      : 'bg-surface-2 text-text-2 border border-transparent hover:text-text'
+                      ? 'bg-accent/15 text-accent-light border border-accent/30'
+                      : 'bg-surface text-text-3 border border-transparent hover:text-text'
                   } disabled:opacity-50`}
                 >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  Plan
+                  ✨ Plan
                 </button>
               </div>
               {attachment && (
-                <div className="flex items-center gap-2 mb-2 px-3 py-1.5 rounded-md bg-surface-2 border border-border/50">
+                <div className="flex items-center gap-1.5 mb-1.5 px-2 py-1 rounded-md bg-surface border border-border">
                   {attachmentPreview && attachmentPreview.startsWith('data:') && (
-                    <img src={attachmentPreview} alt="" className="w-7 h-7 rounded object-cover shrink-0" />
+                    <img src={attachmentPreview} alt="" className="w-5 h-5 rounded object-cover shrink-0" />
                   )}
-                  {attachmentPreview === 'audio' && <Volume2 className="w-4 h-4 text-accent shrink-0" />}
-                  {attachmentPreview === 'video' && <Video className="w-4 h-4 text-accent shrink-0" />}
-                  {attachmentPreview === 'file' && <FileText className="w-4 h-4 text-accent shrink-0" />}
-                  <span className="text-xs text-text-2 truncate flex-1">{attachment.name}</span>
-                  <button onClick={() => { setAttachment(null); setAttachmentPreview(null); }} className="text-text-2 hover:text-danger transition-colors">
-                    <X className="w-3.5 h-3.5" />
+                  {attachmentPreview === 'audio' && <Volume2 className="w-3 h-3 text-accent shrink-0" />}
+                  {attachmentPreview === 'video' && <Video className="w-3 h-3 text-accent shrink-0" />}
+                  {attachmentPreview === 'file' && <FileText className="w-3 h-3 text-accent shrink-0" />}
+                  <span className="text-[10px] text-text-2 truncate flex-1">{attachment.name}</span>
+                  <button onClick={() => { setAttachment(null); setAttachmentPreview(null); }} className="text-text-3 hover:text-danger transition-colors text-xs">
+                    ✕
                   </button>
                 </div>
               )}
@@ -1573,14 +1545,14 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
                 className="hidden"
                 accept="image/*,audio/*,video/*,.pdf,.txt,.json,.csv,.doc,.docx,.md"
               />
-              <div className="flex items-end gap-2">
+              <div className="flex items-center gap-2">
                 <button
                   onClick={() => fileInputRef.current?.click()}
                   disabled={disabled}
-                  className="p-2 rounded-lg border border-border text-text-2 hover:text-accent hover:border-accent/50 disabled:opacity-50 transition-colors mb-0.5"
+                  className="w-[34px] h-[34px] rounded-[9px] bg-surface border border-border text-text-2 hover:text-text hover:bg-surface-2 disabled:opacity-50 transition-colors flex items-center justify-center shrink-0 text-lg"
                   title="Attach file"
                 >
-                  <Paperclip className="w-4 h-4" />
+                  +
                 </button>
                 <textarea
                   ref={textareaRef}
@@ -1588,26 +1560,26 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
                   onChange={handleInput}
                   onKeyDown={handleKeyDown}
                   onPaste={handlePaste}
-                  placeholder={disabled ? 'Waiting...' : 'Type a message...'}
+                  placeholder={disabled ? 'Waiting...' : 'พิมพ์ข้อความถึงทีม...'}
                   disabled={disabled}
                   rows={1}
-                  className="flex-1 bg-surface-2 border border-border rounded-lg px-3 py-2 text-sm text-text placeholder:text-text-2 focus:outline-none focus:border-accent disabled:opacity-50 resize-none overflow-hidden"
-                  style={{ minHeight: '38px', maxHeight: '120px' }}
+                  className="flex-1 bg-surface border border-border rounded-[9px] px-3 py-2 text-sm text-text placeholder:text-text-3 focus:outline-none focus:border-accent disabled:opacity-50 resize-none overflow-hidden"
+                  style={{ minHeight: '34px', maxHeight: '120px' }}
                 />
                 {isProcessing ? (
                   <button
                     onClick={() => onStop?.()}
-                    className="p-2 rounded-lg bg-danger text-white hover:bg-danger/80 transition-colors mb-0.5"
+                    className="px-3 py-2 rounded-lg bg-danger text-white hover:bg-danger/80 transition-colors text-xs font-medium shrink-0"
                     title="Stop"
                   >
-                    <Square className="w-4 h-4 fill-current" />
+                    <Square className="w-3.5 h-3.5 fill-current" />
                   </button>
                 ) : (
                   <button
                     onClick={handleSubmit}
                     disabled={disabled || (!input.trim() && !attachment)}
-                    className="p-2 rounded-lg bg-accent text-white hover:bg-accent-hover disabled:opacity-50 transition-colors mb-0.5">
-                    <Send className="w-4 h-4" />
+                    className="px-3 py-2 rounded-lg bg-accent text-white hover:bg-accent-hover disabled:opacity-50 transition-colors text-xs font-medium shrink-0">
+                    ส่ง
                   </button>
                 )}
               </div>

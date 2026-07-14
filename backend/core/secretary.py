@@ -71,6 +71,8 @@ class CentralSecretary:
         registry_agents: list[dict] | None = None,
         team_agents: list[dict] | None = None,
         team_name: str | None = None,
+        force_plan: bool = False,
+        force_proceed: bool = False,
     ) -> dict:
         """Unified call: assess + analyze + model assignment in one LLM response.
 
@@ -91,14 +93,14 @@ class CentralSecretary:
             f"- {c['name']}: {c['description']}" for c in catalog
         ) if catalog else "none"
 
-        models_text = model_table or "none"
+        models_text = "Use 'openrouter/auto' for all model fields. Do not assign specific models."
 
         # Build last task context (if any)
         last_task_text = ""
         if last_task_context:
             last_task_text = "\nLast completed task:\n"
             last_task_text += f"- User request: {last_task_context.get('user_input', '')[:200]}\n"
-            last_task_text += f"- Result summary: {last_task_context.get('result', '')[:500]}\n"
+            last_task_text += f"- Result summary: {last_task_context.get('result', '')[:1500]}\n"
             agents_ctx = last_task_context.get('agents', [])
             for a in agents_ctx:
                 name = a.get('name', 'Agent')
@@ -136,28 +138,76 @@ class CentralSecretary:
                 team_text += f"- {name} (id={aid}) | role={role} | model={model} | tools={tools}\n"
 
         prompt = (
-            "You are the Central Secretary of an Agent Management Platform.\n"
+            "You are the Central Secretary of an AI Agent Management Platform.\n"
+            "This platform CREATES and MANAGES AI agents (not human workers) to do tasks.\n"
+            "Users can request new AI agents to be created, assign them tasks, and tune their behavior.\n\n"
             "Evaluate the user's message and respond with a single JSON object.\n\n"
             "First, decide what to do:\n"
             "- chat: greetings, small talk, general questions, self-introduction requests\n"
             "- info: questions about system/agents/status\n"
             "- ask: user wants work done but needs are unclear\n"
-            "- plan: user wants specific work produced (content, images, videos, analysis, etc.)\n"
+            "- create_agents: user wants to CREATE agents to keep in the team WITHOUT running a task right now\n"
+            "  Use this when user says 'สร้าง agent ไว้ในทีม', 'อยากได้นัก...ไว้ในทีม', 'เพิ่ม agent' without specifying work to do\n"
+            "  Respond with agent specs (same format as plan) but action='create_agents'\n"
+            "- plan: user wants specific work/task produced (content, images, videos, analysis, etc.)\n"
+            "  Use 'plan' when user clearly states WHAT work to do, not just WHAT roles they want.\n"
+            "  If team already has agents with matching roles, REUSE them — set 'reuse_existing' to true and reference by name\n"
             "- tuning: user wants to adjust, refine, or change how an agent behaves — tone, style, personality, expertise, or any aspect.\n"
             "  This can happen at ANY time: after a task, before a task, or even with no task at all.\n"
             "  If the user mentions a specific agent, tune that one. If not, use context to determine which agent(s) to tune.\n\n"
+        )
 
-            "IMPORTANT: Do NOT create a plan for greetings, self-introductions, or simple questions.\n"
-            "Only create a plan when the user explicitly asks for work to be done.\n"
-            "Use 'tuning' when the user wants to modify agent behavior — not when asking for new work.\n\n"
+        if force_plan:
+            prompt += (
+                "IMPORTANT: The user is in PLAN MODE. You MUST respond with 'plan', 'create_agents', 'tuning', or 'ask'.\n"
+                "Do NOT use 'chat' or 'info'.\n\n"
+                "Use 'ask' ONLY when the user's request is too vague to create a meaningful plan or agents.\n"
+                "If the conversation history shows you already asked questions and the user has answered, use their answers to proceed — do NOT ask the same questions again.\n\n"
+                "Use 'tuning' when the user wants to PERMANENTLY change an agent's behavior, personality, tone, or style\n"
+                "— phrases like 'ต่อไปให้...', 'ปรับให้...ตลอด', 'อยากให้ agent นี้เป็นแบบ...' indicate tuning.\n"
+                "Use 'create_agents' when the user wants to create agents without running a task.\n"
+                "Use 'plan' for everything else — creating work, refining output, producing content.\n\n"
 
+                "If there is a 'Last completed task' above, the user's message is likely a FOLLOW-UP or REFINEMENT of that task.\n"
+                "In that case, create a plan that builds on the previous work — reuse the same agents or add new ones,\n"
+                "and set their goals to refine/adjust/improve the previous output based on the user's new request.\n"
+                "Include the previous result as context in the agent goals so they know what to improve.\n\n"
+            )
+        else:
+            prompt += (
+                "IMPORTANT: Do NOT create a plan for greetings, self-introductions, or simple questions.\n"
+                "Only create a plan when the user explicitly asks for work to be done.\n"
+                "Use 'tuning' when the user wants to modify agent behavior — not when asking for new work.\n\n"
+                "If you already asked a question and received an answer, do NOT ask the same or similar question again.\n"
+                "Either ask a DIFFERENT question about genuinely missing info, or proceed with reasonable assumptions.\n"
+                "When in doubt, make reasonable assumptions and proceed rather than asking repeatedly.\n\n"
+            )
+
+        if force_proceed:
+            prompt += (
+                "IMPORTANT: You have already asked clarifying questions and the user has provided answers.\n"
+                "Do NOT use 'ask' again. Proceed with the available information — make reasonable assumptions where needed.\n"
+                "You MUST respond with 'plan' or 'create_agents'.\n\n"
+            )
+
+        prompt += (
             "For chat/info/ask, respond with:\n"
             '  {"action": "chat", "message": "your reply"}\n'
             '  {"action": "info", "message": "your reply"}\n'
             '  {"action": "ask", "questions": ["q1", "q2", ...]}\n\n'
+            "IMPORTANT: For chat and info, you MUST include a 'message' field with your full reply. Do not return empty message.\n\n"
 
             "For tuning, respond with:\n"
             '  {"action": "tuning", "tuning_text": "what the user wants to change", "target_agent": "agent name or empty if unclear"}\n\n'
+
+            "For create_agents, respond with the SAME format as plan (agents array with full specs), but use action='create_agents':\n"
+            "{\n"
+            '  "action": "create_agents",\n'
+            '  "summary": "brief summary of agents being created",\n'
+            '  "team_name": "a short, descriptive team name (NOT the user prompt)",\n'
+            '  "team_description": "1-2 sentence description of the team purpose",\n'
+            '  "agents": [ ... same format as plan ... ]\n'
+            "}\n\n"
 
             "For plan, respond with a complete plan including agents AND model assignments:\n"
             "{\n"
@@ -196,17 +246,17 @@ class CentralSecretary:
             "}\n\n"
 
             "Design Rules for plan:\n"
+            "- Do NOT include a Manager agent in your response — the system adds a Manager automatically. Only include worker agents.\n"
+            "- REUSE existing team agents when possible — if a team agent already has the right role/tools, include it by name instead of creating a new one\n"
+            "- Only create NEW agents when the team lacks the required capability\n"
+            "- If the user mentions @AgentName, that agent MUST be included in the plan — use the exact name from the team agents list\n"
             "- Create as many agents as needed (1, 2, 3, or more)\n"
             "- Each agent should have a clear, distinct responsibility\n"
             "- Assign capabilities based on the descriptions below\n"
-            "- Capabilities of type 'tool' (search_web, generate_image, generate_video, text_to_speech, transcribe_audio, analyze_image) give external abilities\n"
+            "- Capabilities of type 'tool' (search_web, generate_image, generate_video, text_to_speech, transcribe_audio, analyze_image, scrape_web, generate_document) give external abilities\n"
             "- Capabilities of type 'model_trait' (reasoning, creative_writing, write_code, long_context) guide model selection\n"
-            "- Assign the SMARTER/larger model to the manager (it coordinates)\n"
-            "- Assign models suited to each worker's task based on capabilities\n"
-            "- Only use model IDs from the available models list\n"
-            "- You can use 'openrouter/auto' as a model ID — OpenRouter will automatically select the best model for each request\n"
-            "- For image_model/video_model/search_model/tts_model/stt_model/vision_model: you MUST pick a specific model from the specialized catalog if the plan uses those tools — do NOT leave empty\n"
-            "- If the plan does NOT need a particular specialized model, leave that field empty\n"
+            "- Use 'openrouter/auto' for all model fields — do NOT assign specific model IDs\n"
+            "- Leave image_model/video_model/search_model/tts_model/stt_model/vision_model empty — the system handles defaults\n"
             "- Write all content in the SAME language as the user's request\n"
             "- Name agents as 'Role #N' (e.g. Creative Writer #1, Graphic Designer #2)\n"
             "- Give each agent a personality (tone, communication_style, language) that fits their role\n"
@@ -227,8 +277,6 @@ class CentralSecretary:
             "- Include: what to create, how many, subject/theme, and which tool to call.\n\n"
 
             f"Available capabilities:\n{caps_text}\n\n"
-            f"Available text models:\n{models_text}\n\n"
-            f"Specialized AI models:\n{media_catalog or 'none'}\n\n"
             f"{history_text}"
             f"{last_task_text}"
             f"{registry_text}"
@@ -305,7 +353,7 @@ class CentralSecretary:
                         )
                     }
 
-                if result["action"] == "plan":
+                if result["action"] in ("plan", "create_agents"):
                     agents = []
                     for item in result.get("agents", []):
                         if isinstance(item, dict) and "name" in item and "role" in item:
@@ -323,35 +371,29 @@ class CentralSecretary:
                                 "tools": item.get("tools", []) if isinstance(item.get("tools"), list) else [],
                                 "task_description": item.get("task_description", "").strip(),
                                 "depends_on": [d.strip() for d in depends_on if isinstance(d, str) and d.strip()],
-                                "model": item.get("model", ""),
+                                "model": "openrouter/auto",
+                                "reuse_existing": item.get("reuse_existing", False),
                             })
                     if not agents:
                         return {"action": "chat", "message": "ไม่สามารถวางแผนได้ กรุณาลองใหม่"}
 
-                    manager_model = result.get("manager_model", "")
-                    model_assignment = {"manager": manager_model, "workers": {}}
+                    model_assignment = {"manager": "openrouter/auto", "workers": {}}
                     for a in agents:
-                        model_assignment["workers"][a["name"]] = a.get("model", "")
-
-                    if valid_model_ids:
-                        valid_list = sorted(valid_model_ids)
-                        if model_assignment["manager"] not in valid_model_ids:
-                            model_assignment["manager"] = valid_list[0] if valid_list else ""
-                        for i, a in enumerate(agents):
-                            mid = model_assignment["workers"].get(a["name"], "")
-                            if mid not in valid_model_ids:
-                                replacement = valid_list[0] if valid_list else ""
-                                model_assignment["workers"][a["name"]] = replacement
-                                agents[i]["model"] = replacement
+                        model_assignment["workers"][a["name"]] = "openrouter/auto"
 
                     return {
-                        "action": "plan",
+                        "action": result["action"],
                         "summary": result.get("summary", ""),
+                        "team_name": result.get("team_name", ""),
+                        "team_description": result.get("team_description", ""),
                         "agents": agents,
                         "model_assignment": model_assignment,
-                        "image_model": result.get("image_model", ""),
-                        "video_model": result.get("video_model", ""),
-                        "search_model": result.get("search_model", ""),
+                        "image_model": "",
+                        "video_model": "",
+                        "search_model": "",
+                        "tts_model": "",
+                        "stt_model": "",
+                        "vision_model": "",
                     }
 
                 return result
@@ -515,7 +557,7 @@ class CentralSecretary:
             f"- {c['name']}: {c['description']}" for c in catalog
         ) if catalog else "none"
 
-        models_text = model_table or "none"
+        models_text = "Use 'openrouter/auto' for all model fields. Do not assign specific models."
 
         prompt = (
             "You are the Central Secretary of an Agent Management Platform.\n"
@@ -566,18 +608,19 @@ class CentralSecretary:
             '  "vision_model": "model_id from specialized catalog (REQUIRED if plan uses analyze_image)"\n'
             "}\n\n"
             "Design Rules for plan:\n"
+            "- Do NOT include a Manager agent in your response — the system adds a Manager automatically. Only include worker agents.\n"
+            "- REUSE existing team agents when possible — if a team agent already has the right role/tools, include it by name instead of creating a new one\n"
+            "- Only create NEW agents when the team lacks the required capability\n"
+            "- If the user mentions @AgentName, that agent MUST be included in the plan — use the exact name from the team agents list\n"
             "- Create as many agents as needed (1, 2, 3, or more)\n"
             "- Each agent should have a clear, distinct responsibility\n"
             "- Assign capabilities based on the descriptions below\n"
-            "- Only use model IDs from the available models list\n"
-            "- You can use 'openrouter/auto' as a model ID — OpenRouter will automatically select the best model\n"
+            "- Use 'openrouter/auto' for all model fields — do NOT assign specific model IDs\n"
             "- Write all content in the SAME language as the user's request\n"
             "- Name agents as 'Role #N' (e.g. Creative Writer #1)\n"
             "- Give each agent personality, expertise, and brand_context fields\n"
             "- backstory should be brief — personality, expertise, and brand_context carry the detail\n\n"
             f"Available capabilities:\n{caps_text}\n\n"
-            f"Available text models:\n{models_text}\n\n"
-            f"Specialized AI models:\n{media_catalog or 'none'}\n\n"
             f"{history_text}"
             f"User message: {user_input}\n\n"
             "Output ONLY the JSON object, no explanation:"
@@ -702,7 +745,7 @@ class CentralSecretary:
         existing = registry.find_idle_agent(
             agent_spec.get("role", ""), agent_spec.get("tools", [])
         )
-        if existing:
+        if existing and not existing.get("is_manager"):
             return {"type": "existing", "agent": existing}
         return {"type": "create", "spec": agent_spec}
 

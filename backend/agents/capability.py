@@ -41,6 +41,18 @@ class CapabilityRegistry:
             "tool_name": "analyze_image",
         },
         {
+            "name": "scrape_web",
+            "description": "Fetch and extract text content from a specific web page URL (articles, blogs, product pages, documentation)",
+            "type": "tool",
+            "tool_name": "scrape_web",
+        },
+        {
+            "name": "generate_document",
+            "description": "Generate downloadable document files (markdown, text, HTML) — reports, plans, scripts, articles",
+            "type": "tool",
+            "tool_name": "generate_document",
+        },
+        {
             "name": "reasoning",
             "description": "Strong analytical and reasoning capability for coordination and planning",
             "type": "model_trait",

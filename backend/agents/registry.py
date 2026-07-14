@@ -79,6 +79,8 @@ class AgentRegistry:
         for agent in self.agents:
             if agent.get("status") != "Idle":
                 continue
+            if agent.get("is_manager"):
+                continue
             # 1) Exact tools match has highest priority
             if required_tools and all(t in agent.get("tools", []) for t in required_tools):
                 return agent

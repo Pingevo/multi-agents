@@ -12,6 +12,7 @@ import time
 import traceback
 import uuid
 from datetime import datetime
+from pathlib import Path
 
 import chainlit as cl
 from backend.globals import *
@@ -27,6 +28,9 @@ from backend.agents.task_store import TaskStore
 from backend.agents.chat_store import ChatStore
 from backend.agents.tool_registry import ToolRegistry
 from backend.agents.team_registry import TeamRegistry
+from backend.agents.template_store import TaskTemplateStore
+from backend.agents.schedule_store import ScheduledTaskStore
+from backend.core.scheduler import get_scheduler
 from backend.core.secretary import CentralSecretary
 from backend.core.orchestrator import ExecutionOrchestrator
 from backend.core.messenger import StateMessenger
@@ -38,6 +42,8 @@ from backend.handlers.actions import (
     on_action_accept,
     on_action_reject,
     on_action_cancel,
+    on_action_confirm_tuning,
+    on_action_reject_tuning,
     on_action_add_agent_form,
     on_action_edit_agent_form,
     on_action_delete_agent,
@@ -136,7 +142,7 @@ async def execute_multi_agent_task(
         agent_outputs = result.get("agent_outputs", [])
 
         # Store last task context for feedback tuning
-        cl.user_session.set("last_task_result", raw_output[:2000])
+        cl.user_session.set("last_task_result", raw_output[:6000])
         cl.user_session.set("last_agent_specs", agent_specs)
         cl.user_session.set("last_user_input", user_input)
 
@@ -149,7 +155,7 @@ async def execute_multi_agent_task(
                     "role": spec.get("role", ""),
                     "status": "complete",
                     "progress": 100,
-                    "output": (out.get("output", "") or "")[:2000],
+                    "output": (out.get("output", "") or "")[:6000],
                     "model": spec.get("model", ""),
                 })
             await messenger.reply_agent_progress(task_id, final_agents)
@@ -300,6 +306,13 @@ async def execute_multi_agent_task(
         tb = traceback.format_exc()
         print(f"[CREW ERROR] {_sanitize_error(e)}")
         _debug(f"[TRACEBACK] {tb}", flush=True)
+        # Store failed task context for retry
+        cl.user_session.set("last_failed_task", {
+            "user_input": user_input,
+            "agent_specs": agent_specs,
+            "pre_assigned_models": pre_assigned,
+            "error": str(e),
+        })
         if _is_rate_limit_error(e):
             llm_mgr = LLMManager()
             llm_mgr.report_rate_limit()
@@ -388,7 +401,7 @@ async def execute_task_with_agent(
         task_result = result
 
         # Store last task context for feedback tuning
-        cl.user_session.set("last_task_result", str(result)[:2000])
+        cl.user_session.set("last_task_result", str(result)[:6000])
         cl.user_session.set("last_agent_specs", [agent_spec])
         cl.user_session.set("last_user_input", user_input)
 
@@ -406,6 +419,13 @@ async def execute_task_with_agent(
         tb = traceback.format_exc()
         print(f"[CREW ERROR] {_sanitize_error(e)}")
         _debug(f"[TRACEBACK] {tb}", flush=True)
+        # Store failed task context for retry
+        cl.user_session.set("last_failed_task", {
+            "user_input": user_input,
+            "agent_specs": [agent_spec],
+            "pre_assigned_models": None,
+            "error": str(e),
+        })
         if _is_rate_limit_error(e):
             llm_mgr = LLMManager()
             llm_mgr.report_rate_limit()
@@ -519,6 +539,10 @@ async def on_chat_start():
     for key in ("ai_image_model", "ai_video_model", "ai_search_model", "ai_tts_model", "ai_stt_model", "ai_vision_model"):
         if settings.get(key):
             cl.user_session.set(key, settings[key])
+
+    # Start background scheduler for recurring tasks
+    scheduler = get_scheduler()
+    await scheduler.start()
 
     # Send model catalog with resolved model name so frontend shows proper names
     try:
@@ -649,6 +673,10 @@ async def on_message(message: cl.Message):
             await on_action_reject(cl.Action(name="reject_plan", payload=payload))
         elif action_name == "cancel_plan":
             await on_action_cancel(cl.Action(name="cancel_plan", payload=payload))
+        elif action_name == "confirm_tuning":
+            await on_action_confirm_tuning(cl.Action(name="confirm_tuning", payload=payload))
+        elif action_name == "reject_tuning":
+            await on_action_reject_tuning(cl.Action(name="reject_tuning", payload=payload))
         elif action_name == "confirm_create_agent":
             await on_action_create_agent(cl.Action(name="confirm_create_agent", payload=payload))
         elif action_name == "add_agent_form":
@@ -767,6 +795,26 @@ async def on_message(message: cl.Message):
                 messenger.update_approval_status(approval_id, "rejected")
                 await messenger.reply(f"❌ ยกเลิกการสร้างสื่อ (ID: {approval_id})")
                 cl.user_session.set(f"pending_media_{approval_id}", None)
+        elif action_name == "retry_task":
+            failed = cl.user_session.get("last_failed_task")
+            if not failed:
+                if messenger:
+                    await messenger.reply("⚠️ ไม่มีงานที่ล้มเหลวให้ลองใหม่")
+                return
+            if messenger:
+                await messenger.notify("🔄 กำลังลองทำงานใหม่...")
+            cl.user_session.set("last_failed_task", None)
+            # Re-execute the failed task
+            failed_input = failed.get("user_input", "")
+            failed_specs = failed.get("agent_specs", [])
+            failed_models = failed.get("pre_assigned_models")
+            if failed_specs and len(failed_specs) > 1:
+                await execute_multi_agent_task(failed_input, failed_specs, pre_assigned=failed_models)
+            elif failed_specs and len(failed_specs) == 1:
+                await execute_task_with_agent(failed_input, failed_specs[0])
+            else:
+                if messenger:
+                    await messenger.reply("⚠️ ไม่สามารถลองใหม่ได้ — ข้อมูลงานไม่ครบ")
         elif action_name == "new_chat":
             current_team_id = cl.user_session.get("current_team_id")
             session = messenger.chat_store.create_session("New Chat", team_id=current_team_id)
@@ -822,6 +870,90 @@ async def on_message(message: cl.Message):
             canvas_state = payload.get("canvas_state", {})
             if session_id and canvas_state:
                 messenger.chat_store.save_canvas_state(session_id, canvas_state)
+        elif action_name == "list_task_templates":
+            user_id = cl.user_session.get("user_id", "default")
+            tpl_store = TaskTemplateStore(user_id=user_id)
+            templates = tpl_store.list_templates()
+            if messenger:
+                payload_resp = chat_reply(ChatReplyText(
+                    message=json.dumps({"type": "task_templates", "templates": templates}, ensure_ascii=False),
+                ))
+                await cl.Message(content=json.dumps(payload_resp, ensure_ascii=False)).send()
+        elif action_name == "save_task_template":
+            user_id = cl.user_session.get("user_id", "default")
+            tpl_store = TaskTemplateStore(user_id=user_id)
+            name = payload.get("name", "Untitled")
+            prompt = payload.get("prompt", "")
+            mode = payload.get("mode", "plan")
+            if prompt:
+                tpl = tpl_store.add_template(name, prompt, mode)
+                if messenger:
+                    await messenger.notify(f"✅ บันทึก template '{name}' แล้ว")
+        elif action_name == "delete_task_template":
+            user_id = cl.user_session.get("user_id", "default")
+            tpl_store = TaskTemplateStore(user_id=user_id)
+            tpl_id = payload.get("template_id", "")
+            if tpl_id and tpl_store.delete_template(tpl_id):
+                if messenger:
+                    await messenger.notify("🗑️ ลบ template แล้ว")
+        elif action_name == "list_scheduled_tasks":
+            user_id = cl.user_session.get("user_id", "default")
+            sched_store = ScheduledTaskStore(user_id=user_id)
+            tasks = sched_store.list_scheduled()
+            if messenger:
+                payload_resp = chat_reply(ChatReplyText(
+                    message=json.dumps({"type": "scheduled_tasks", "tasks": tasks}, ensure_ascii=False),
+                ))
+                await cl.Message(content=json.dumps(payload_resp, ensure_ascii=False)).send()
+        elif action_name == "add_scheduled_task":
+            user_id = cl.user_session.get("user_id", "default")
+            sched_store = ScheduledTaskStore(user_id=user_id)
+            name = payload.get("name", "Scheduled Task")
+            prompt = payload.get("prompt", "")
+            interval = float(payload.get("interval_hours", 24))
+            mode = payload.get("mode", "plan")
+            if prompt:
+                sched = sched_store.add_scheduled(name, prompt, interval, mode)
+                if messenger:
+                    await messenger.notify(f"⏰ ตั้งเวลา '{name}' ทุก {interval} ชม. แล้ว")
+        elif action_name == "delete_scheduled_task":
+            user_id = cl.user_session.get("user_id", "default")
+            sched_store = ScheduledTaskStore(user_id=user_id)
+            task_id = payload.get("task_id", "")
+            if task_id and sched_store.delete_scheduled(task_id):
+                if messenger:
+                    await messenger.notify("🗑️ ลบงานตั้งเวลาแล้ว")
+        elif action_name == "toggle_scheduled_task":
+            user_id = cl.user_session.get("user_id", "default")
+            sched_store = ScheduledTaskStore(user_id=user_id)
+            task_id = payload.get("task_id", "")
+            if task_id:
+                active = sched_store.toggle_active(task_id)
+                if messenger:
+                    await messenger.notify(f"{'▶️ เปิด' if active else '⏸️ ปิด'}งานตั้งเวลาแล้ว")
+        elif action_name == "rate_task":
+            rating = int(payload.get("rating", 0))
+            if 1 <= rating <= 5:
+                last_input = cl.user_session.get("last_user_input", "")
+                last_result = cl.user_session.get("last_task_result", "")
+                user_id = cl.user_session.get("user_id", "default")
+                ratings_file = Path(f"data/task_ratings_{user_id}.json")
+                ratings_file.parent.mkdir(parents=True, exist_ok=True)
+                ratings = []
+                if ratings_file.exists():
+                    try:
+                        ratings = json.loads(ratings_file.read_text(encoding="utf-8"))
+                    except (json.JSONDecodeError, OSError):
+                        pass
+                ratings.append({
+                    "rating": rating,
+                    "task": last_input[:200],
+                    "result_preview": last_result[:200],
+                    "timestamp": datetime.now().isoformat(),
+                })
+                ratings_file.write_text(json.dumps(ratings, ensure_ascii=False, indent=2), encoding="utf-8")
+                if messenger:
+                    await messenger.notify(f"⭐ ขอบคุณสำหรับการให้คะแนน ({rating}/5)")
         elif action_name == "fetch_model_catalog":
             llm_mgr = LLMManager()
             if llm_mgr._is_openrouter():
@@ -1007,6 +1139,14 @@ async def on_message(message: cl.Message):
                 if team and messenger:
                     # List sessions for this team (include legacy unassigned sessions)
                     sessions = messenger.chat_store.list_sessions(team_id=team_id, include_unassigned=True)
+                    # If no sessions exist for this team, create a fresh one
+                    if not sessions:
+                        new_s = messenger.chat_store.create_session("New Chat", team_id=team_id)
+                        sessions = [new_s]
+                        messenger.current_session_id = new_s["id"]
+                    else:
+                        # Switch to the first session belonging to this team
+                        messenger.current_session_id = sessions[0]["id"]
                     session_list = [
                         {"id": s["id"], "title": s["title"], "updated_at": s.get("updated_at", "")}
                         for s in sessions
@@ -1020,6 +1160,8 @@ async def on_message(message: cl.Message):
                         },
                     }
                     await cl.Message(content=json.dumps(payload_sessions, ensure_ascii=False)).send()
+                    # Load chat history for the team's session (fresh if new)
+                    await messenger.reply_chat_history(messenger.current_session_id)
                     # List agents for this team
                     registry = cl.user_session.get("registry") or AgentRegistry()
                     team_agents = registry.list_agents(team_id=team_id)
@@ -1118,29 +1260,220 @@ async def on_message(message: cl.Message):
     # Gather conversation history for context
     conversation_history = cl.user_session.get("conversation_history") or []
 
-    # Chat mode: bypass assess_and_plan, answer directly with LLM
+    # If user sends a new message while a plan is pending, discard old plan and reprocess
+    if state == STATE_AWAITING_APPROVAL:
+        cl.user_session.set("state", STATE_IDLE)
+        cl.user_session.set("current_agent_specs", None)
+        cl.user_session.set("current_input", None)
+        state = STATE_IDLE
+
+    # Chat mode: still assess intent first, but allow direct chat response
     if input_mode == "chat" and state == STATE_IDLE:
-        if messenger:
-            await messenger.notify("💬 กำลังตอบ...")
         try:
             llm_manager = LLMManager()
             selected_model = cl.user_session.get("selected_model") or ""
             if selected_model and llm_manager._is_openrouter():
                 llm_manager.set_selected_model(selected_model)
             secretary = CentralSecretary(llm_manager)
-            if multimodal_blocks:
-                response = await secretary.chat_response_multimodal(
-                    user_input, multimodal_blocks, multimodal_plugins
-                )
-            elif text_context_parts:
-                response = await secretary.chat_response(user_input_for_ai)
+
+            # Quick assess: check if user wants to create agents or plan work
+            model_table = "none"
+            valid_model_ids = set()
+            media_catalog = "none"
+            registry_agents = registry.list_agents()
+            current_team_id = cl.user_session.get("current_team_id")
+            team_agents = None
+            team_name = None
+            if current_team_id:
+                team_registry = cl.user_session.get("team_registry") or TeamRegistry()
+                team = team_registry.get_team(current_team_id)
+                if team:
+                    team_name = team.get("name", "")
+                    team_agents = registry.list_agents(team_id=current_team_id)
+
+            last_task_context = None
+            last_result = cl.user_session.get("last_task_result")
+            last_specs = cl.user_session.get("last_agent_specs")
+            last_input = cl.user_session.get("last_user_input")
+            if last_result and last_specs:
+                last_task_context = {
+                    "user_input": last_input or "",
+                    "result": last_result,
+                    "agents": last_specs,
+                }
+
+            result = await secretary.assess_and_plan(
+                user_input_for_ai, conversation_history,
+                model_table=model_table,
+                valid_model_ids=valid_model_ids,
+                media_catalog=media_catalog,
+                last_task_context=last_task_context,
+                registry_agents=registry_agents,
+                team_agents=team_agents,
+                team_name=team_name,
+            )
+            action = result.get("action", "chat")
+
+            if action == "chat":
+                response = result.get("message") or "ขออภัย ไม่เข้าใจ ลองใหม่อีกครั้ง"
+                if messenger:
+                    await messenger.reply(response)
+                conversation_history.append({"role": "user", "content": user_input, "attachment_context_text": context_summary})
+                conversation_history.append({"role": "assistant", "content": response})
+                cl.user_session.set("conversation_history", conversation_history)
+                return
+            elif action == "ask":
+                cl.user_session.set("state", STATE_GATHERING_REQUIREMENTS)
+                cl.user_session.set("current_input", user_input)
+                questions = result.get("questions", [])
+                asked_questions = cl.user_session.get("asked_questions") or []
+                asked_questions.extend(questions)
+                cl.user_session.set("asked_questions", asked_questions)
+                questions_text = "\n".join(f"• {q}" for q in questions)
+                if messenger:
+                    await messenger.reply(f"ก่อนที่จะเริ่มทำงาน ผมต้องการข้อมูลเพิ่มเติม:\n\n{questions_text}")
+                conversation_history.append({"role": "user", "content": user_input})
+                conversation_history.append({"role": "assistant", "content": f"Questions: {questions_text}"})
+                cl.user_session.set("conversation_history", conversation_history)
+                return
+            elif action == "create_agents":
+                # Create agents in registry without running a task
+                cl.user_session.set("state", STATE_IDLE)
+                agent_specs = result.get("agents", [])
+                if not agent_specs:
+                    if messenger:
+                        await messenger.reply("⚠️ ไม่สามารถสร้าง agent ได้ — กรุณาลองใหม่อีกครั้ง")
+                    return
+
+                current_team_id = cl.user_session.get("current_team_id")
+                team_registry = cl.user_session.get("team_registry") or TeamRegistry()
+                created_names = []
+                for spec in agent_specs:
+                    if current_team_id:
+                        spec["team_id"] = current_team_id
+                    new_agent = registry.add_agent(spec)
+                    if current_team_id:
+                        team_registry.add_agent(current_team_id, new_agent.get("id"))
+                    created_names.append(new_agent.get("name", "Agent"))
+                cl.user_session.set("team_registry", team_registry)
+                cl.user_session.set("registry", registry)
+
+                if messenger:
+                    await messenger.update_agents(registry)
+                    names_text = ", ".join(created_names)
+                    await messenger.reply(f"✅ สร้าง agent ในทีมแล้ว: {names_text}\n\nAgent เหล่านี้พร้อมใช้งาน — สั่งงานได้ทันทีโดยพิมพ์สิ่งที่ต้องการทำ")
+                conversation_history.append({"role": "user", "content": user_input})
+                conversation_history.append({"role": "assistant", "content": f"Created agents: {', '.join(created_names)}"})
+                cl.user_session.set("conversation_history", conversation_history)
+                return
+            elif action == "plan":
+                # User wants work done — process plan with existing result
+                cl.user_session.set("state", STATE_PLANNING)
+                cl.user_session.set("current_input", user_input)
+                conversation_history.append({"role": "user", "content": user_input})
+                cl.user_session.set("conversation_history", conversation_history)
+
+                # Process plan from existing result
+                agents = result.get("agents", [])
+                model_assignment = result.get("model_assignment", {})
+                plan_type = result.get("plan_type", "new")
+
+                if not agents:
+                    if messenger:
+                        await messenger.reply("⚠️ ไม่สามารถสร้างแผนได้ กรุณาลองใหม่อีกครั้ง")
+                    cl.user_session.set("state", STATE_IDLE)
+                    return
+
+                # Build agent specs and send plan to frontend
+                resolved_specs = []
+                for agent_spec in agents:
+                    name = agent_spec.get("name", "Agent")
+                    role = agent_spec.get("role", "")
+                    goal = agent_spec.get("goal", "")
+                    tools = agent_spec.get("tools", [])
+                    depends_on = agent_spec.get("depends_on", [])
+                    backstory = agent_spec.get("backstory", "")
+                    resolved_specs.append({
+                        "name": name, "role": role, "goal": goal,
+                        "tools": tools, "depends_on": depends_on,
+                        "backstory": backstory,
+                    })
+
+                cl.user_session.set("current_agent_specs", resolved_specs)
+                cl.user_session.set("current_plan_type", "plan")
+                cl.user_session.set("state", STATE_AWAITING_APPROVAL)
+
+                if messenger:
+                    agents_for_plan = []
+                    for spec in resolved_specs:
+                        agents_for_plan.append({
+                            "name": spec["name"],
+                            "role": spec["role"],
+                            "goal": spec["goal"],
+                            "tools": spec["tools"],
+                            "depends_on": spec["depends_on"],
+                        })
+
+                    await messenger.reply_plan(
+                        agents_for_plan,
+                        task_description=user_input,
+                        plan_type=plan_type,
+                        model_assignment=model_assignment,
+                    )
+                return
+            elif action == "tuning":
+                # Handle tuning in chat mode too
+                cl.user_session.set("state", STATE_IDLE)
+                tuning_text = result.get("tuning_text", user_input)
+                target_agent = result.get("target_agent", "")
+                if messenger:
+                    await messenger.notify("📝 กำลังวิเคราะห์การปรับแต่ง agent...")
+                last_specs = cl.user_session.get("last_agent_specs") or []
+                last_result = cl.user_session.get("last_task_result") or ""
+                all_agents = registry.list_agents()
+                if last_specs:
+                    agent_specs_for_tuning = last_specs
+                elif all_agents:
+                    agent_specs_for_tuning = []
+                    for a in all_agents:
+                        spec = registry.to_spec(a)
+                        spec["registry_id"] = a.get("id", "")
+                        agent_specs_for_tuning.append(spec)
+                else:
+                    if messenger:
+                        await messenger.reply("ยังไม่มี agent ในระบบ กรุณาสร้าง agent ก่อน หรือสั่งงานใหม่")
+                    return
+                if target_agent:
+                    filtered = [s for s in agent_specs_for_tuning if target_agent.lower() in s.get("name", "").lower()]
+                    if filtered:
+                        agent_specs_for_tuning = filtered
+                tuning = await secretary.analyze_feedback(tuning_text, agent_specs_for_tuning, last_result)
+                proposals = tuning.get("tuning_proposals", [])
+                if not proposals:
+                    if messenger:
+                        await messenger.reply("วิเคราะห์แล้ว — ไม่พบสิ่งที่ต้องปรับแต่งในตอนนี้")
+                    return
+                cl.user_session.set("pending_tuning_proposal", proposals)
+                for proposal in proposals:
+                    agent_id = proposal.get("agent_id", "")
+                    if agent_id:
+                        registry.add_learning(agent_id, {
+                            "type": "user_feedback",
+                            "lesson": tuning_text,
+                            "timestamp": datetime.now().isoformat(),
+                        })
+                if messenger:
+                    await messenger.reply_tuning_proposal(proposals)
+                return
             else:
-                response = await secretary.chat_response(user_input_for_ai)
-            if messenger:
-                await messenger.reply(response)
-            conversation_history.append({"role": "user", "content": user_input, "attachment_context_text": context_summary})
-            conversation_history.append({"role": "assistant", "content": response})
-            cl.user_session.set("conversation_history", conversation_history)
+                # info, ask, etc — reply directly
+                response = result.get("message") or "ขออภัย ไม่เข้าใจ ลองใหม่อีกครั้ง"
+                if messenger:
+                    await messenger.reply(response)
+                conversation_history.append({"role": "user", "content": user_input})
+                conversation_history.append({"role": "assistant", "content": response})
+                cl.user_session.set("conversation_history", conversation_history)
+                return
         except Exception as e:
             if messenger:
                 await messenger.reply(f"⚠️ เกิดข้อผิดพลาด: {_sanitize_error(e)}")
@@ -1154,17 +1487,6 @@ async def on_message(message: cl.Message):
 
     if state == STATE_IDLE:
         cl.user_session.set("state", STATE_ASSESSING)
-        if messenger:
-            selected_model = cl.user_session.get("selected_model") or ""
-            if selected_model:
-                await messenger.notify(f"🧠 กำลังประเมินและวางแผน... (Model: {selected_model})")
-                print(f"[PLAN] User selected model: {selected_model}", flush=True)
-            else:
-                # Adaptive — show which model the system will actually use
-                llm_mgr_tmp = LLMManager()
-                resolved = llm_mgr_tmp.get_selected_model_name()
-                await messenger.notify(f"🧠 กำลังประเมินและวางแผน... (Adaptive → {resolved})")
-                print(f"[PLAN] Adaptive mode → resolved to {resolved}", flush=True)
 
         try:
             llm_manager = LLMManager()
@@ -1177,21 +1499,7 @@ async def on_message(message: cl.Message):
             # Build model table for unified call
             model_table = "none"
             valid_model_ids = set()
-            if llm_manager._is_openrouter():
-                model_selector = ModelSelector(
-                    base_url=llm_manager.base_url,
-                    api_key=llm_manager.api_key,
-                    rotator=None,
-                    default_model=llm_manager._default_model,
-                )
-                loop = asyncio.get_event_loop()
-                candidates = await loop.run_in_executor(None, model_selector._get_candidates)
-                valid_model_ids = {c["id"] for c in candidates}
-                model_table = model_selector._build_candidate_table(candidates)
-                discovery = ModelDiscoveryService(base_url=llm_manager.base_url, api_key=llm_manager.api_key)
-                media_catalog = await loop.run_in_executor(None, discovery.get_catalog_summary)
-            else:
-                media_catalog = "none"
+            media_catalog = "none"
 
             thinking_id = f"thinking-{int(time.time())}"
             async def _stream_cb(chunk: str):
@@ -1210,13 +1518,17 @@ async def on_message(message: cl.Message):
                     "agents": last_specs,
                 }
 
-            # Always pass registry agents so secretary can handle tuning anytime
-            registry_agents = registry.list_agents()
+            # Only pass registry agents if user is in a team context (for tuning/reuse)
+            # When creating a new team via AI modal, don't show existing agents
+            current_team_id = cl.user_session.get("current_team_id")
+            if current_team_id:
+                registry_agents = registry.list_agents()
+            else:
+                registry_agents = []
 
             # Pass team agents if a team is selected
             team_agents = None
             team_name = None
-            current_team_id = cl.user_session.get("current_team_id")
             if current_team_id:
                 team_registry = cl.user_session.get("team_registry") or TeamRegistry()
                 team = team_registry.get_team(current_team_id)
@@ -1234,6 +1546,7 @@ async def on_message(message: cl.Message):
                 registry_agents=registry_agents,
                 team_agents=team_agents,
                 team_name=team_name,
+                force_plan=(input_mode == "plan"),
             ) if not multimodal_blocks else await secretary.assess_and_plan_multimodal(
                 user_input, multimodal_blocks, multimodal_plugins,
                 conversation_history=conversation_history,
@@ -1253,7 +1566,7 @@ async def on_message(message: cl.Message):
 
             if action == "chat":
                 cl.user_session.set("state", STATE_IDLE)
-                response = result.get("message") or await secretary.chat_response(user_input)
+                response = result.get("message") or "ขออภัย ไม่เข้าใจ ลองใหม่อีกครั้ง"
                 if messenger:
                     await messenger.reply(response)
                 conversation_history.append({"role": "user", "content": user_input})
@@ -1321,11 +1634,7 @@ async def on_message(message: cl.Message):
 
             if action == "info":
                 cl.user_session.set("state", STATE_IDLE)
-                agents = registry.list_agents()
-                tasks = messenger.state.get("tasks", []) if messenger else []
-                if messenger:
-                    await messenger.notify("ℹ️ กำลังดึงข้อมูลระบบ...")
-                response = await secretary.info_response(user_input, agents, tasks, STATE_IDLE)
+                response = result.get("message") or "ขออภัย ไม่สามารถดึงข้อมูลได้ในตอนนี้"
                 if messenger:
                     await messenger.reply(response)
                 conversation_history.append({"role": "user", "content": user_input})
@@ -1344,6 +1653,121 @@ async def on_message(message: cl.Message):
                 conversation_history.append({"role": "assistant", "content": f"Questions: {questions_text}"})
                 cl.user_session.set("conversation_history", conversation_history)
                 return
+
+            if action == "create_agents":
+                # In plan mode, show approval card with plan_type=create_agents
+                if input_mode == "plan":
+                    cl.user_session.set("state", STATE_AWAITING_APPROVAL)
+                    cl.user_session.set("current_input", user_input)
+                    conversation_history.append({"role": "user", "content": user_input})
+                    cl.user_session.set("conversation_history", conversation_history)
+
+                    agent_specs = result.get("agents", [])
+                    model_assignment = result.get("model_assignment", {"manager": "", "workers": {}})
+                    if not agent_specs:
+                        if messenger:
+                            await messenger.reply("⚠️ ไม่สามารถสร้าง agent ได้ — กรุณาลองใหม่อีกครั้ง")
+                        cl.user_session.set("state", STATE_IDLE)
+                        return
+
+                    # Check Registry for existing agents that match each spec
+                    resolved_specs = []
+                    agents_for_plan = []
+                    has_existing = False
+                    used_agent_ids = set()
+                    for spec in agent_specs:
+                        resource = secretary.check_resources(spec, registry)
+                        if resource.get("type") == "existing" and resource["agent"].get("id") not in used_agent_ids:
+                            existing_agent = resource["agent"]
+                            used_agent_ids.add(existing_agent.get("id"))
+                            merged = registry.to_spec(existing_agent)
+                            merged["depends_on"] = spec.get("depends_on", [])
+                            merged["registry_id"] = existing_agent.get("id")
+                            resolved_specs.append(merged)
+                            agents_for_plan.append({
+                                "id": existing_agent.get("id"),
+                                "name": existing_agent.get("name", "Unnamed"),
+                                "role": existing_agent.get("role", ""),
+                                "goal": existing_agent.get("goal", ""),
+                                "persona": existing_agent.get("persona", ""),
+                                "tools": existing_agent.get("tools", []),
+                                "depends_on": spec.get("depends_on", []),
+                                "status": existing_agent.get("status", "Idle"),
+                                "is_existing": True,
+                                "model": model_assignment.get("workers", {}).get(existing_agent.get("name", ""), model_assignment.get("manager", "")),
+                            })
+                            has_existing = True
+                        else:
+                            resolved_specs.append(spec)
+                            agents_for_plan.append({
+                                "id": None,
+                                "name": spec.get("name", "Unnamed"),
+                                "role": spec.get("role", ""),
+                                "goal": spec.get("goal", ""),
+                                "persona": spec.get("backstory", ""),
+                                "tools": spec.get("tools", []),
+                                "depends_on": spec.get("depends_on", []),
+                                "status": "Idle",
+                                "is_existing": False,
+                                "model": model_assignment.get("workers", {}).get(spec.get("name", ""), model_assignment.get("manager", "")),
+                            })
+
+                    cl.user_session.set("current_agent_specs", resolved_specs)
+                    cl.user_session.set("pre_assigned_models", model_assignment)
+                    cl.user_session.set("current_plan_type", "create_agents")
+
+                    if messenger:
+                        await messenger.reply_plan(agents_for_plan, user_input, plan_type="create_agents",
+                            image_model=result.get('image_model', ''),
+                            video_model=result.get('video_model', ''),
+                            search_model=result.get('search_model', ''),
+                            tts_model=result.get('tts_model', ''),
+                            stt_model=result.get('stt_model', ''),
+                            vision_model=result.get('vision_model', ''),
+                            has_image_tool=result.get('image_model', '') != '' or result.get('has_image_tool', False),
+                            has_video_tool=result.get('video_model', '') != '' or result.get('has_video_tool', False),
+                            has_search_tool=result.get('search_model', '') != '' or result.get('has_search_tool', False),
+                            has_tts_tool=result.get('tts_model', '') != '' or result.get('has_tts_tool', False),
+                            has_stt_tool=result.get('stt_model', '') != '' or result.get('has_stt_tool', False),
+                            has_vision_tool=result.get('vision_model', '') != '' or result.get('has_vision_tool', False),
+                            manager_model=model_assignment.get('manager', ''),
+                            agent_specs=agent_specs,
+                            model_assignment=model_assignment,
+                            current_input=user_input,
+                            team_name=result.get('team_name', ''),
+                            team_description=result.get('team_description', ''),
+                        )
+                    return
+                else:
+                    # Create agents in registry without running a task
+                    cl.user_session.set("state", STATE_IDLE)
+                    agent_specs = result.get("agents", [])
+                    if not agent_specs:
+                        if messenger:
+                            await messenger.reply("⚠️ ไม่สามารถสร้าง agent ได้ — กรุณาลองใหม่อีกครั้ง")
+                        return
+
+                    current_team_id = cl.user_session.get("current_team_id")
+                    team_registry = cl.user_session.get("team_registry") or TeamRegistry()
+                    created_names = []
+                    for spec in agent_specs:
+                        if current_team_id:
+                            spec["team_id"] = current_team_id
+                        new_agent = registry.add_agent(spec)
+                        if current_team_id:
+                            team_registry.add_agent(current_team_id, new_agent.get("id"))
+                        created_names.append(new_agent.get("name", "Agent"))
+                    cl.user_session.set("team_registry", team_registry)
+                    cl.user_session.set("registry", registry)
+
+                    if messenger:
+                        await messenger.update_agents(registry)
+                        names_text = ", ".join(created_names)
+                        await messenger.reply(f"✅ สร้าง agent ในทีมแล้ว: {names_text}\n\nAgent เหล่านี้พร้อมใช้งาน — สั่งงานได้ทันทีโดยพิมพ์สิ่งที่ต้องการทำ")
+                    conversation_history.append({"role": "user", "content": user_input})
+                    conversation_history.append({"role": "assistant", "content": f"Created agents: {', '.join(created_names)}"})
+                    cl.user_session.set("conversation_history", conversation_history)
+                    return
 
             if action == "plan":
                 # Unified call already produced agent specs + model assignments
@@ -1375,10 +1799,15 @@ async def on_message(message: cl.Message):
                 resolved_specs = []
                 agents_for_plan = []
                 has_existing = False
+                used_agent_ids = set()
                 for spec in agent_specs:
                     resource = secretary.check_resources(spec, registry)
-                    if resource["type"] == "existing":
+                    _debug(f"[DEBUG-PLAN] spec={spec.get('name','?')} role={spec.get('role','?')} resource_type={resource.get('type','?')}", flush=True)
+                    if resource.get("type") == "existing":
+                        _debug(f"[DEBUG-PLAN] existing match: {resource['agent'].get('name','?')} id={resource['agent'].get('id','?')} is_manager={resource['agent'].get('is_manager',False)} already_used={resource['agent'].get('id','?') in used_agent_ids}", flush=True)
+                    if resource.get("type") == "existing" and resource["agent"].get("id") not in used_agent_ids:
                         existing_agent = resource["agent"]
+                        used_agent_ids.add(existing_agent.get("id"))
                         merged = registry.to_spec(existing_agent)
                         merged["task_description"] = spec.get("task_description", user_input)
                         merged["depends_on"] = spec.get("depends_on", [])
@@ -1412,6 +1841,7 @@ async def on_message(message: cl.Message):
                         })
 
                 cl.user_session.set("current_agent_specs", resolved_specs)
+                cl.user_session.set("current_plan_type", "plan")
                 cl.user_session.set("state", STATE_AWAITING_APPROVAL)
 
                 print(f"[DEBUG-PLAN] Sending plan to frontend: {len(agents_for_plan)} agents, plan_type={'existing' if has_existing else 'new'}", flush=True)
@@ -1470,21 +1900,7 @@ async def on_message(message: cl.Message):
             # Build model table for unified call
             model_table = "none"
             valid_model_ids = set()
-            if llm_manager._is_openrouter():
-                model_selector = ModelSelector(
-                    base_url=llm_manager.base_url,
-                    api_key=llm_manager.api_key,
-                    rotator=None,
-                    default_model=llm_manager._default_model,
-                )
-                loop = asyncio.get_event_loop()
-                candidates = await loop.run_in_executor(None, model_selector._get_candidates)
-                valid_model_ids = {c["id"] for c in candidates}
-                model_table = model_selector._build_candidate_table(candidates)
-                discovery = ModelDiscoveryService(base_url=llm_manager.base_url, api_key=llm_manager.api_key)
-                media_catalog = await loop.run_in_executor(None, discovery.get_catalog_summary)
-            else:
-                media_catalog = "none"
+            media_catalog = "none"
 
             thinking_id = f"thinking-reassess-{int(time.time())}"
             async def _stream_cb_reassess(chunk: str):
@@ -1505,19 +1921,56 @@ async def on_message(message: cl.Message):
             action = result.get("action", "chat")
 
             if action == "ask":
-                # Still need more info
-                cl.user_session.set("state", STATE_GATHERING_REQUIREMENTS)
-                questions = result.get("questions", [])
-                questions_text = "\n".join(f"• {q}" for q in questions)
-                if messenger:
-                    await messenger.reply(f"ขอบคุณครับ ยังต้องการข้อมูลเพิ่มอีกนิด:\n\n{questions_text}")
-                conversation_history.append({"role": "assistant", "content": f"Questions: {questions_text}"})
-                cl.user_session.set("conversation_history", conversation_history)
-                return
+                # Check if AI is asking duplicate/similar questions
+                new_questions = result.get("questions", [])
+                asked_questions = cl.user_session.get("asked_questions") or []
+
+                # Simple similarity check: if any new question shares >60% words with a previous one, it's a duplicate
+                def is_duplicate(new_q: str, old_questions: list[str]) -> bool:
+                    new_words = set(new_q.lower().split())
+                    for old_q in old_questions:
+                        old_words = set(old_q.lower().split())
+                        if not new_words or not old_words:
+                            continue
+                        overlap = len(new_words & old_words) / max(len(new_words), len(old_words))
+                        if overlap > 0.6:
+                            return True
+                    return False
+
+                has_new_question = any(not is_duplicate(q, asked_questions) for q in new_questions)
+
+                if has_new_question:
+                    # Genuinely new questions — ask them
+                    asked_questions.extend(new_questions)
+                    cl.user_session.set("asked_questions", asked_questions)
+                    cl.user_session.set("state", STATE_GATHERING_REQUIREMENTS)
+                    questions_text = "\n".join(f"• {q}" for q in new_questions)
+                    if messenger:
+                        await messenger.reply(f"ขอบคุณครับ ยังต้องการข้อมูลเพิ่มอีกนิด:\n\n{questions_text}")
+                    conversation_history.append({"role": "assistant", "content": f"Questions: {questions_text}"})
+                    cl.user_session.set("conversation_history", conversation_history)
+                    return
+                else:
+                    # Duplicate questions — force proceed with available info
+                    print(f"[DEBUG-REASSESS] Duplicate questions detected, forcing proceed", flush=True)
+                    # Re-assess with instruction to proceed
+                    result = await secretary.assess_and_plan(
+                        user_input, conversation_history,
+                        model_table=model_table,
+                        valid_model_ids=valid_model_ids,
+                        media_catalog=media_catalog,
+                        stream_callback=_stream_cb_reassess,
+                        force_proceed=True,
+                    )
+                    if messenger:
+                        await messenger.reply_thinking_done(thinking_id)
+                    action = result.get("action", "plan")
+                    # Fall through to plan/create_agents handling below
 
             if action == "plan":
                 # Now we have enough info — unified call already produced agent specs
                 cl.user_session.set("state", STATE_PLANNING)
+                cl.user_session.set("asked_questions", [])
                 original_input = cl.user_session.get("current_input") or user_input
                 combined_input = original_input + " " + user_input
 
@@ -1576,6 +2029,7 @@ async def on_message(message: cl.Message):
 
                 cl.user_session.set("current_input", combined_input)
                 cl.user_session.set("current_agent_specs", resolved_specs)
+                cl.user_session.set("current_plan_type", "plan")
                 cl.user_session.set("state", STATE_AWAITING_APPROVAL)
 
                 if messenger:
@@ -1607,7 +2061,7 @@ async def on_message(message: cl.Message):
 
             # Fallback: treat as chat
             cl.user_session.set("state", STATE_IDLE)
-            response = result.get("message") or await secretary.chat_response(user_input)
+            response = result.get("message") or "ขออภัย ไม่เข้าใจ ลองใหม่อีกครั้ง"
             if messenger:
                 await messenger.reply(response)
             conversation_history.append({"role": "assistant", "content": response})
@@ -1623,7 +2077,7 @@ async def on_message(message: cl.Message):
             elif messenger:
                 await messenger.notify(f"❌ เกิดข้อผิดพลาด: {str(e)}")
 
-    elif state in (STATE_CREATING_AGENT, STATE_AWAITING_APPROVAL, STATE_EXECUTING, STATE_PLANNING, STATE_ASSESSING):
+    elif state in (STATE_CREATING_AGENT, STATE_EXECUTING, STATE_PLANNING, STATE_ASSESSING):
         if messenger:
             await messenger.notify(f"⏳ รอสถานะปัจจุบัน: {state}")
 

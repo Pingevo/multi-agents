@@ -67,6 +67,8 @@ const parseChatReply = (message: any): Omit<ChatMessage, 'id' | 'timestamp'> | n
           planAgents: planP.planAgents || [],
           planTaskDescription: planP.planTaskDescription || '',
           planType: planP.planType || 'new',
+          teamName: (planP as any).teamName || '',
+          teamDescription: (planP as any).teamDescription || '',
           planStatus: 'pending',
           imageModel: planP.imageModel || '',
           videoModel: planP.videoModel || '',
@@ -293,6 +295,8 @@ const parseChatSessionMessage = (message: any): { sessions: ChatSession[]; curre
           planAgents: m.planAgents,
           planTaskDescription: m.planTaskDescription,
           planType: m.planType,
+          teamName: m.teamName,
+          teamDescription: m.teamDescription,
           planStatus: m.planStatus || 'pending',
           progressId: m.progressId,
           progressPercent: m.progressPercent,
@@ -339,7 +343,7 @@ const parseChatSessionMessage = (message: any): { sessions: ChatSession[]; curre
 };
 
 function AppContent() {
-  const { updateState, agents, credits, system_status } = usePlatform();
+  const { updateState, agents, credits, system_status, available_tools } = usePlatform();
   const { isAuthenticated, token, isLoading: authLoading } = useAuth();
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -487,8 +491,20 @@ function AppContent() {
       // Check for chat reply
       const reply = parseChatReply(message);
       if (reply) {
-        // Route to AI modal if open and message is text/thinking
-        if (aiModalOpenRef.current && (reply.messageType === 'text' || reply.messageType === 'thinking' || reply.messageType === 'thinking_done')) {
+        // Intercept template/scheduled data messages
+        if (reply.messageType === 'text' && reply.content) {
+          try {
+            const data = JSON.parse(reply.content);
+            if (data.type === 'task_templates' || data.type === 'scheduled_tasks') {
+              window.dispatchEvent(new CustomEvent('chat-data', { detail: data }));
+              return;
+            }
+          } catch {
+            // Not JSON, continue as normal text
+          }
+        }
+        // Route to AI modal if open and message is text/thinking/plan
+        if (aiModalOpenRef.current && (reply.messageType === 'text' || reply.messageType === 'thinking' || reply.messageType === 'thinking_done' || reply.messageType === 'plan')) {
           if (reply.messageType === 'thinking') {
             setAiThinkingText(prev => (prev || '') + (reply.content || ''));
             setAiIsThinking(true);
@@ -496,6 +512,23 @@ function AppContent() {
           }
           if (reply.messageType === 'thinking_done') {
             setAiIsThinking(false);
+            return;
+          }
+          if (reply.messageType === 'plan') {
+            // Send plan message directly to AI modal — no JSON string conversion
+            const planAgents = reply.planAgents || [];
+            setAiChatMessages(prev => [...prev, {
+              id: generateUUIDv4(),
+              timestamp: Date.now(),
+              role: 'assistant',
+              content: '',
+              messageType: 'plan',
+              planAgents: planAgents,
+              teamName: (reply as any).teamName || '',
+              teamDescription: (reply as any).teamDescription || '',
+            }]);
+            setAiIsThinking(false);
+            setAiThinkingText('');
             return;
           }
           setAiChatMessages(prev => [...prev, { ...reply, id: generateUUIDv4(), timestamp: Date.now() }]);
@@ -529,6 +562,9 @@ function AppContent() {
         } else if (TERMINAL_TYPES.includes(reply.messageType)) {
           setIsProcessing(false);
           setIsThinking(false);
+          if (reply.messageType === 'result') {
+            updateState({ current_plan: null });
+          }
         }
 
         // Handle plan validation error — reset plan card to pending so user can edit
@@ -600,15 +636,6 @@ function AppContent() {
         }
         updateState(payload);
 
-        // Detect new notifications and show as activity
-        const newNotifications = payload.notifications || [];
-        const prevNotifications = prevNotificationsRef.current;
-        const added = newNotifications.filter((n: string) => !prevNotifications.includes(n));
-        for (const note of added) {
-          addActivity(note);
-        }
-        prevNotificationsRef.current = [...newNotifications];
-
         // Only clear activity + isProcessing when no running tasks AND no pending approvals
         const payloadTasks = payload.tasks || [];
         const hasRunning = payloadTasks.some((t: any) => t.status === 'running');
@@ -646,6 +673,39 @@ function AppContent() {
       createdAt: new Date().toISOString(),
     };
     socket.emit('client_message', { message, fileReferences: [] });
+  }, []);
+
+  const sendAction = useCallback((name: string, payload?: Record<string, any>) => {
+    const socket = socketRef.current;
+    if (!socket || !socket.connected) {
+      console.error('Socket not connected');
+      return;
+    }
+    const message = {
+      id: generateUUIDv4(),
+      name: 'User',
+      type: 'user_message',
+      output: JSON.stringify({ type: 'action', name, payload: payload || {} }),
+      createdAt: new Date().toISOString(),
+    };
+    socket.emit('client_message', { message, fileReferences: [] });
+  }, []);
+
+  const sendAIModalMessage = useCallback((message: string) => {
+    const socket = socketRef.current;
+    if (!socket || !socket.connected) {
+      console.error('Socket not connected');
+      return;
+    }
+    const prefixed = `__mode:plan__\n${message}`;
+    const msg = {
+      id: generateUUIDv4(),
+      name: 'User',
+      type: 'user_message',
+      output: prefixed,
+      createdAt: new Date().toISOString(),
+    };
+    socket.emit('client_message', { message: msg, fileReferences: [] });
   }, []);
 
   const handleSendCommand = useCallback(
@@ -686,7 +746,6 @@ function AppContent() {
         attachmentMime: attachment?.mime,
       });
       clearActivity();
-      addActivity('Sending message...');
       setIsProcessing(true);
       sendMessage(prefixed);
     },
@@ -724,6 +783,23 @@ function AppContent() {
         setIsThinking(false);
         setIsProcessing(false);
         updateState({ current_plan: null });
+      } else if (name === 'confirm_tuning') {
+        setChatMessages((prev) =>
+          prev.map((m) =>
+            m.messageType === 'tuning_proposal'
+              ? { ...m, tuningStatus: 'confirmed' as any }
+              : m
+          )
+        );
+      } else if (name === 'reject_tuning') {
+        setChatMessages((prev) =>
+          prev.map((m) =>
+            m.messageType === 'tuning_proposal'
+              ? { ...m, tuningStatus: 'rejected' as any }
+              : m
+          )
+        );
+        setIsProcessing(false);
       } else if (name === 'approve_image') {
         const approvalId = payload?.approval_id;
         setChatMessages((prev) =>
@@ -803,14 +879,16 @@ function AppContent() {
           );
         }
       }
-      sendMessage(JSON.stringify({ type: 'action', name, payload: payload || {} }));
+      sendAction(name, payload);
     },
-    [sendMessage, updateState]
+    [sendAction, updateState]
   );
 
   const handleStop = useCallback(() => {
     sendMessage(JSON.stringify({ type: 'action', name: 'stop_generation', payload: {} }));
     setIsProcessing(false);
+    setAiIsThinking(false);
+    setAiThinkingText('');
     addActivity('Stopped');
   }, [sendMessage, addActivity]);
 
@@ -856,14 +934,18 @@ function AppContent() {
           modelSearchResults={modelCatalogData.searchResults}
           selectedModel={selectedModel}
           resolvedModel={resolvedModel}
+          availableTools={available_tools || []}
         />
         <AICreateTeamModal
           open={showAICreateModal}
           onClose={() => { setShowAICreateModal(false); setAiChatMessages([]); setAiThinkingText(''); }}
           onSend={(msg) => {
             setAiChatMessages(prev => [...prev, { id: generateUUIDv4(), timestamp: Date.now(), role: 'user', content: msg, messageType: 'text' }]);
-            handleSendCommand(msg);
+            setAiIsThinking(true);
+            setAiThinkingText('');
+            sendAIModalMessage(msg);
           }}
+          onStop={handleStop}
           chatMessages={aiChatMessages}
           onCreateTeam={(data) => {
             handleAction('create_team', data);
@@ -917,6 +999,7 @@ function AppContent() {
         preloadedModelSearchResults={modelCatalogData.searchResults}
         preloadedMediaCatalog={modelCatalogData.mediaCatalog}
         preloadedMediaSearchResults={modelCatalogData.mediaSearchResults}
+        onMentionAgent={() => {}}
       />
       <TeamCreateModal
         open={showCreateModal}
@@ -928,6 +1011,7 @@ function AppContent() {
         modelSearchResults={modelCatalogData.searchResults}
         selectedModel={selectedModel}
         resolvedModel={resolvedModel}
+        availableTools={available_tools || []}
       />
     </>
   );

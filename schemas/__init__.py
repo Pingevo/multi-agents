@@ -68,6 +68,7 @@ class AgentProgressEntry(BaseModel):
     tool_description: str = ""
     model: str = ""
     thinking: str = ""
+    delegated_by: list[str] = []
 
 
 class TaskItem(BaseModel):
@@ -119,6 +120,8 @@ class ChatReplyPlan(BaseModel):
     planAgents: list[PlanAgentItem] = []
     planTaskDescription: str = ""
     planType: str = "new"
+    teamName: str = ""
+    teamDescription: str = ""
     imageModel: str = ""
     videoModel: str = ""
     searchModel: str = ""
@@ -132,6 +135,7 @@ class ChatReplyPlan(BaseModel):
     hasSttTool: bool = False
     hasVisionTool: bool = False
     managerModel: str = ""
+    estimatedCost: str = ""
 
 
 class ChatReplyProgress(BaseModel):

@@ -1253,3 +1253,164 @@ Canvas ไม่ใช่แค่แสดง nodes เป็น grid แต่
 - `onSendCommand` prop type updated to accept optional attachment.
 
 **Files changed:** `schemas/__init__.py`, `app.py`, `frontend/src/schemas/messages.ts`, `frontend/src/components/ChatPanel.tsx`, `frontend/src/components/ChatPanelRight.tsx`, `frontend/src/components/MainLayout.tsx`, `frontend/src/App.tsx`
+
+---
+
+## Session: AI Agent Capabilities Expansion (P1–P4)
+
+### P1 — Critical Fixes
+
+**P1-1: `create_agents` action — create agents without running a task**
+- `backend/core/secretary.py`: Added `create_agents` to AI prompt decision tree + response format. Also added to `force_plan` section so it works in plan mode too.
+- `backend/handlers/chat.py`: Added `create_agents` handler in both chat mode (line ~1188) and plan mode (line ~1541). Creates agents in registry via `registry.add_agent` without executing a task.
+
+**P1-2: Verified no double API call in chat mode**
+- Confirmed `result.get("message") or await secretary.chat_response(user_input)` — `chat_response` is only a fallback when LLM message is empty. No double call.
+
+**P1-3: Verified tuning confirmation flow**
+- `backend/handlers/actions.py`: `on_action_confirm_tuning` correctly updates agent details including nested fields like `personality.tone`. `on_action_reject_tuning` clears pending proposal.
+- `backend/handlers/chat.py`: `confirm_tuning` and `reject_tuning` actions correctly routed.
+
+### P2 — Key Features
+
+**P2-4: AI reuses existing team agents**
+- `backend/core/secretary.py`: Added reuse instruction to Design Rules in both `assess_and_plan` and `assess_and_plan_multimodal` — AI should reuse existing team agents before creating new ones.
+
+**P2-5: @mention direct agent assignment**
+- `backend/core/secretary.py`: Added mention handling instruction — when user mentions `@AgentName`, use that agent directly in the plan.
+
+**P2-6: New tools `scrape_web` + `generate_document`**
+- `backend/tools/web.py` (new): `scrape_web` tool — fetches URL content, extracts text.
+- `backend/tools/document.py` (new): `generate_document` tool — generates formatted documents.
+- `backend/agents/tool_registry.py`: Registered both tools in `ToolRegistry.__init__`.
+- `backend/agents/capability.py`: Added `scrape_web` and `generate_document` to `CAPABILITIES`.
+- `backend/core/secretary.py`: Updated hardcoded tool list in prompt.
+- `frontend/src/components/ChatPanelRight.tsx`: Added tool icons in `toolIcon` function.
+
+### P3 — UX Improvements
+
+**P3-7: Cost estimation in plan card**
+- `schemas/__init__.py`: Added `estimatedCost: str = ""` to `ChatReplyPlan`.
+- `backend/core/messenger.py`: Added `_estimate_plan_cost()` method — checks if models are free/paid/mixed. Passes `estimatedCost` to `ChatReplyPlan` and persists it.
+- `frontend/src/components/chatTypes.ts`: Added `estimatedCost?: string` to `ChatMessage`.
+- `frontend/src/components/ChatPanelRight.tsx`: Added `estimatedCost` prop to `PlanCard`, displays it below task description.
+
+**P3-8: Export/download results from storyboard**
+- `frontend/src/components/StoryboardArea.tsx`: Added `handleDownload()` to `FinalResultCard` — exports result + agent outputs as markdown file. Added Download button in card header (only for non-error results).
+
+**P3-9: Increase context retention**
+- `backend/handlers/chat.py`: Increased `last_task_result` truncation from 2000→6000 chars in 3 locations.
+- `backend/core/secretary.py`: Increased `last_task_text` summary from 500→1500 chars.
+
+**P3-10: Error recovery / retry for failed tasks**
+- `backend/handlers/chat.py`: Store `last_failed_task` context (user_input, agent_specs, pre_assigned_models, error) in session on exception — both multi-agent and single-agent handlers. Added `retry_task` action handler that re-executes the failed task.
+- `frontend/src/components/StoryboardArea.tsx`: Added `onRetry` prop to `FinalResultCard`, Retry button shown only on error results. Wired through `RunTimeline` and `StoryboardArea` props.
+- `frontend/src/components/TeamDetailPage.tsx`: Passes `onRetryTask={() => onAction('retry_task')}` to `StoryboardArea`.
+
+### P4 — Extended Features
+
+**P4-11: Task templates/presets**
+- `backend/agents/template_store.py` (new): `TaskTemplateStore` class — persists templates to `data/task_templates_{user_id}.json`. Methods: `list_templates`, `add_template`, `delete_template`.
+- `backend/handlers/chat.py`: Added `list_task_templates`, `save_task_template`, `delete_task_template` action handlers.
+
+**P4-12: Scheduling — recurring tasks**
+- `backend/agents/schedule_store.py` (new): `ScheduledTaskStore` class — persists scheduled tasks to `data/scheduled_tasks_{user_id}.json`. Methods: `list_scheduled`, `add_scheduled`, `delete_scheduled`, `toggle_active`, `mark_run`, `get_due_tasks`.
+- `backend/handlers/chat.py`: Added `list_scheduled_tasks`, `add_scheduled_task`, `delete_scheduled_task`, `toggle_scheduled_task` action handlers.
+
+**P4-13: Agent collaboration visibility**
+- `backend/core/orchestrator.py`: `on_agent_started` now includes `delegated_by` field from `depends_on` in agent specs.
+- `schemas/__init__.py`: Added `delegated_by: list[str] = []` to `AgentProgressEntry`.
+- `frontend/src/components/chatTypes.ts`: Added `delegated_by?: string[]` to `AgentProgressEntry`.
+- `frontend/src/components/StoryboardArea.tsx`: Shows "Receives from: ..." in AgentCard when agent is running and has `delegated_by`.
+
+**P4-14: User feedback/rating for task results**
+- `backend/handlers/chat.py`: Added `rate_task` action handler — stores rating (1-5) with task input and result preview to `data/task_ratings_{user_id}.json`.
+- `frontend/src/components/StoryboardArea.tsx`: Added star rating UI (1-5) to `FinalResultCard` with `onRate` callback. Wired through `RunTimeline` and `StoryboardArea` props.
+- `frontend/src/components/TeamDetailPage.tsx`: Passes `onRateTask={(rating) => onAction('rate_task', { rating })}` to `StoryboardArea`.
+
+### Files Changed (this session)
+- `backend/core/secretary.py` — prompt: create_agents, reuse, mention, tools, context
+- `backend/handlers/chat.py` — create_agents, retry_task, templates, scheduling, rating actions + context retention
+- `backend/core/messenger.py` — cost estimation + `estimatedCost` field
+- `backend/core/orchestrator.py` — delegation info in agent progress
+- `backend/agents/tool_registry.py` — register scrape_web, generate_document
+- `backend/agents/capability.py` — new capabilities
+- `schemas/__init__.py` — `estimatedCost` + `delegated_by` fields
+- `frontend/src/components/StoryboardArea.tsx` — download, retry, rating UI + delegation display
+- `frontend/src/components/ChatPanelRight.tsx` — cost display + tool icons
+- `frontend/src/components/TeamDetailPage.tsx` — wire onRetryTask, onRateTask
+- `frontend/src/components/chatTypes.ts` — `estimatedCost` + `delegated_by` types
+
+### Files Created (this session)
+- `backend/tools/web.py` — `scrape_web` tool
+- `backend/tools/document.py` — `generate_document` tool
+- `backend/agents/template_store.py` — task template persistence
+- `backend/agents/schedule_store.py` — scheduled task persistence
+
+### Code Review (retroactive)
+
+**Standards findings:**
+1. **FIXED** — Inline imports in `rate_task` handler (`import json as _json`, `from pathlib import Path`, `from datetime import datetime as _dt`). Replaced with top-level imports (`json`, `Path`, `datetime` already in scope). Added `from pathlib import Path` to top-level imports.
+2. Duplicated Code — 8 action handlers share same pattern (user_id → store → action → notify). Judgement call: acceptable for chainlit action dispatch.
+3. Duplicated Code — `last_failed_task` storage in 2 error handlers. Judgement call: could extract helper but context differs slightly.
+4. Duplicated Code — `TaskTemplateStore` and `ScheduledTaskStore` share identical `_load`/`_save`/`delete` patterns. Judgement call: could share base class `JsonStore`.
+5. Mysterious Name — `_estimate_plan_cost` returns display string, not numeric estimate. Judgement call.
+6. Speculative Generality — `ScheduledTaskStore.get_due_tasks()` and `mark_run()` are dead code (no scheduler loop). Judgement call.
+
+**Spec findings:**
+1. Missing frontend UI for task templates (P4-11) — backend actions exist but no UI to access them.
+2. Missing frontend UI for scheduling (P4-12) — backend actions exist but no UI.
+3. Missing background scheduler (P4-12) — `get_due_tasks()` exists but nothing checks for due tasks.
+4. Partial: Rate task stores ratings but no way to view or use them for agent improvement.
+5. Scope creep: Chat mode rewritten beyond P1-2 verification scope.
+6. Correct: P3-7 cost estimation, P3-8 export, P3-10 retry, P4-13 delegation visibility — all end-to-end.
+
+**Fix applied:** Removed inline imports from `rate_task` handler in `backend/handlers/chat.py`. Added `from pathlib import Path` to top-level imports.
+
+### Spec Gap Fixes
+
+**Gap 1: Frontend UI for task templates (P4-11)**
+- `frontend/src/components/TemplatesPanel.tsx` (new): Modal with two tabs — Templates and Scheduling. Templates tab: list templates, create new (name + prompt), use template (sends to chat), delete. Scheduling tab: list scheduled tasks, create new (name + prompt + interval), toggle active/paused, delete.
+- `frontend/src/components/TeamDetailPage.tsx`: Added FileText button in top bar to open TemplatesPanel. Wired `onAction` and `onUseTemplate` (sends prompt as chat command).
+- `frontend/src/App.tsx`: Intercept `task_templates` and `scheduled_tasks` JSON in text messages, dispatch as `chat-data` custom events for TemplatesPanel to listen.
+
+**Gap 2: Frontend UI for scheduling (P4-12)**
+- Included in TemplatesPanel (Gap 1) — Scheduling tab with full CRUD UI.
+
+**Gap 3: Background scheduler loop (P4-12)**
+- `backend/core/scheduler.py` (new): `BackgroundScheduler` class — asyncio loop that checks for due scheduled tasks every 5 minutes. Scans all `data/scheduled_tasks_*.json` files, calls `get_due_tasks()`, executes due tasks via `CentralSecretary.assess_and_plan()`, and marks them as run.
+- `backend/handlers/chat.py`: Import `get_scheduler`, start scheduler in `on_chat_start()`.
+
+**Files changed (gap fixes):**
+- `frontend/src/components/TemplatesPanel.tsx` (new) — templates + scheduling UI
+- `frontend/src/components/TeamDetailPage.tsx` — add Templates button + render panel
+- `frontend/src/App.tsx` — intercept template/scheduled data messages
+- `backend/core/scheduler.py` (new) — background scheduler loop
+- `backend/handlers/chat.py` — import + start scheduler
+
+### Bug Fix: AI Create Team Modal — No Response + No Stop Button
+
+**Root cause:** When user sends from AI Create Team modal, backend `assess_and_plan` returns `action: "plan"` and sends a `plan` message. Frontend routing in `App.tsx` only sent `text`/`thinking`/`thinking_done` to AI modal — `plan` fell through to regular chat (invisible behind modal). The "..." disappeared because `isProcessing` was set to false by the plan message terminal handler.
+
+**Fix 1: Route plan messages to AI modal** (`frontend/src/App.tsx`)
+- Added `plan` to the message types routed to AI modal when `aiModalOpenRef.current` is true
+- Convert plan data (planAgents, planTaskDescription) to team suggestion JSON text message
+- AI modal's existing JSON parser picks it up and shows team preview with "สร้างทีมนี้" button
+
+**Fix 2: Add stop button to AI modal** (`frontend/src/components/AICreateTeamModal.tsx`)
+- Added `onStop` prop to interface and destructuring
+- Send button replaced by stop button (หยุด) when `isThinking` is true
+- Wired to `handleStop` in App.tsx which sends `stop_generation` action + resets AI thinking state
+
+**Fix 3: Set aiIsThinking on send** (`frontend/src/App.tsx`)
+- `onSend` handler now sets `aiIsThinking = true` and clears `aiThinkingText` before sending
+- This shows the "..." animation immediately while waiting for backend response
+
+**Fix 4: Reset backend state on create_team** (`backend/handlers/actions.py`)
+- `on_action_create_team` now resets `state` to `STATE_IDLE` and clears `current_agent_specs` + `current_input`
+- Prevents state from being stuck in `STATE_AWAITING_APPROVAL` after AI modal flow
+
+**Files changed:**
+- `frontend/src/App.tsx` — route plan to AI modal, set aiIsThinking on send, pass onStop, reset AI state on stop
+- `frontend/src/components/AICreateTeamModal.tsx` — add onStop prop, stop button UI
+- `backend/handlers/actions.py` — reset state in create_team handler

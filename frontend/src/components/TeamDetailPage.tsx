@@ -9,6 +9,17 @@ import type { ChatSession } from './ChatSidebar';
 import type { Team } from '../types/team';
 import type { Agent } from '../types/platform';
 
+function timeAgo(dateStr: string) {
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diff = Math.floor((now.getTime() - date.getTime()) / 1000);
+  if (diff < 60) return 'เมื่อกี้';
+  if (diff < 3600) return `${Math.floor(diff / 60)} นาทีที่แล้ว`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)} ชม. ที่แล้ว`;
+  if (diff < 604800) return `${Math.floor(diff / 86400)} วันที่แล้ว`;
+  return `${Math.floor(diff / 604800)} สัปดาห์ที่แล้ว`;
+}
+
 interface TeamDetailPageProps {
   team: Team;
   onBack: () => void;
@@ -33,6 +44,7 @@ interface TeamDetailPageProps {
   preloadedModelSearchResults?: any[];
   preloadedMediaCatalog?: Record<string, any[]>;
   preloadedMediaSearchResults?: any[];
+  onMentionAgent?: (agentName: string) => void;
 }
 
 export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({
@@ -59,12 +71,17 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({
   preloadedModelSearchResults,
   preloadedMediaCatalog,
   preloadedMediaSearchResults,
+  onMentionAgent,
 }) => {
   const { agents, current_plan, system_status, available_tools, credits } = usePlatform();
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
   const [configAgent, setConfigAgent] = useState<Agent | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [mentionText, setMentionText] = useState('');
+
+  const handleMentionAgent = useCallback((agentName: string) => {
+    setMentionText(`@${agentName} `);
+  }, []);
 
   const teamAgents = agents.filter((a) => team.agent_ids.includes(a.id));
   const managerAgent = teamAgents.find((a) => a.is_manager);
@@ -101,14 +118,23 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({
         <div className="flex items-center gap-3">
           {/* Credits */}
           {credits && (
-            <div className="flex items-center gap-1.5 text-xs text-text-2" title={`Daily: $${credits.usage_daily?.toFixed(4) ?? 0} | Monthly: $${credits.usage_monthly?.toFixed(4) ?? 0}`}>
-              <span className={credits.limit_remaining !== null && credits.limit_remaining < 1 ? 'text-warning' : ''}>
-                {credits.limit !== null && credits.limit > 0
-                  ? `$${credits.usage?.toFixed(2) ?? '0'} / $${credits.limit?.toFixed(2) ?? '—'}`
-                  : credits.is_free_tier
-                  ? 'Free Tier'
-                  : `$${credits.usage?.toFixed(2) ?? '—'} used`}
-              </span>
+            <div className="flex items-center gap-1.5 text-xs text-text-2" title={`Daily: $${credits.usage_daily?.toFixed(4) ?? 0} | Weekly: $${credits.usage_weekly?.toFixed(4) ?? 0} | Monthly: $${credits.usage_monthly?.toFixed(4) ?? 0} | All-time: $${credits.usage?.toFixed(4) ?? 0}`}>
+              {(() => {
+                const isLow = (credits.limit_remaining ?? 0) < 1;
+                if (credits.limit !== null && credits.limit > 0) {
+                  const usedThisPeriod = (credits.limit ?? 0) - (credits.limit_remaining ?? 0);
+                  return (
+                    <span className={isLow ? 'text-warning' : ''}>
+                      ${usedThisPeriod.toFixed(2)} / ${credits.limit?.toFixed(2) ?? '—'}
+                      {credits.limit_reset && <span className="text-text-3 ml-1">({credits.limit_reset})</span>}
+                    </span>
+                  );
+                } else if (credits.is_free_tier) {
+                  return <span className="text-warning">Free Tier</span>;
+                } else {
+                  return <span>${credits.usage?.toFixed(2) ?? '—'} used</span>;
+                }
+              })()}
             </div>
           )}
           {/* Status */}
@@ -116,31 +142,6 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({
             <div className={`w-2 h-2 rounded-full ${connectionStatus === 'connected' ? 'bg-success' : 'bg-warning'} ${connectionStatus === 'connected' ? '' : 'animate-pulse'}`} />
             <span>{statusText}</span>
           </div>
-          {/* Delete team */}
-          {confirmDelete ? (
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => { onDeleteTeam(team.id); }}
-                className="px-2 py-1 bg-error text-white text-[10px] rounded font-medium"
-              >
-                Confirm Delete
-              </button>
-              <button
-                onClick={() => setConfirmDelete(false)}
-                className="px-2 py-1 bg-surface-2 text-text-2 text-[10px] rounded font-medium border border-border"
-              >
-                Cancel
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={() => setConfirmDelete(true)}
-              className="p-1.5 text-text-3 hover:text-error transition-colors"
-              title="Delete team"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-          )}
         </div>
       </div>
 
@@ -148,10 +149,10 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({
       <div className="flex-1 flex min-h-0 relative">
         {/* Left: Chat Sessions (top) + Agents (bottom) */}
         {!leftCollapsed && (
-          <div className="w-56 bg-surface border-r border-border flex flex-col shrink-0">
+          <div className="w-[230px] bg-surface border-r border-border flex flex-col shrink-0">
             {/* Chat Sessions */}
             <div className="px-4 py-3 pb-2 flex items-center justify-between">
-              <span className="text-[11px] font-semibold text-text-2 uppercase tracking-wide">Chat Sessions</span>
+              <span className="text-xs font-semibold text-text-2">Chat Sessions</span>
               <button
                 onClick={() => onAction('new_chat')}
                 className="w-5 h-5 rounded bg-surface-2 text-text-3 hover:text-text hover:bg-surface-3 flex items-center justify-center transition-colors"
@@ -167,13 +168,16 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({
                   <div
                     key={session.id}
                     onClick={() => onAction('switch_chat', { session_id: session.id })}
-                    className={`px-2.5 py-2 rounded-lg cursor-pointer mb-0.5 group ${activeSessionId === session.id ? 'bg-accent/10 border border-accent/30' : 'hover:bg-surface-2'}`}
+                    className={`px-3 py-2 rounded-lg cursor-pointer mb-1 group ${activeSessionId === session.id ? 'bg-accent/15' : 'hover:bg-surface-2'}`}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-medium text-text truncate flex-1">{session.title}</span>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs font-medium text-text truncate">{session.title}</div>
+                        <div className="text-[10px] text-text-3 mt-0.5">{session.updated_at ? timeAgo(session.updated_at) : ''}</div>
+                      </div>
                       <button
                         onClick={(e) => { e.stopPropagation(); onAction('delete_chat', { session_id: session.id }); }}
-                        className="text-text-3 opacity-0 group-hover:opacity-100 hover:text-error transition-all shrink-0 ml-2"
+                        className="text-text-3 opacity-0 group-hover:opacity-100 hover:text-danger transition-all shrink-0 ml-2"
                       >
                         <Trash2 className="w-3 h-3" />
                       </button>
@@ -185,27 +189,35 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({
 
             {/* Agents */}
             <div className="px-4 py-2 border-t border-border flex items-center justify-between">
-              <span className="text-[11px] font-semibold text-text-2 uppercase tracking-wide">Agents</span>
+              <span className="text-xs font-semibold text-text-2">Agents</span>
               <span className="text-[10px] text-text-3">{teamAgents.length}</span>
             </div>
             <div className="flex-1 overflow-y-auto px-2 pb-2">
               {managerAgent && (
-                <button
-                  onClick={() => handleConfigAgent(managerAgent)}
-                  className="w-full text-left px-2.5 py-2 bg-accent/10 border border-accent/30 rounded-lg mb-1.5 hover:bg-accent/15 transition-colors group"
+                <div
+                  className="w-full text-left px-3 py-2.5 bg-accent/10 border border-accent/30 rounded-lg mb-1.5 hover:bg-accent/15 transition-colors group"
                 >
                   <div className="flex items-center gap-1.5">
                     <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${managerAgent.status === 'Busy' ? 'bg-warning' : 'bg-success'}`} />
-                    <span className="text-xs font-medium text-purple-400 truncate flex-1">{managerAgent.name}</span>
+                    <span className="text-xs font-semibold text-purple-400 truncate flex-1">{managerAgent.name}</span>
                     <span className="text-[8px] px-1 py-0.5 bg-accent/20 text-purple-400 rounded font-semibold">MGR</span>
-                    <Settings className="w-3 h-3 text-text-3 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                    {onMentionAgent && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleMentionAgent(managerAgent.name); }}
+                        className="text-[10px] text-accent opacity-0 group-hover:opacity-100 hover:text-accent-light transition-opacity shrink-0"
+                        title="Mention"
+                      >@</button>
+                    )}
+                    <button onClick={() => handleConfigAgent(managerAgent)} className="shrink-0">
+                      <Settings className="w-3 h-3 text-text-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </button>
                   </div>
                   <p className="text-[10px] text-text-3 ml-3.5 mt-0.5">{managerAgent.role}</p>
                   <div className="flex items-center gap-1 ml-3.5 mt-1">
                     <Cpu className="w-2.5 h-2.5 text-text-3" />
                     <span className="text-[9px] text-text-3">{managerAgent.model || 'auto'}</span>
                   </div>
-                </button>
+                </div>
               )}
               {regularAgents.length === 0 && !managerAgent ? (
                 <p className="text-xs text-text-3 italic px-3 py-4 text-center">
@@ -215,15 +227,23 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({
                 </p>
               ) : (
                 regularAgents.map((agent) => (
-                  <button
+                  <div
                     key={agent.id}
-                    onClick={() => handleConfigAgent(agent)}
-                    className="w-full text-left px-2.5 py-2 bg-surface-2 rounded-lg mb-1.5 hover:bg-surface-3 transition-colors group"
+                    className="w-full text-left px-3 py-2.5 bg-bg border border-border rounded-lg mb-1.5 hover:border-border-light transition-colors group"
                   >
                     <div className="flex items-center gap-1.5">
                       <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${agent.status === 'Busy' ? 'bg-warning' : 'bg-success'}`} />
-                      <span className="text-xs font-medium text-text truncate flex-1">{agent.name}</span>
-                      <Settings className="w-3 h-3 text-text-3 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                      <span className="text-xs font-semibold text-text truncate flex-1">{agent.name}</span>
+                      {onMentionAgent && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleMentionAgent(agent.name); }}
+                          className="text-[10px] text-accent opacity-0 group-hover:opacity-100 hover:text-accent-light transition-opacity shrink-0"
+                          title="Mention"
+                        >@</button>
+                      )}
+                      <button onClick={() => handleConfigAgent(agent)} className="shrink-0">
+                        <Settings className="w-3 h-3 text-text-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      </button>
                     </div>
                     <p className="text-[10px] text-text-3 ml-3.5 mt-0.5">{agent.role}</p>
                     <div className="flex items-center gap-1 ml-3.5 mt-1">
@@ -233,11 +253,11 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({
                     {agent.tools && agent.tools.length > 0 && (
                       <div className="flex flex-wrap gap-1 ml-3.5 mt-1">
                         {agent.tools.map((tool) => (
-                          <span key={tool} className="text-[8px] px-1.5 py-0.5 bg-bg rounded text-text-2">{tool}</span>
+                          <span key={tool} className="text-[8px] px-1.5 py-0.5 bg-surface-2 rounded text-text-2">{tool}</span>
                         ))}
                       </div>
                     )}
-                  </button>
+                  </div>
                 ))
               )}
             </div>
@@ -248,7 +268,7 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({
         <button
           onClick={() => setLeftCollapsed(!leftCollapsed)}
           className="absolute left-0 top-1/2 -translate-y-1/2 z-10 w-4 h-12 bg-surface border border-border rounded-r flex items-center justify-center hover:bg-surface-2 transition-colors"
-          style={{ left: leftCollapsed ? 0 : '14rem' }}
+          style={{ left: leftCollapsed ? 0 : '230px' }}
         >
           {leftCollapsed ? <ChevronRight className="w-3 h-3 text-text-3" /> : <ChevronLeft className="w-3 h-3 text-text-3" />}
         </button>
@@ -270,7 +290,7 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({
               onDeleteChat={(id) => onAction('delete_chat', { session_id: id })}
               onAcceptPlan={() => onAction('accept_plan')}
               onRejectPlan={() => onAction('reject_plan')}
-              onConfirmTuning={() => onAction('confirm_tuning')}
+              onConfirmTuning={(proposals) => onAction('confirm_tuning', { proposals })}
               onRejectTuning={() => onAction('reject_tuning')}
               onApproveImage={(approvalId) => onAction('approve_image', { approval_id: approvalId })}
               onRejectImage={(approvalId) => onAction('reject_image', { approval_id: approvalId })}
@@ -295,6 +315,8 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({
               preloadedModelSearchResults={preloadedModelSearchResults}
               preloadedMediaCatalog={preloadedMediaCatalog}
               preloadedMediaSearchResults={preloadedMediaSearchResults}
+              mentionText={mentionText}
+              onMentionConsumed={() => setMentionText('')}
             />
         </div>
 
@@ -302,7 +324,7 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({
         {!rightCollapsed && (
           <div className="w-[380px] bg-surface border-l border-border flex flex-col shrink-0">
             <div className="px-4 py-2.5 border-b border-border shrink-0">
-              <span className="text-[11px] font-semibold text-text-2 uppercase tracking-wide">Storyboard</span>
+              <span className="text-xs font-semibold text-text-2">📊 Storyboard</span>
             </div>
             <div className="flex-1 min-w-0 overflow-hidden">
               <StoryboardArea
@@ -311,6 +333,8 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({
                 onRejectImage={(approvalId) => onAction('reject_image', { approval_id: approvalId })}
                 onRetryImage={(approvalId) => onAction('retry_image', { approval_id: approvalId })}
                 onEditImagePrompt={(approvalId, newPrompt) => onAction('edit_image_prompt', { approval_id: approvalId, new_prompt: newPrompt })}
+                onRetryTask={() => onAction('retry_task')}
+                onRateTask={(rating) => onAction('rate_task', { rating })}
               />
             </div>
           </div>
@@ -333,11 +357,13 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({
         availableTools={available_tools || []}
         onClose={() => setConfigAgent(null)}
         onSave={handleSaveConfig}
+        onAction={onAction}
         modelCatalog={preloadedModelCatalog}
         modelSearchResults={preloadedModelSearchResults}
         onSearchModels={(query) => onAction('search_models', { query })}
         onFetchModelCatalog={() => onAction('fetch_model_catalog')}
       />
+
     </div>
   );
 };
