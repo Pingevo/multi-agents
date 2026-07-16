@@ -6,11 +6,12 @@ import {
 } from 'lucide-react';
 import type {
   ChatMessage, ActivityEntry, AgentProgressEntry, PlanAgent, ResultAgent,
-  PlanStatus, ImageApprovalStatus,
+  PlanStatus, ImageApprovalStatus, AgentReviewStatus,
 } from './chatTypes';
 import type { ChatSession } from './ChatSidebar';
 import { ModelPicker, PROVIDER_FAVICONS, getProvider, findModelName } from './ModelPicker';
 import type { ModelCatalogEntry } from './ModelPicker';
+import MarkdownRenderer from './MarkdownRenderer';
 
 interface ChatPanelRightProps {
   messages: ChatMessage[];
@@ -18,7 +19,7 @@ interface ChatPanelRightProps {
   isProcessing: boolean;
   chatSessions: ChatSession[];
   activeSessionId: string | null;
-  onSend: (message: string, attachment?: { url: string; name: string; mime: string }) => void | Promise<void>;
+  onSend: (message: string, attachments?: Array<{ url: string; name: string; mime: string }>) => void | Promise<void>;
   onStop?: () => void;
   onNewChat: () => void;
   onSwitchChat: (id: string) => void;
@@ -28,10 +29,12 @@ interface ChatPanelRightProps {
   onRejectPlan?: () => void;
   onConfirmTuning?: (proposals?: any[]) => void;
   onRejectTuning?: () => void;
-  onApproveImage?: (approvalId: string) => void;
+  onApproveImage?: (approvalId: string, model?: string) => void;
   onRejectImage?: (approvalId: string) => void;
   onRetryImage?: (approvalId: string) => void;
   onEditImagePrompt?: (approvalId: string, newPrompt: string) => void;
+  onApproveAgentResult?: (reviewId: string) => void;
+  onRejectAgentResult?: (reviewId: string, feedback: string) => void;
   onFetchModelCatalog?: () => void;
   onFetchMediaCatalog?: (mediaType: string) => void;
   onSearchModels?: (query: string) => void;
@@ -77,6 +80,7 @@ const PlanCard: React.FC<{
   hasTtsTool?: boolean;
   hasSttTool?: boolean;
   hasVisionTool?: boolean;
+  hasVisionInput?: boolean;
   managerModel?: string;
   estimatedCost?: string;
   onAccept?: () => void;
@@ -91,7 +95,7 @@ const PlanCard: React.FC<{
   onSearchModels?: (query: string) => void;
   onFetchModelCatalog?: () => void;
   onFetchMediaCatalog?: (mediaType: string) => void;
-}> = ({ agents, taskDescription, planType, planStatus, imageModel, videoModel, searchModel, ttsModel, sttModel, visionModel, hasImageTool, hasVideoTool, hasSearchTool, hasTtsTool, hasSttTool, hasVisionTool, managerModel, estimatedCost, onAccept, onReject, onChangeAgentModel, onChangeManagerModel, onChangeMediaModel, modelCatalog, modelSearchResults, mediaCatalog, mediaSearchResults, onSearchModels, onFetchModelCatalog, onFetchMediaCatalog }) => {
+}> = ({ agents, taskDescription, planType, planStatus, imageModel, videoModel, searchModel, ttsModel, sttModel, visionModel, hasImageTool, hasVideoTool, hasSearchTool, hasTtsTool, hasSttTool, hasVisionTool, hasVisionInput, managerModel, estimatedCost, onAccept, onReject, onChangeAgentModel, onChangeManagerModel, onChangeMediaModel, modelCatalog, modelSearchResults, mediaCatalog, mediaSearchResults, onSearchModels, onFetchModelCatalog, onFetchMediaCatalog }) => {
   const isPending = planStatus === 'pending';
   const [editingAgent, setEditingAgent] = useState<string | null>(null);
   const [editingMedia, setEditingMedia] = useState<string | null>(null);
@@ -105,7 +109,7 @@ const PlanCard: React.FC<{
   const [originalVisionModel] = useState(visionModel || '');
   const [originalAgentModels] = useState(() => {
     const map: Record<string, string> = {};
-    agents.forEach(a => { map[a.name] = a.model || 'openrouter/auto'; });
+    agents.forEach(a => { map[a.name] = a.model || 'openrouter/free'; });
     return map;
   });
   const [originalManagerModel] = useState(managerModel || '');
@@ -137,7 +141,8 @@ const PlanCard: React.FC<{
             {estimatedCost}
           </div>
         )}
-        {/* Manager model row */}
+        {/* Manager model row — hidden, manager model is controlled by top bar selector */}
+        {false && planType !== 'create_agents' && (
         <div className="p-2 rounded-lg bg-surface-2 border border-accent/20">
           <div className="flex items-center gap-1.5 mb-0.5">
             <Brain className="w-3 h-3 text-accent shrink-0" />
@@ -181,7 +186,7 @@ const PlanCard: React.FC<{
                       onSearch={onSearchModels || (() => {})}
                       onClose={() => setEditingManager(false)}
                       anchorRef={{ current: managerModelRef.current }}
-                      pinnedModelId={originalManagerModel || 'openrouter/auto'}
+                      pinnedModelId={originalManagerModel || 'openrouter/free'}
                       showAutoRouter={true}
                     />
                   )}
@@ -191,65 +196,123 @@ const PlanCard: React.FC<{
               )}
           </div>
         </div>
+        )}
         <div className="space-y-1.5">
           {agents.map((agent, idx) => (
-            <div key={idx} className="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-bg">
-              <div className="w-2 h-2 rounded-full bg-accent/50 shrink-0" />
-              <div className="flex-1 min-w-0">
-                <div className="text-xs font-medium text-text">{agent.name}</div>
-                <div className="text-[11px] text-text-3">{agent.goal || agent.role}</div>
-                <div className="flex items-center gap-1 mt-0.5">
-                  <Cpu className="w-2.5 h-2.5 text-text-2 shrink-0" />
-                  <span className="text-[9px] text-text-2">Model:</span>
-                  {isPending && onChangeAgentModel ? (
-                    <>
-                      <button
-                        ref={(el) => { agentModelRefs.current[agent.name] = el; }}
-                        onClick={() => {
-                          if (editingAgent !== agent.name && modelCatalog && Object.keys(modelCatalog).length === 0 && onFetchModelCatalog) {
-                            onFetchModelCatalog();
-                          }
-                          setEditingAgent(editingAgent === agent.name ? null : agent.name);
-                        }}
-                        className="text-[9px] text-text bg-surface-3 border border-border/50 rounded px-1.5 py-0.5 hover:border-accent/50 transition-colors max-w-[180px] truncate flex items-center gap-1"
-                      >
-                        {(() => {
-                          const modelId = agent.model || '';
-                          if (!modelId) return <span className="text-text-2">Auto (system default)</span>;
-                          const provider = getProvider(modelId);
-                          const favicon = PROVIDER_FAVICONS[provider];
-                          if (favicon) return <img src={favicon} alt="" className="w-3 h-3 rounded shrink-0 object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />;
-                          return null;
-                        })()}
-                        {agent.model ? findModelName(agent.model, modelCatalog || {}, modelSearchResults || []) : ''}
-                      </button>
-                      {editingAgent === agent.name && (
-                        <ModelPicker
-                          recommended={modelCatalog || {}}
-                          searchResults={modelSearchResults || []}
-                          selectedModel={agent.model}
-                          onSelect={(modelId) => {
-                            onChangeAgentModel(agent.name, modelId);
-                            setEditingAgent(null);
-                          }}
-                          onSearch={onSearchModels || (() => {})}
-                          onClose={() => setEditingAgent(null)}
-                          anchorRef={{ current: agentModelRefs.current[agent.name] }}
-                          pinnedModelId={originalAgentModels[agent.name] || 'openrouter/auto'}
-                          showAutoRouter={true}
-                        />
-                      )}
-                    </>
-                  ) : (
-                    <span className="text-[9px] text-text font-mono">{agent.model ? findModelName(agent.model, modelCatalog || {}, modelSearchResults || []) : 'Auto (system default)'}</span>
+            <div key={idx} className="px-2.5 py-2 rounded-lg bg-bg">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-accent/50 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-medium text-text">{agent.name}</div>
+                  <div className="text-[11px] text-text-3">{agent.role}</div>
+                </div>
+                {agent.is_existing ? (
+                  <span className="text-[9px] px-1 py-0.5 rounded-full bg-success/10 text-success shrink-0">Existing</span>
+                ) : (
+                  <span className="text-[9px] px-1 py-0.5 rounded-full bg-accent/10 text-accent shrink-0">New</span>
+                )}
+              </div>
+              {agent.goal && (
+                <div className="text-[11px] text-text-2 mt-1 ml-4">
+                  <span className="text-text-3">Goal:</span> {agent.goal}
+                </div>
+              )}
+              {agent.persona && (
+                <div className="text-[11px] text-text-2 mt-1 ml-4">
+                  <span className="text-text-3">Persona:</span> {agent.persona}
+                </div>
+              )}
+              {agent.personality && (agent.personality.tone || agent.personality.communication_style || agent.personality.language) && (
+                <div className="flex flex-wrap gap-1 mt-1 ml-4">
+                  {agent.personality.tone && (
+                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-warning/10 text-warning">Tone: {agent.personality.tone}</span>
+                  )}
+                  {agent.personality.communication_style && (
+                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-warning/10 text-warning">Style: {agent.personality.communication_style}</span>
+                  )}
+                  {agent.personality.language && (
+                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-warning/10 text-warning">Lang: {agent.personality.language}</span>
                   )}
                 </div>
-              </div>
-              {agent.is_existing ? (
-                <span className="text-[9px] px-1 py-0.5 rounded-full bg-success/10 text-success shrink-0">Existing</span>
-              ) : (
-                <span className="text-[9px] px-1 py-0.5 rounded-full bg-accent/10 text-accent shrink-0">New</span>
               )}
+              {agent.expertise && agent.expertise.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-1 ml-4">
+                  {agent.expertise.map((exp, i) => (
+                    <span key={i} className="text-[9px] px-1.5 py-0.5 rounded-full bg-success/10 text-success">{exp}</span>
+                  ))}
+                </div>
+              )}
+              {agent.brand_context && (agent.brand_context.brand_name || agent.brand_context.target_audience) && (
+                <div className="text-[11px] text-text-2 mt-1 ml-4">
+                  {agent.brand_context.brand_name && <span className="text-text-3">Brand:</span>} {agent.brand_context.brand_name}
+                  {agent.brand_context.brand_name && agent.brand_context.target_audience && ' · '}
+                  {agent.brand_context.target_audience && <span className="text-text-3">Audience:</span>} {agent.brand_context.target_audience}
+                </div>
+              )}
+              {agent.tools && agent.tools.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-1 ml-4">
+                  {agent.tools.map((tool, i) => (
+                    <span key={i} className="text-[9px] px-1.5 py-0.5 rounded-full bg-accent/10 text-accent flex items-center gap-0.5">
+                      <Wrench className="w-2 h-2" />{tool}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {agent.depends_on && agent.depends_on.length > 0 && (
+                <div className="text-[10px] text-text-3 mt-1 ml-4">
+                  Depends on: {agent.depends_on.join(', ')}
+                </div>
+              )}
+              <div className="flex items-center gap-1 mt-1 ml-4">
+                <Cpu className="w-2.5 h-2.5 text-text-2 shrink-0" />
+                <span className="text-[9px] text-text-2">Model:</span>
+                {isPending && onChangeAgentModel ? (
+                  <>
+                    <button
+                      ref={(el) => { agentModelRefs.current[agent.name] = el; }}
+                      onClick={() => {
+                        if (hasVisionInput) {
+                          if (mediaCatalog && !mediaCatalog['vision'] && onFetchMediaCatalog) {
+                            onFetchMediaCatalog('vision');
+                          }
+                        } else if (editingAgent !== agent.name && modelCatalog && Object.keys(modelCatalog).length === 0 && onFetchModelCatalog) {
+                          onFetchModelCatalog();
+                        }
+                        setEditingAgent(editingAgent === agent.name ? null : agent.name);
+                      }}
+                      className="text-[9px] text-text bg-surface-3 border border-border/50 rounded px-1.5 py-0.5 hover:border-accent/50 transition-colors max-w-[180px] truncate flex items-center gap-1"
+                    >
+                      {(() => {
+                        const modelId = agent.model || '';
+                        if (!modelId) return <span className="text-text-2">Auto (system default)</span>;
+                        const provider = getProvider(modelId);
+                        const favicon = PROVIDER_FAVICONS[provider];
+                        if (favicon) return <img src={favicon} alt="" className="w-3 h-3 rounded shrink-0 object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />;
+                        return null;
+                      })()}
+                      {agent.model ? findModelName(agent.model, hasVisionInput ? (mediaCatalog || {}) : (modelCatalog || {}), modelSearchResults || []) : ''}
+                    </button>
+                    {editingAgent === agent.name && (
+                      <ModelPicker
+                        recommended={hasVisionInput ? { vision: mediaCatalog?.['vision'] || [] } : (modelCatalog || {})}
+                        searchResults={modelSearchResults || []}
+                        selectedModel={agent.model}
+                        onSelect={(modelId) => {
+                          onChangeAgentModel(agent.name, modelId);
+                          setEditingAgent(null);
+                        }}
+                        onSearch={onSearchModels || (() => {})}
+                        onClose={() => setEditingAgent(null)}
+                        anchorRef={{ current: agentModelRefs.current[agent.name] }}
+                        pinnedModelId={originalAgentModels[agent.name] || 'openrouter/free'}
+                        showAutoRouter={true}
+                      />
+                    )}
+                  </>
+                ) : (
+                  <span className="text-[9px] text-text font-mono">{agent.model ? findModelName(agent.model, hasVisionInput ? (mediaCatalog || {}) : (modelCatalog || {}), modelSearchResults || []) : 'Auto (system default)'}</span>
+                )}
+              </div>
             </div>
           ))}
         </div>
@@ -628,8 +691,8 @@ const AgentStatusRow: React.FC<{
             {showOutput ? 'Hide' : 'Preview'} output
           </button>
           {showOutput && (
-            <div className="mt-1 text-[10px] text-text-2 bg-surface-3 rounded-md p-1.5 max-h-64 overflow-y-auto whitespace-pre-wrap">
-              {agent.output}
+            <div className="mt-1 text-[10px] text-text-2 bg-surface-3 rounded-md p-1.5 max-h-64 overflow-y-auto">
+              <MarkdownRenderer content={agent.output || ''} />
             </div>
           )}
         </div>
@@ -683,7 +746,7 @@ const AgentProgressCard: React.FC<{ agents: AgentProgressEntry[] }> = ({ agents 
 };
 
 const ResultAgentCard: React.FC<{ agent: ResultAgent; index: number }> = ({ agent, index }) => {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
   return (
     <div className="rounded-lg bg-surface-2 border border-border/50 overflow-hidden">
       <button onClick={() => setExpanded(!expanded)} className="w-full flex items-center gap-1.5 px-2.5 py-1.5 hover:bg-surface-3 transition-colors">
@@ -692,7 +755,7 @@ const ResultAgentCard: React.FC<{ agent: ResultAgent; index: number }> = ({ agen
         <span className="text-xs font-medium text-text">{agent.name}</span>
         <span className="text-[10px] text-text-2 truncate">— {agent.role}</span>
       </button>
-      {expanded && <div className="px-2.5 pb-2.5 text-xs text-text whitespace-pre-wrap max-h-48 overflow-y-auto">{agent.output}</div>}
+      {expanded && <div className="px-2.5 pb-2.5 max-h-[400px] overflow-y-auto"><MarkdownRenderer content={agent.output || ''} /></div>}
     </div>
   );
 };
@@ -716,12 +779,20 @@ const ResultCard: React.FC<{ summary: string; agents?: ResultAgent[]; isError?: 
 const ImageApprovalCard: React.FC<{
   prompt: string; agentName: string; approvalStatus: ImageApprovalStatus;
   mediaType?: string; duration?: number; model?: string; imageError?: string;
-  onApprove?: () => void; onReject?: () => void; onRetry?: () => void;
-}> = ({ prompt, agentName, approvalStatus, mediaType = 'image', duration = 0, model = '', imageError = '', onApprove, onReject, onRetry }) => {
+  mediaCatalog?: Record<string, ModelCatalogEntry[]>;
+  mediaSearchResults?: ModelCatalogEntry[];
+  onFetchMediaCatalog?: (mediaType: string) => void;
+  onSearchModels?: (query: string) => void;
+  onApprove?: (model?: string) => void; onReject?: () => void; onRetry?: () => void;
+}> = ({ prompt, agentName, approvalStatus, mediaType = 'image', duration = 0, model = '', imageError = '', mediaCatalog, mediaSearchResults, onFetchMediaCatalog, onSearchModels, onApprove, onReject, onRetry }) => {
   const isPending = approvalStatus === 'pending';
   const isError = approvalStatus === 'error';
   const isVideo = mediaType === 'video';
   const label = isVideo ? 'Video' : 'Image';
+  const [selectedModel, setSelectedModel] = useState(model);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const modelBtnRef = useRef<HTMLButtonElement>(null);
+  const catalogKey = isVideo ? 'video' : 'image';
   return (
     <div className={`rounded-xl border bg-surface/80 backdrop-blur-sm overflow-hidden ${isPending ? 'border-purple-400/30' : isError ? 'border-danger/40' : 'border-border'}`}>
       <div className="flex items-center justify-between px-3 py-2 bg-purple-500/5 border-b border-purple-400/20">
@@ -738,7 +809,7 @@ const ImageApprovalCard: React.FC<{
           Prompt: <span className="text-text italic">"{prompt}"</span>
           {isVideo && duration > 0 && <span className="ml-1 text-[10px] text-text-3">({duration}s)</span>}
         </div>
-        {model && (
+        {model && !isPending && (
           <div className="flex items-center gap-1 text-[10px] text-text-2">
             <Cpu className="w-2.5 h-2.5 shrink-0" />
             <span>Model: <span className="text-text font-mono">{model}</span></span>
@@ -750,13 +821,47 @@ const ImageApprovalCard: React.FC<{
           </div>
         )}
         {isPending && (
-          <div className="flex gap-2">
-            <button onClick={onApprove} className="px-3 py-1 rounded-md bg-purple-500 text-white text-xs font-medium hover:bg-purple-600 transition-colors">
-              {isVideo ? '🎬' : '🖼️'} Generate
-            </button>
-            <button onClick={onReject} className="px-3 py-1 rounded-md bg-surface-2 text-text-2 text-xs font-medium border border-border hover:bg-surface-3 transition-colors">
-              ❌ Cancel
-            </button>
+          <div className="space-y-2">
+            <div className="flex items-center gap-1.5">
+              <Cpu className="w-3 h-3 text-text-2 shrink-0" />
+              <button
+                ref={modelBtnRef}
+                onClick={() => {
+                  if (!pickerOpen && onFetchMediaCatalog) onFetchMediaCatalog(catalogKey);
+                  setPickerOpen(!pickerOpen);
+                }}
+                className="flex-1 text-[10px] text-text bg-surface-2 border border-border rounded px-2 py-1 hover:border-purple-400/50 transition-colors truncate flex items-center gap-1"
+              >
+                {(() => {
+                  const provider = getProvider(selectedModel);
+                  const favicon = PROVIDER_FAVICONS[provider];
+                  if (favicon) return <img src={favicon} alt="" className="w-3 h-3 rounded shrink-0 object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />;
+                  return null;
+                })()}
+                {findModelName(selectedModel, mediaCatalog || {}, mediaSearchResults || [])}
+              </button>
+              {pickerOpen && mediaCatalog && (
+                <ModelPicker
+                  recommended={{ [catalogKey]: mediaCatalog[catalogKey] || [] }}
+                  searchResults={mediaSearchResults || []}
+                  selectedModel={selectedModel}
+                  onSelect={(modelId) => { setSelectedModel(modelId); setPickerOpen(false); }}
+                  onSearch={onSearchModels || (() => {})}
+                  onClose={() => setPickerOpen(false)}
+                  anchorRef={modelBtnRef}
+                  showAutoRouter={false}
+                  pinnedModelId={model}
+                />
+              )}
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => onApprove?.(selectedModel || undefined)} className="px-3 py-1 rounded-md bg-purple-500 text-white text-xs font-medium hover:bg-purple-600 transition-colors">
+                {isVideo ? '🎬' : '🖼️'} Generate
+              </button>
+              <button onClick={onReject} className="px-3 py-1 rounded-md bg-surface-2 text-text-2 text-xs font-medium border border-border hover:bg-surface-3 transition-colors">
+                ❌ Cancel
+              </button>
+            </div>
           </div>
         )}
         {isError && (
@@ -823,13 +928,110 @@ const ImageResultCard: React.FC<{
 };
 
 // ============================================================
+// Agent Review Card — per-agent output review
+// ============================================================
+
+const AgentReviewCard: React.FC<{
+  agentName: string;
+  agentRole: string;
+  output: string;
+  reviewStatus: AgentReviewStatus;
+  onApprove?: () => void;
+  onReject?: (feedback: string) => void;
+}> = ({ agentName, agentRole, output, reviewStatus, onApprove, onReject }) => {
+  const [feedback, setFeedback] = useState('');
+  const [showFeedback, setShowFeedback] = useState(false);
+
+  const isPending = reviewStatus === 'pending';
+  const isApproved = reviewStatus === 'approved';
+  const isRejected = reviewStatus === 'rejected';
+
+  return (
+    <div className={`rounded-xl border overflow-hidden ${
+      isApproved ? 'border-green-500/30 bg-green-500/5' :
+      isRejected ? 'border-red-500/30 bg-red-500/5' :
+      'border-blue-500/30 bg-surface/80 backdrop-blur-sm'
+    }`}>
+      <div className={`flex items-center gap-2 px-3 py-2 border-b ${
+        isApproved ? 'border-green-500/20 bg-green-500/5' :
+        isRejected ? 'border-red-500/20 bg-red-500/5' :
+        'border-blue-500/20 bg-blue-500/5'
+      }`}>
+        {isApproved ? <CheckCircle className="w-4 h-4 text-green-400" /> :
+         isRejected ? <XCircle className="w-4 h-4 text-red-400" /> :
+         <Brain className="w-4 h-4 text-blue-400" />}
+        <span className="font-semibold text-sm text-text">
+          {isApproved ? 'Approved' : isRejected ? 'Rejected — Re-running' : 'Awaiting Review'}
+        </span>
+        <span className="text-sm text-text-muted ml-auto">{agentName}</span>
+      </div>
+
+      <div className="p-3 space-y-2">
+        <div className="text-sm text-text-muted">{agentRole}</div>
+        <div className="overflow-y-auto">
+          <MarkdownRenderer content={output} />
+        </div>
+
+        {isPending && (
+          <>
+            {showFeedback && (
+              <div className="space-y-2">
+                <textarea
+                  value={feedback}
+                  onChange={(e) => setFeedback(e.target.value)}
+                  placeholder="Feedback for re-running this agent..."
+                  className="w-full text-sm p-2 rounded-lg bg-surface-2 border border-border text-text resize-none"
+                  rows={3}
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { onReject?.(feedback); setShowFeedback(false); setFeedback(''); }}
+                    className="flex-1 px-3 py-1.5 text-sm font-medium rounded-lg bg-red-500/10 text-red-400 border border-red-500/30 hover:bg-red-500/20 transition-colors"
+                  >
+                    Send Back with Feedback
+                  </button>
+                  <button
+                    onClick={() => setShowFeedback(false)}
+                    className="px-3 py-1.5 text-sm rounded-lg bg-surface-2 text-text-muted border border-border hover:bg-surface-3 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+            {!showFeedback && (
+              <div className="flex gap-2">
+                <button
+                  onClick={() => onApprove?.()}
+                  className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg bg-green-500/10 text-green-400 border border-green-500/30 hover:bg-green-500/20 transition-colors"
+                >
+                  <Check className="w-4 h-4" />
+                  Approve
+                </button>
+                <button
+                  onClick={() => setShowFeedback(true)}
+                  className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg bg-orange-500/10 text-orange-400 border border-orange-500/30 hover:bg-orange-500/20 transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                  Reject & Re-run
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ============================================================
 // Chat Panel Right (main component)
 // ============================================================
 
 export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
   messages, activityLog, isProcessing, chatSessions, activeSessionId,
   onSend, onStop, onNewChat, onSwitchChat, onRenameChat, onDeleteChat,
-  onAcceptPlan, onRejectPlan, onConfirmTuning, onRejectTuning, onApproveImage, onRejectImage, onRetryImage, onEditImagePrompt,
+  onAcceptPlan, onRejectPlan, onConfirmTuning, onRejectTuning, onApproveImage, onRejectImage, onRetryImage, onEditImagePrompt, onApproveAgentResult, onRejectAgentResult,
   onFetchModelCatalog, onFetchMediaCatalog, onSearchModels, onSelectModel, onChangeAgentModel, onChangeManagerModel, onChangeMediaModel,
   selectedModel, resolvedModel, thinkingText, thinkingDuration, isThinking, inputMode, onModeChange, disabled,
   preloadedModelCatalog, preloadedModelSearchResults, preloadedMediaCatalog, preloadedMediaSearchResults,
@@ -849,9 +1051,10 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
   const [modelSearchResults, setModelSearchResults] = useState<ModelCatalogEntry[]>([]);
   const [mediaCatalog, setMediaCatalog] = useState<Record<string, ModelCatalogEntry[]>>({});
   const [mediaSearchResults, setMediaSearchResults] = useState<ModelCatalogEntry[]>([]);
-  const [attachment, setAttachment] = useState<{ url: string; name: string; mime: string } | null>(null);
-  const [attachmentPreview, setAttachmentPreview] = useState<string | null>(null);
+  const [attachments, setAttachments] = useState<Array<{ url: string; name: string; mime: string }>>([]);
+  const [attachmentPreviews, setAttachmentPreviews] = useState<Array<string>>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const isNearBottomRef = useRef(true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const resizingRef = useRef(false);
@@ -880,9 +1083,21 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
     document.body.style.cursor = 'col-resize';
   }, []);
 
-  // Auto-scroll
+  // Track scroll position — only auto-scroll if user is near bottom
+  const handleScroll = useCallback(() => {
+    if (scrollRef.current) {
+      const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
+      isNearBottomRef.current = scrollHeight - scrollTop - clientHeight < 100;
+    }
+  }, []);
+
+  // Auto-scroll only if user is near bottom (skip for model_catalog messages)
   useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    if (scrollRef.current && isNearBottomRef.current) {
+      const lastMsg = messages[messages.length - 1];
+      if (lastMsg && lastMsg.messageType === 'model_catalog') return;
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
   }, [messages, activityLog, isProcessing]);
 
   // Auto-collapse thinking when done (unless user manually expanded)
@@ -968,11 +1183,11 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
   };
 
   const handleSubmit = async () => {
-    if ((!input.trim() && !attachment) || disabled) return;
-    await onSend(input.trim(), attachment || undefined);
+    if ((!input.trim() && attachments.length === 0) || disabled) return;
+    await onSend(input.trim(), attachments.length > 0 ? attachments : undefined);
     setInput('');
-    setAttachment(null);
-    setAttachmentPreview(null);
+    setAttachments([]);
+    setAttachmentPreviews([]);
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
   };
 
@@ -993,27 +1208,46 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
   }, [mentionText, onMentionConsumed]);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (file.size > 20 * 1024 * 1024) {
-      alert('File too large. Maximum 20MB.');
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      setAttachment({ url: dataUrl, name: file.name, mime: file.type || 'application/octet-stream' });
-      if (file.type.startsWith('image/')) {
-        setAttachmentPreview(dataUrl);
-      } else if (file.type.startsWith('audio/')) {
-        setAttachmentPreview('audio');
-      } else if (file.type.startsWith('video/')) {
-        setAttachmentPreview('video');
-      } else {
-        setAttachmentPreview('file');
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    const newAttachments: Array<{ url: string; name: string; mime: string }> = [];
+    const newPreviews: Array<string> = [];
+    let processed = 0;
+    const total = files.length;
+    for (let i = 0; i < total; i++) {
+      const file = files[i];
+      if (file.size > 20 * 1024 * 1024) {
+        alert(`File "${file.name}" too large. Maximum 20MB.`);
+        processed++;
+        if (processed === total) {
+          if (newAttachments.length > 0) {
+            setAttachments(prev => [...prev, ...newAttachments]);
+            setAttachmentPreviews(prev => [...prev, ...newPreviews]);
+          }
+        }
+        continue;
       }
-    };
-    reader.readAsDataURL(file);
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        newAttachments.push({ url: dataUrl, name: file.name, mime: file.type || 'application/octet-stream' });
+        if (file.type.startsWith('image/')) {
+          newPreviews.push(dataUrl);
+        } else if (file.type.startsWith('audio/')) {
+          newPreviews.push('audio');
+        } else if (file.type.startsWith('video/')) {
+          newPreviews.push('video');
+        } else {
+          newPreviews.push('file');
+        }
+        processed++;
+        if (processed === total) {
+          setAttachments(prev => [...prev, ...newAttachments]);
+          setAttachmentPreviews(prev => [...prev, ...newPreviews]);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -1040,8 +1274,8 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
           const reader = new FileReader();
           reader.onload = () => {
             const dataUrl = reader.result as string;
-            setAttachment({ url: dataUrl, name: file.name || 'pasted-image.png', mime: file.type });
-            setAttachmentPreview(dataUrl);
+            setAttachments(prev => [...prev, { url: dataUrl, name: file.name || 'pasted-image.png', mime: file.type }]);
+            setAttachmentPreviews(prev => [...prev, dataUrl]);
           };
           reader.readAsDataURL(file);
         }
@@ -1169,7 +1403,7 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
         )}
 
         {/* Messages */}
-        <div ref={scrollRef} className="flex-1 overflow-y-auto p-5 space-y-3 flex flex-col min-h-0">
+        <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-5 space-y-3 flex flex-col min-h-0">
               {messages.length === 0 && activityLog.length === 0 && !isProcessing ? (
                 <div className="flex flex-col items-center justify-center py-20 text-text-2">
                   <Bot className="w-12 h-12 mb-3 opacity-30" />
@@ -1194,6 +1428,7 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
                               ttsModel={msg.ttsModel} sttModel={msg.sttModel} visionModel={msg.visionModel}
                               hasImageTool={msg.hasImageTool} hasVideoTool={msg.hasVideoTool} hasSearchTool={msg.hasSearchTool}
                               hasTtsTool={msg.hasTtsTool} hasSttTool={msg.hasSttTool} hasVisionTool={msg.hasVisionTool}
+                              hasVisionInput={msg.hasVisionInput}
                               managerModel={msg.managerModel}
                               estimatedCost={msg.estimatedCost}
                               onAccept={onAcceptPlan} onReject={onRejectPlan}
@@ -1231,8 +1466,9 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
 
                     if (msgType === 'result') {
                       const isError = msg.resultError;
+                      const agents = msg.resultAgents || [];
                       return (
-                        <div key={msg.id} className="flex gap-2 flex-row max-w-[75%]">
+                        <div key={msg.id} className="flex gap-2 flex-row max-w-[90%]">
                           <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 bg-surface-2 border border-border text-accent">
                             <Bot className="w-3.5 h-3.5" />
                           </div>
@@ -1242,18 +1478,94 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
                                 {isError ? <XCircle className="w-3.5 h-3.5 text-danger" /> : <CheckCircle className="w-3.5 h-3.5 text-success" />}
                                 <span className="font-semibold text-xs text-text">{isError ? 'Error' : 'Completed'}</span>
                               </div>
-                              <div className="p-3 text-xs text-text whitespace-pre-wrap leading-relaxed">
-                                {msg.resultSummary || 'Done'}
+                              <div className="p-3">
+                                <MarkdownRenderer content={msg.resultSummary || 'Done'} />
                               </div>
+                              {agents.length > 0 && (
+                                <div className="px-3 pb-3 space-y-1.5">
+                                  {agents.map((agent, ai) => (
+                                    <ResultAgentCard key={ai} agent={agent} index={ai} />
+                                  ))}
+                                </div>
+                              )}
                             </div>
                           </div>
                         </div>
                       );
                     }
 
-                    // image_approval, image_result, and model_catalog are not shown as chat messages
-                    if (msgType === 'image_approval' || msgType === 'image_result' || msgType === 'model_catalog') {
+                    // image_approval — show in chat
+                    if (msgType === 'image_approval') {
+                      return (
+                        <div key={msg.id} className="flex gap-2 flex-row max-w-[75%]">
+                          <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 bg-surface-2 border border-border text-purple-400">
+                            <Image className="w-3.5 h-3.5" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <ImageApprovalCard
+                              prompt={msg.imagePrompt || ''}
+                              agentName={msg.agentName || ''}
+                              approvalStatus={msg.approvalStatus as ImageApprovalStatus}
+                              mediaType={msg.mediaType}
+                              duration={msg.duration}
+                              model={msg.model}
+                              imageError={msg.imageError}
+                              mediaCatalog={mediaCatalog}
+                              mediaSearchResults={mediaSearchResults}
+                              onFetchMediaCatalog={onFetchMediaCatalog}
+                              onSearchModels={handleSearchModels}
+                              onApprove={(model) => onApproveImage?.(msg.approvalId || '', model)}
+                              onReject={() => onRejectImage?.(msg.approvalId || '')}
+                              onRetry={() => onRetryImage?.(msg.approvalId || '')}
+                            />
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    // image_result — show in chat
+                    if (msgType === 'image_result') {
+                      return (
+                        <div key={msg.id} className="flex gap-2 flex-row max-w-[75%]">
+                          <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 bg-surface-2 border border-border text-purple-400">
+                            <Image className="w-3.5 h-3.5" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <ImageResultCard
+                              imageUrl={msg.imageUrl || ''}
+                              prompt={msg.imagePrompt || ''}
+                              approvalId={msg.approvalId}
+                              mediaType={msg.mediaType}
+                              onEditPrompt={onEditImagePrompt}
+                            />
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    if (msgType === 'model_catalog') {
                       return null;
+                    }
+
+                    // agent_review — show review card in chat
+                    if (msgType === 'agent_review') {
+                      return (
+                        <div key={msg.id} className="flex gap-2 flex-row max-w-[75%]">
+                          <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 bg-surface-2 border border-border text-blue-400">
+                            <Brain className="w-3.5 h-3.5" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <AgentReviewCard
+                              agentName={msg.agentName || ''}
+                              agentRole={msg.agentRole || ''}
+                              output={msg.content || ''}
+                              reviewStatus={(msg.reviewStatus || 'pending') as AgentReviewStatus}
+                              onApprove={() => onApproveAgentResult?.(msg.reviewId || '')}
+                              onReject={(feedback) => onRejectAgentResult?.(msg.reviewId || '', feedback)}
+                            />
+                          </div>
+                        </div>
+                      );
                     }
 
                     if (msgType === 'tuning_proposal' && msg.tuningProposals) {
@@ -1407,9 +1719,16 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
                               ) : msg.attachmentMime?.startsWith('image/') ? (
                                 <img src={msg.attachmentUrl} alt={msg.attachmentName} className="max-w-full rounded max-h-48 object-cover" />
                               ) : (
-                                <div className="flex items-center gap-1.5 text-xs">
-                                  <FileText className="w-3.5 h-3.5" />
-                                  <span className="truncate">{msg.attachmentName || 'Attachment'}</span>
+                                <div className="flex items-center gap-2.5 bg-white/10 rounded-lg px-3 py-2.5">
+                                  <div className="w-9 h-9 rounded-lg bg-white/15 flex items-center justify-center shrink-0">
+                                    <FileText className="w-4.5 h-4.5 text-white" />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="text-xs font-medium truncate">{msg.attachmentName || 'Attachment'}</div>
+                                    <div className="text-[10px] text-white/60 mt-0.5">
+                                      {(msg.attachmentMime?.split('/')[1] || 'file').toUpperCase()}
+                                    </div>
+                                  </div>
                                 </div>
                               )}
                             </div>
@@ -1432,7 +1751,7 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
                   )}
 
                   {/* Standalone thinking indicator — simple ... animation */}
-                  {isThinking && !messages.some(m => m.messageType === 'plan') && (
+                  {isThinking && !messages.some(m => m.messageType === 'plan' && m.planStatus === 'pending') && (
                     <div className="flex gap-2 flex-row max-w-[75%]">
                       <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 bg-surface-2 border border-border text-accent">
                         <Bot className="w-3.5 h-3.5" />
@@ -1524,23 +1843,41 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
                   ✨ Plan
                 </button>
               </div>
-              {attachment && (
-                <div className="flex items-center gap-1.5 mb-1.5 px-2 py-1 rounded-md bg-surface border border-border">
-                  {attachmentPreview && attachmentPreview.startsWith('data:') && (
-                    <img src={attachmentPreview} alt="" className="w-5 h-5 rounded object-cover shrink-0" />
-                  )}
-                  {attachmentPreview === 'audio' && <Volume2 className="w-3 h-3 text-accent shrink-0" />}
-                  {attachmentPreview === 'video' && <Video className="w-3 h-3 text-accent shrink-0" />}
-                  {attachmentPreview === 'file' && <FileText className="w-3 h-3 text-accent shrink-0" />}
-                  <span className="text-[10px] text-text-2 truncate flex-1">{attachment.name}</span>
-                  <button onClick={() => { setAttachment(null); setAttachmentPreview(null); }} className="text-text-3 hover:text-danger transition-colors text-xs">
-                    ✕
-                  </button>
+              {attachments.length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {attachments.map((att, idx) => (
+                    <div key={idx} className="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-surface border border-border">
+                      <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center shrink-0">
+                        {attachmentPreviews[idx] && attachmentPreviews[idx].startsWith('data:') ? (
+                          <img src={attachmentPreviews[idx]} alt="" className="w-8 h-8 rounded-lg object-cover" />
+                        ) : attachmentPreviews[idx] === 'audio' ? (
+                          <Volume2 className="w-4 h-4 text-accent" />
+                        ) : attachmentPreviews[idx] === 'video' ? (
+                          <Video className="w-4 h-4 text-accent" />
+                        ) : (
+                          <FileText className="w-4 h-4 text-accent" />
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0 max-w-[120px]">
+                        <div className="text-[11px] font-medium text-text truncate">{att.name}</div>
+                        <div className="text-[9px] text-text-3 mt-0.5">
+                          {(att.mime?.split('/')[1] || 'file').toUpperCase()}
+                        </div>
+                      </div>
+                      <button onClick={() => {
+                        setAttachments(prev => prev.filter((_, i) => i !== idx));
+                        setAttachmentPreviews(prev => prev.filter((_, i) => i !== idx));
+                      }} className="w-5 h-5 rounded-full flex items-center justify-center text-text-3 hover:text-danger hover:bg-danger/10 transition-colors shrink-0">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
                 </div>
               )}
               <input
                 ref={fileInputRef}
                 type="file"
+                multiple
                 onChange={handleFileSelect}
                 className="hidden"
                 accept="image/*,audio/*,video/*,.pdf,.txt,.json,.csv,.doc,.docx,.md"
@@ -1577,7 +1914,7 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
                 ) : (
                   <button
                     onClick={handleSubmit}
-                    disabled={disabled || (!input.trim() && !attachment)}
+                    disabled={disabled || (!input.trim() && attachments.length === 0)}
                     className="px-3 py-2 rounded-lg bg-accent text-white hover:bg-accent-hover disabled:opacity-50 transition-colors text-xs font-medium shrink-0">
                     ส่ง
                   </button>

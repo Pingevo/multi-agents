@@ -26,7 +26,8 @@ interface ParsedTeam {
   name: string;
   description: string;
   manager_model: string;
-  agents: Array<{ name: string; role: string; goal: string; model: string }>;
+  agents: Array<{ name: string; role: string; goal: string; persona: string; tools: string[]; model: string }>;
+  cancelled?: boolean;
 }
 
 export const AICreateTeamModal: React.FC<AICreateTeamModalProps> = ({
@@ -47,12 +48,19 @@ export const AICreateTeamModal: React.FC<AICreateTeamModalProps> = ({
   thinkingText,
 }) => {
   const [input, setInput] = useState('');
-  const [parsedTeam, setParsedTeam] = useState<ParsedTeam | null>(null);
+  const [parsedTeams, setParsedTeams] = useState<ParsedTeam[]>([]);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [agentModelPickerOpen, setAgentModelPickerOpen] = useState<number | null>(null);
   const [agentModels, setAgentModels] = useState<Record<number, string>>({});
+  const [expandedAgent, setExpandedAgent] = useState<number | null>(null);
+  const [expandedManager, setExpandedManager] = useState(false);
+  const processedPlanIds = useRef<Set<string>>(new Set());
   const scrollRef = useRef<HTMLDivElement>(null);
   const modelBarRef = useRef<HTMLDivElement>(null);
+  const agentRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const managerRef = useRef<HTMLDivElement>(null);
+  const [managerModelPickerOpen, setManagerModelPickerOpen] = useState(false);
+  const [managerModel, setManagerModel] = useState('auto');
 
   const modalMessages = chatMessages.filter(
     (m) => m.messageType === 'text' || m.messageType === 'plan' || m.messageType === 'thinking' || m.messageType === 'thinking_done'
@@ -64,28 +72,34 @@ export const AICreateTeamModal: React.FC<AICreateTeamModalProps> = ({
     }
   }, [modalMessages.length, isThinking]);
 
-  // Try to parse team from latest AI plan message
+  // Parse team from NEW plan messages only (skip already processed)
   useEffect(() => {
-    const lastPlan = [...modalMessages].reverse().find((m) => m.messageType === 'plan' && m.role === 'assistant');
-    if (lastPlan && (lastPlan as any).planAgents) {
-      const planAgents = (lastPlan as any).planAgents || [];
+    const planMsgs = modalMessages.filter((m) => m.messageType === 'plan' && m.role === 'assistant');
+    for (const msg of planMsgs) {
+      const msgId = (msg as any).id || '';
+      if (!msgId || processedPlanIds.current.has(msgId)) continue;
+      processedPlanIds.current.add(msgId);
+      const planAgents = (msg as any).planAgents || [];
       const team: ParsedTeam = {
-        name: (lastPlan as any).teamName || '',
-        description: (lastPlan as any).teamDescription || '',
+        name: (msg as any).teamName || '',
+        description: (msg as any).teamDescription || '',
         manager_model: planAgents.length > 0 ? (planAgents[0] as any).model || 'auto' : 'auto',
         agents: planAgents.map((a: any) => ({
           name: a.name || '',
           role: a.role || '',
           goal: a.goal || '',
+          persona: a.persona || a.backstory || '',
+          tools: a.tools || [],
           model: a.model || 'auto',
         })),
       };
       if (team.name || team.agents.length > 0) {
-        setParsedTeam(team);
+        setParsedTeams(prev => [...prev, team]);
+        setManagerModel(team.manager_model);
         setAgentModels({});
       }
     }
-  }, [modalMessages]);
+  }, [chatMessages]);
 
   if (!open) return null;
 
@@ -95,28 +109,254 @@ export const AICreateTeamModal: React.FC<AICreateTeamModalProps> = ({
     setInput('');
   };
 
-  const handleConfirm = () => {
-    if (!parsedTeam) return;
-    const agents = parsedTeam.agents.map((a, i) => ({
+  const handleConfirm = (idx: number) => {
+    const team = parsedTeams[idx];
+    if (!team) return;
+    const agents = team.agents.map((a, i) => ({
       ...a,
       model: agentModels[i] || a.model,
     }));
     onCreateTeam({
-      name: parsedTeam.name,
-      description: parsedTeam.description,
-      manager_model: parsedTeam.manager_model,
+      name: team.name,
+      description: team.description,
+      manager_model: managerModel,
       agents,
     });
-    setParsedTeam(null);
+    setParsedTeams([]);
     setAgentModels({});
+    setExpandedAgent(null);
     setInput('');
     onClose();
   };
 
-  const handleCancelPreview = () => {
-    setParsedTeam(null);
-    setAgentModels({});
+  const handleCancelPreview = (idx: number) => {
+    setParsedTeams(prev => prev.map((t, i) => i === idx ? { ...t, cancelled: true } : t));
+    setExpandedAgent(null);
   };
+
+  const hasActivePreview = parsedTeams.some(t => !t.cancelled);
+
+  const renderTeamCard = (team: ParsedTeam, idx: number) => (
+    <div key={`preview-${idx}`} className={`rounded-xl p-4 mt-1 ${team.cancelled ? 'bg-surface-2/50 border border-border/50' : 'bg-accent/5 border border-accent/30'}`}>
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-xs font-medium uppercase tracking-wide" style={{ color: team.cancelled ? 'var(--text-3)' : 'var(--accent)' }}>
+          ตัวอย่างทีม {parsedTeams.length > 1 ? `#${idx + 1}` : ''}
+        </span>
+        {team.cancelled && (
+          <span className="text-[10px] text-text-3 flex items-center gap-1">
+            <XCircle className="w-3 h-3" />
+            ปรับแก้
+          </span>
+        )}
+      </div>
+
+      <h4 className="text-sm font-semibold text-text mb-1">{team.name}</h4>
+      {team.description && <p className="text-xs text-text-2 mb-2">{team.description}</p>}
+
+      {/* Manager Agent */}
+      <div className="mt-3 space-y-1.5">
+        <span className="text-[10px] text-text-3 uppercase">Manager</span>
+        <div ref={managerRef} className="relative">
+          {managerModelPickerOpen && !team.cancelled && (
+            <ModelPicker
+              recommended={modelCatalog}
+              searchResults={modelSearchResults}
+              selectedModel={managerModel}
+              onSelect={(modelId) => { setManagerModel(modelId); setManagerModelPickerOpen(false); }}
+              onSearch={(q) => onSearchModels?.(q)}
+              onClose={() => setManagerModelPickerOpen(false)}
+              anchorRef={managerRef}
+            />
+          )}
+          <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-bg border border-accent/20">
+            <div className="w-2 h-2 rounded-full bg-accent shrink-0" />
+            <span className="text-xs font-medium text-text">Manager</span>
+            <span className="text-[11px] text-text-3 truncate flex-1">— ประสานงานทีมและกระจายงาน</span>
+            <button
+              onClick={() => setExpandedManager(!expandedManager)}
+              className="text-[10px] text-text-3 hover:text-text transition-colors shrink-0"
+            >
+              {expandedManager ? '▲' : '▼'}
+            </button>
+            <button
+              onClick={() => {
+                if (managerModelPickerOpen) { setManagerModelPickerOpen(false); return; }
+                if (Object.keys(modelCatalog).length === 0 && onFetchModelCatalog) onFetchModelCatalog();
+                setManagerModelPickerOpen(true);
+              }}
+              disabled={team.cancelled}
+              className="text-[10px] px-1.5 py-0.5 rounded-full bg-surface-2 border border-border text-text-2 hover:text-text hover:border-accent/30 transition-colors shrink-0 disabled:opacity-50"
+            >
+              {managerModel || 'auto'}
+            </button>
+          </div>
+          {expandedManager && (
+            <div className="mt-2 pl-4 pr-2 space-y-1.5 border-t border-border/50 pt-2">
+              <div>
+                <span className="text-[9px] text-text-3 uppercase">Role</span>
+                <p className="text-[11px] text-text-2 leading-relaxed">Team Manager / Coordinator</p>
+              </div>
+              <div>
+                <span className="text-[9px] text-text-3 uppercase">Goal</span>
+                <p className="text-[11px] text-text-2 leading-relaxed">ประสานงานระหว่าง agent ในทีม กระจายงาน และสรุปผลลัพธ์</p>
+              </div>
+              <div>
+                <span className="text-[9px] text-text-3 uppercase">Persona</span>
+                <p className="text-[11px] text-text-3">—</p>
+              </div>
+              <div className="grid grid-cols-3 gap-2 pt-1 border-t border-border/30">
+                <div>
+                  <span className="text-[9px] text-text-3 uppercase">Tone</span>
+                  <p className="text-[11px] text-text-3">—</p>
+                </div>
+                <div>
+                  <span className="text-[9px] text-text-3 uppercase">Style</span>
+                  <p className="text-[11px] text-text-3">—</p>
+                </div>
+                <div>
+                  <span className="text-[9px] text-text-3 uppercase">Language</span>
+                  <p className="text-[11px] text-text-3">—</p>
+                </div>
+              </div>
+              <div>
+                <span className="text-[9px] text-text-3 uppercase">Expertise</span>
+                <p className="text-[11px] text-text-3">—</p>
+              </div>
+              <div>
+                <span className="text-[9px] text-text-3 uppercase">Brand Context</span>
+                <p className="text-[11px] text-text-3">—</p>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Worker Agents */}
+      {team.agents.length > 0 && (
+        <div className="mt-3 space-y-1.5">
+          <span className="text-[10px] text-text-3 uppercase">Agents ({team.agents.length})</span>
+          {team.agents.map((agent, i) => (
+            <div key={i} ref={(el) => { agentRefs.current[i] = el; }} className="relative">
+              {agentModelPickerOpen === i && !team.cancelled && (
+                <ModelPicker
+                  recommended={modelCatalog}
+                  searchResults={modelSearchResults}
+                  selectedModel={agentModels[i] || agent.model}
+                  onSelect={(modelId) => { setAgentModels(prev => ({ ...prev, [i]: modelId })); setAgentModelPickerOpen(null); }}
+                  onSearch={(q) => onSearchModels?.(q)}
+                  onClose={() => setAgentModelPickerOpen(null)}
+                  anchorRef={{ current: agentRefs.current[i] }}
+                />
+              )}
+              <div className="px-2.5 py-1.5 rounded-lg bg-bg">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-accent/50 shrink-0" />
+                  <span className="text-xs font-medium text-text">{agent.name}</span>
+                  <span className="text-[11px] text-text-3 truncate flex-1">— {agent.role}</span>
+                  {agent.tools.length > 0 && (
+                    <span className="text-[9px] px-1.5 py-0.5 bg-accent/10 text-accent rounded-full shrink-0">
+                      {agent.tools.length} tools
+                    </span>
+                  )}
+                  <button
+                    onClick={() => setExpandedAgent(expandedAgent === i ? null : i)}
+                    className="text-[10px] text-text-3 hover:text-text transition-colors shrink-0"
+                  >
+                    {expandedAgent === i ? '▲' : '▼'}
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (agentModelPickerOpen === i) { setAgentModelPickerOpen(null); return; }
+                      if (Object.keys(modelCatalog).length === 0 && onFetchModelCatalog) onFetchModelCatalog();
+                      setAgentModelPickerOpen(i);
+                    }}
+                    disabled={team.cancelled}
+                    className="text-[10px] px-1.5 py-0.5 rounded-full bg-surface-2 border border-border text-text-2 hover:text-text hover:border-accent/30 transition-colors shrink-0 disabled:opacity-50"
+                  >
+                    {agentModels[i] || agent.model || 'auto'}
+                  </button>
+                </div>
+                {expandedAgent === i && (
+                  <div className="mt-2 pl-4 pr-2 space-y-1.5 border-t border-border/50 pt-2">
+                    <div>
+                      <span className="text-[9px] text-text-3 uppercase">Goal</span>
+                      <p className="text-[11px] text-text-2 leading-relaxed">{agent.goal || '—'}</p>
+                    </div>
+                    <div>
+                      <span className="text-[9px] text-text-3 uppercase">Persona</span>
+                      <p className="text-[11px] text-text-2 leading-relaxed">{agent.persona || '—'}</p>
+                    </div>
+                    <div>
+                      <span className="text-[9px] text-text-3 uppercase">Tools</span>
+                      {agent.tools.length > 0 ? (
+                        <div className="flex flex-wrap gap-1 mt-0.5">
+                          {agent.tools.map((tool, ti) => (
+                            <span key={ti} className="text-[9px] px-1.5 py-0.5 bg-surface-2 border border-border text-text-2 rounded">
+                              {tool}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-[11px] text-text-3">—</p>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 pt-1 border-t border-border/30">
+                      <div>
+                        <span className="text-[9px] text-text-3 uppercase">Tone</span>
+                        <p className="text-[11px] text-text-3">—</p>
+                      </div>
+                      <div>
+                        <span className="text-[9px] text-text-3 uppercase">Style</span>
+                        <p className="text-[11px] text-text-3">—</p>
+                      </div>
+                      <div>
+                        <span className="text-[9px] text-text-3 uppercase">Language</span>
+                        <p className="text-[11px] text-text-3">—</p>
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-[9px] text-text-3 uppercase">Expertise</span>
+                      <p className="text-[11px] text-text-3">—</p>
+                    </div>
+                    <div>
+                      <span className="text-[9px] text-text-3 uppercase">Brand Context</span>
+                      <p className="text-[11px] text-text-3">—</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="mt-3 flex gap-2">
+        {team.cancelled ? (
+          <div className="flex-1 flex items-center justify-center gap-2 py-2 bg-surface-2 text-text-3 border border-border rounded-lg text-sm">
+            <XCircle className="w-4 h-4" />
+            ปรับแก้ — พิมพ์สิ่งที่ต้องการเปลี่ยนด้านล่าง
+          </div>
+        ) : (
+          <>
+            <button
+              onClick={() => handleConfirm(idx)}
+              className="flex-1 flex items-center justify-center gap-2 py-2 bg-accent text-white rounded-lg text-sm font-medium hover:bg-accent/90 transition-colors"
+            >
+              <Check className="w-4 h-4" />
+              สร้างทีมนี้
+            </button>
+            <button
+              onClick={() => handleCancelPreview(idx)}
+              className="flex items-center justify-center gap-1.5 px-3 py-2 bg-surface-2 text-text-2 border border-border rounded-lg text-sm hover:text-text hover:border-border/80 transition-colors"
+            >
+              <XCircle className="w-4 h-4" />
+              ปรับแก้
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={onClose}>
@@ -173,7 +413,7 @@ export const AICreateTeamModal: React.FC<AICreateTeamModalProps> = ({
               return <Cpu className={`w-3.5 h-3.5 shrink-0 ${modelPickerOpen ? 'text-accent' : ''}`} />;
             })()}
             <span className="text-[10px] font-medium text-text flex-1 truncate">
-              {selectedModel || resolvedModel ? findModelName(selectedModel || resolvedModel || '', modelCatalog, modelSearchResults) : 'Auto Router'}
+              {selectedModel || resolvedModel ? findModelName(selectedModel || resolvedModel || '', modelCatalog, modelSearchResults) : 'Free Router'}
             </span>
             <span className={`text-[9px] px-1.5 py-0.5 rounded-full shrink-0 ${selectedModel ? 'bg-accent/15 text-accent' : 'bg-emerald-500/15 text-emerald-500'}`}>
               {selectedModel ? 'Manual' : 'Auto'}
@@ -199,6 +439,29 @@ export const AICreateTeamModal: React.FC<AICreateTeamModalProps> = ({
                   <div className="bg-surface-2 border border-border rounded-lg px-3 py-2 max-w-[80%]">
                     <p className="text-xs text-text-3 italic">{thinkingText || 'Thinking...'}</p>
                   </div>
+                </div>
+              );
+            }
+            if (msg.messageType === 'plan' && msg.role === 'assistant') {
+              const planMsg = msg as any;
+              const teamLabel = planMsg.teamName || 'ทีมใหม่';
+              const agentCount = (planMsg.planAgents || []).length;
+              const planMsgs = modalMessages.filter((m: any) => m.messageType === 'plan' && m.role === 'assistant');
+              const teamIdx = planMsgs.indexOf(msg);
+              const isCancelled = teamIdx >= 0 && parsedTeams[teamIdx]?.cancelled;
+              const team = teamIdx >= 0 ? parsedTeams[teamIdx] : null;
+              return (
+                <div key={i}>
+                  <div className="flex justify-start">
+                    <div className="bg-surface-2 border border-border rounded-lg px-3 py-2 max-w-[80%]">
+                      <p className="text-sm text-text">
+                        {isCancelled
+                          ? `ปรับแก้ทีม "${teamLabel}" — พิมพ์สิ่งที่ต้องการเปลี่ยนด้านล่าง`
+                          : `AI เสนอทีม "${teamLabel}" (${agentCount} agent${agentCount > 1 ? 's' : ''}) — ดูรายละเอียดด้านล่าง`}
+                      </p>
+                    </div>
+                  </div>
+                  {team && renderTeamCard(team, teamIdx)}
                 </div>
               );
             }
@@ -230,102 +493,47 @@ export const AICreateTeamModal: React.FC<AICreateTeamModalProps> = ({
             </div>
           )}
 
-          {/* Team preview */}
-          {parsedTeam && (
-            <div className="bg-accent/5 border border-accent/30 rounded-xl p-4 mt-3">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-xs font-medium text-accent uppercase tracking-wide">ตัวอย่างทีม</span>
-              </div>
-
-              <h4 className="text-sm font-semibold text-text mb-1">{parsedTeam.name}</h4>
-              {parsedTeam.description && <p className="text-xs text-text-2 mb-2">{parsedTeam.description}</p>}
-
-              {parsedTeam.agents.length > 0 && (
-                <div className="mt-3 space-y-1.5">
-                  <span className="text-[10px] text-text-3 uppercase">Agents ({parsedTeam.agents.length})</span>
-                  {parsedTeam.agents.map((agent, i) => (
-                    <div key={i} className="relative">
-                      {agentModelPickerOpen === i && (
-                        <ModelPicker
-                          recommended={modelCatalog}
-                          searchResults={modelSearchResults}
-                          selectedModel={agentModels[i] || agent.model}
-                          onSelect={(modelId) => { setAgentModels(prev => ({ ...prev, [i]: modelId })); setAgentModelPickerOpen(null); }}
-                          onSearch={(q) => onSearchModels?.(q)}
-                          onClose={() => setAgentModelPickerOpen(null)}
-                        />
-                      )}
-                      <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-bg">
-                        <div className="w-2 h-2 rounded-full bg-accent/50 shrink-0" />
-                        <span className="text-xs font-medium text-text">{agent.name}</span>
-                        <span className="text-[11px] text-text-3 truncate flex-1">— {agent.role}</span>
-                        <button
-                          onClick={() => {
-                            if (agentModelPickerOpen === i) { setAgentModelPickerOpen(null); return; }
-                            if (Object.keys(modelCatalog).length === 0 && onFetchModelCatalog) onFetchModelCatalog();
-                            setAgentModelPickerOpen(i);
-                          }}
-                          className="text-[10px] px-1.5 py-0.5 rounded-full bg-surface-2 border border-border text-text-2 hover:text-text hover:border-accent/30 transition-colors shrink-0"
-                        >
-                          {agentModels[i] || agent.model || 'auto'}
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <div className="mt-3 flex gap-2">
-                <button
-                  onClick={handleConfirm}
-                  className="flex-1 flex items-center justify-center gap-2 py-2 bg-accent text-white rounded-lg text-sm font-medium hover:bg-accent/90 transition-colors"
-                >
-                  <Check className="w-4 h-4" />
-                  สร้างทีมนี้
-                </button>
-                <button
-                  onClick={handleCancelPreview}
-                  className="flex items-center justify-center gap-1.5 px-3 py-2 bg-surface-2 text-text-2 border border-border rounded-lg text-sm hover:text-text hover:border-border/80 transition-colors"
-                >
-                  <XCircle className="w-4 h-4" />
-                  ยกเลิก
-                </button>
-              </div>
-            </div>
-          )}
+          {/* Team previews for plan messages without a matching plan in modalMessages (shouldn't happen, but fallback) */}
+          {parsedTeams.filter((t, idx) => {
+            const planMsgs = modalMessages.filter((m: any) => m.messageType === 'plan' && m.role === 'assistant');
+            return idx >= planMsgs.length;
+          }).map((team, fi) => {
+            const actualIdx = parsedTeams.indexOf(team);
+            return renderTeamCard(team, actualIdx);
+          })}
         </div>
 
-        {/* Input — disabled when team preview is shown */}
+        {/* Input — always visible, disabled only when there's an active (non-cancelled) preview */}
         <div className="px-5 py-3 border-t border-border shrink-0">
-          {parsedTeam ? (
-            <p className="text-xs text-text-3 text-center py-2">กด "สร้างทีมนี้" เพื่อยืนยัน หรือ "ยกเลิก" เพื่อพิมพ์ prompt ใหม่</p>
-          ) : (
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-                placeholder="อธิบายทีมที่คุณต้องการ..."
-                className="flex-1 px-3 py-2 bg-bg border border-border rounded-lg text-sm text-text placeholder-text-3 focus:outline-none focus:ring-2 focus:ring-accent/50"
-              />
-              {isThinking && onStop ? (
-                <button
-                  onClick={onStop}
-                  className="px-3 py-2 bg-error text-white rounded-lg text-sm font-medium hover:bg-error/90 transition-colors"
-                >
-                  หยุด
-                </button>
-              ) : (
-                <button
-                  onClick={handleSend}
-                  disabled={!input.trim()}
-                  className="p-2 bg-accent text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent/90 transition-colors"
-                >
-                  <Send className="w-4 h-4" />
-                </button>
-              )}
-            </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+              placeholder="อธิบายทีมที่คุณต้องการ..."
+              disabled={hasActivePreview}
+              className="flex-1 px-3 py-2 bg-bg border border-border rounded-lg text-sm text-text placeholder-text-3 focus:outline-none focus:ring-2 focus:ring-accent/50 disabled:opacity-50"
+            />
+            {isThinking && onStop ? (
+              <button
+                onClick={onStop}
+                className="px-3 py-2 bg-error text-white rounded-lg text-sm font-medium hover:bg-error/90 transition-colors"
+              >
+                หยุด
+              </button>
+            ) : (
+              <button
+                onClick={handleSend}
+                disabled={!input.trim() || hasActivePreview}
+                className="p-2 bg-accent text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent/90 transition-colors"
+              >
+                <Send className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+          {hasActivePreview && (
+            <p className="text-[10px] text-text-3 text-center mt-1.5">กด "สร้างทีมนี้" เพื่อยืนยัน หรือ "ยกเลิก" เพื่อพิมพ์ prompt ใหม่</p>
           )}
         </div>
       </div>

@@ -128,7 +128,7 @@ class System81AuthProvider(AuthProvider):
         """Return the URL to redirect the user to the System81 login page."""
         redirect_uri = os.getenv(
             "SELLERCENTER_OAUTH_REDIRECT_URI",
-            "http://localhost:5173/",
+            "http://localhost:8000/",
         )
         params: dict[str, str] = {
             "app_name": self.app_name,

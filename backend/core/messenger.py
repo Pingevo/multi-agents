@@ -13,12 +13,13 @@ from backend.agents.registry import AgentRegistry
 from backend.agents.tool_registry import ToolRegistry
 from backend.agents.team_registry import TeamRegistry
 from backend.llm.manager import LLMManager
+from backend.credit_logger import log_credit_snapshot
 from schemas import (
     PlanAgentItem, ResultAgentItem, AgentProgressEntry,
     ChatReplyText, ChatReplyPlanValidationError, ChatReplyPlan, ChatReplyProgress,
     ChatReplyAgentProgress, ChatReplyResult, ChatReplyImageApproval, ChatReplyImageResult,
     ChatReplyAudioResult, ChatReplyTranscriptionResult, ChatReplyVideoResult, ChatReplyFileResult,
-    ChatReplyModelCatalog, ModelCatalogItem, chat_reply,
+    ChatReplyModelCatalog, ModelCatalogItem, ChatReplyAgentReview, chat_reply,
 )
 
 class StateMessenger:
@@ -91,8 +92,10 @@ class StateMessenger:
             for a in agents
         ]
 
-    async def _send(self):
+    async def _send(self, trigger: str = "update"):
         self.state["credits"] = self._fetch_credits()
+        if self.state["credits"] and trigger in ("poll", "refresh"):
+            log_credit_snapshot(self.state["credits"], trigger)
         payload = {
             "type": "platform_state",
             "payload": self.state,
@@ -138,6 +141,7 @@ class StateMessenger:
 
     async def reply_thinking(self, chunk: str, thinking_id: str = "thinking"):
         """Send a streaming thinking chunk to the frontend."""
+        print(f"[DEBUG-THINKING] reply_thinking chunk='{chunk[:20]}', id={thinking_id}", flush=True)
         payload = {
             "type": "chat_reply",
             "payload": {
@@ -150,6 +154,7 @@ class StateMessenger:
 
     async def reply_thinking_done(self, thinking_id: str = "thinking"):
         """Signal that thinking stream is complete."""
+        print(f"[DEBUG-THINKING] reply_thinking_done id={thinking_id}", flush=True)
         payload = {
             "type": "chat_reply",
             "payload": {
@@ -159,7 +164,7 @@ class StateMessenger:
         }
         await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
 
-    async def reply_plan(self, agents: list[dict], task_description: str, plan_type: str = "new", image_model: str = "", video_model: str = "", search_model: str = "", tts_model: str = "", stt_model: str = "", vision_model: str = "", has_image_tool: bool = False, has_video_tool: bool = False, has_search_tool: bool = False, has_tts_tool: bool = False, has_stt_tool: bool = False, has_vision_tool: bool = False, manager_model: str = "", agent_specs: list = None, model_assignment: dict = None, current_input: str = "", team_name: str = "", team_description: str = ""):
+    async def reply_plan(self, agents: list[dict], task_description: str, plan_type: str = "new", image_model: str = "", video_model: str = "", search_model: str = "", tts_model: str = "", stt_model: str = "", vision_model: str = "", has_image_tool: bool = False, has_video_tool: bool = False, has_search_tool: bool = False, has_tts_tool: bool = False, has_stt_tool: bool = False, has_vision_tool: bool = False, has_vision_input: bool = False, manager_model: str = "", agent_specs: list = None, model_assignment: dict = None, current_input: str = "", team_name: str = "", team_description: str = ""):
         """Send a plan card as a chat message"""
         self.state["notifications"] = []
         await self._send()
@@ -168,6 +173,10 @@ class StateMessenger:
                 name=a.get("name", "Unnamed"),
                 role=a.get("role", ""),
                 goal=a.get("goal", ""),
+                persona=a.get("persona", a.get("backstory", "")),
+                personality=a.get("personality", {}),
+                expertise=a.get("expertise", []),
+                brand_context=a.get("brand_context", {}),
                 tools=a.get("tools", []),
                 depends_on=a.get("depends_on", []),
                 is_existing=a.get("is_existing", False),
@@ -197,6 +206,7 @@ class StateMessenger:
             hasTtsTool=has_tts_tool,
             hasSttTool=has_stt_tool,
             hasVisionTool=has_vision_tool,
+            hasVisionInput=has_vision_input,
             managerModel=manager_model,
             estimatedCost=estimated_cost,
         ))
@@ -222,7 +232,7 @@ class StateMessenger:
         free_count = 0
         paid_count = 0
         for m in all_models:
-            if ":free" in m or m == "openrouter/free" or m == "openrouter/auto":
+            if ":free" in m or m == "openrouter/free":
                 free_count += 1
             else:
                 paid_count += 1
@@ -274,6 +284,10 @@ class StateMessenger:
                 current_tool=a.get("current_tool", ""),
                 tool_description=a.get("tool_description", ""),
                 model=a.get("model", ""),
+                review_round=a.get("review_round", 0),
+                review_summary=a.get("review_summary", ""),
+                review_feedback=a.get("review_feedback", ""),
+                review_history=a.get("review_history", []),
             )
             for a in agents_progress
         ]
@@ -333,6 +347,42 @@ class StateMessenger:
         ))
         await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
         self.persist_message({"role": "assistant", "messageType": "image_approval", "imagePrompt": prompt, "approvalId": approval_id, "agentName": agent_name, "mediaType": media_type, "duration": duration, "model": model, "approvalStatus": approval_status, "imageError": image_error})
+
+    async def reply_agent_review(self, review_id: str, task_id: str, agent_name: str, agent_role: str, output: str, review_status: str = "pending"):
+        """Send a per-agent review card — user must approve before dependents can start"""
+        payload = chat_reply(ChatReplyAgentReview(
+            reviewId=review_id,
+            taskId=task_id,
+            agentName=agent_name,
+            agentRole=agent_role,
+            output=output[:8000],
+            reviewStatus=review_status,
+        ))
+        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
+        self.persist_message({"role": "assistant", "messageType": "agent_review", "reviewId": review_id, "taskId": task_id, "agentName": agent_name, "agentRole": agent_role, "output": output[:8000], "reviewStatus": review_status})
+
+    async def update_agent_review_status(self, review_id: str, status: str):
+        """Update the reviewStatus of an agent_review message in the current session"""
+        if not self.current_session_id:
+            return
+        session = self.chat_store.get_session(self.current_session_id)
+        if not session:
+            return
+        for msg in session.get("messages", []):
+            if msg.get("messageType") == "agent_review" and msg.get("reviewId") == review_id:
+                msg["reviewStatus"] = status
+                self.chat_store._save()
+                # Send socket message so frontend updates consistently
+                payload = chat_reply(ChatReplyAgentReview(
+                    reviewId=review_id,
+                    taskId=msg.get("taskId", ""),
+                    agentName=msg.get("agentName", ""),
+                    agentRole=msg.get("agentRole", ""),
+                    output=msg.get("output", ""),
+                    reviewStatus=status,
+                ))
+                await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
+                break
 
     async def reply_image_result(self, image_url: str, prompt: str, approval_id: str, task_id: str | None = None, media_type: str = "image", agent_name: str = ""):
         """Send a generated media result (image or video)"""
@@ -469,9 +519,12 @@ class StateMessenger:
         }
         await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
 
-    async def reply_chat_sessions(self):
-        """Send list of all chat sessions"""
-        sessions = self.chat_store.list_sessions()
+    async def reply_chat_sessions(self, team_id: str | None = None):
+        """Send list of chat sessions, optionally filtered by team"""
+        if team_id is not None:
+            sessions = self.chat_store.list_sessions(team_id=team_id, include_unassigned=True)
+        else:
+            sessions = self.chat_store.list_sessions()
         session_list = [
             {"id": s["id"], "title": s["title"], "updated_at": s.get("updated_at", "")}
             for s in sessions

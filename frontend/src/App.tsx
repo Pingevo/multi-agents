@@ -9,7 +9,7 @@ import { TeamCreateModal } from './components/TeamCreateModal';
 import { AICreateTeamModal } from './components/AICreateTeamModal';
 import type { ChatMessage, ActivityEntry, PlanAgent } from './components/chatTypes';
 import type { ChatSession } from './components/ChatSidebar';
-import type { ChatReplyEnvelope, ChatReplyPayload, ChatReplyPlan } from './schemas/messages';
+import type { ChatReplyEnvelope, ChatReplyPayload, ChatReplyPlan, ChatReplyAgentReview } from './schemas/messages';
 import type { Agent, Plan } from './types/platform';
 import type { Team } from './types/team';
 
@@ -82,6 +82,7 @@ const parseChatReply = (message: any): Omit<ChatMessage, 'id' | 'timestamp'> | n
           hasTtsTool: planP.hasTtsTool || false,
           hasSttTool: planP.hasSttTool || false,
           hasVisionTool: planP.hasVisionTool || false,
+          hasVisionInput: planP.hasVisionInput || false,
           managerModel: planP.managerModel || '',
         };
       }
@@ -244,6 +245,22 @@ const parseChatReply = (message: any): Omit<ChatMessage, 'id' | 'timestamp'> | n
         };
       }
 
+      // Agent review card
+      if (msgType === 'agent_review') {
+        const rp = p as ChatReplyAgentReview;
+        // Update existing review message if same reviewId, else add new
+        return {
+          role: 'assistant',
+          content: rp.output || '',
+          messageType: 'agent_review',
+          reviewId: rp.reviewId || '',
+          reviewTaskId: rp.taskId || '',
+          agentName: rp.agentName || '',
+          agentRole: rp.agentRole || '',
+          reviewStatus: rp.reviewStatus || 'pending',
+        };
+      }
+
       // Default: text reply
       return {
         role: 'assistant',
@@ -332,6 +349,9 @@ const parseChatSessionMessage = (message: any): { sessions: ChatSession[]; curre
           visionModel: m.visionModel,
           managerModel: m.managerModel,
           tuningProposals: m.proposals,
+          attachmentUrl: m.attachmentUrl,
+          attachmentName: m.attachmentName,
+          attachmentMime: m.attachmentMime,
         }));
         return { messages, canvasState: p.canvasState || null, selectedModel: p.selectedModel || '' };
       }
@@ -370,6 +390,7 @@ function AppContent() {
   const [modelCatalogData, setModelCatalogData] = useState<{ recommended: Record<string, any[]>; searchResults: any[]; mediaCatalog: Record<string, any[]>; mediaSearchResults: any[] }>({ recommended: {}, searchResults: [], mediaCatalog: {}, mediaSearchResults: [] });
   const socketRef = useRef<Socket | null>(null);
   const prevNotificationsRef = useRef<string[]>([]);
+  const stoppedRef = useRef(false);
 
   const addChatMessage = useCallback((msg: Omit<ChatMessage, 'id' | 'timestamp'>) => {
     setChatMessages((prev) => {
@@ -392,6 +413,25 @@ function AppContent() {
         if (existingIdx >= 0) {
           const updated = [...prev];
           updated[existingIdx] = { ...updated[existingIdx], ...msg, id: updated[existingIdx].id, timestamp: updated[existingIdx].timestamp };
+          return updated;
+        }
+      }
+      // Update existing agent_review message by reviewId instead of appending
+      if (msg.messageType === 'agent_review' && msg.reviewId) {
+        const existingIdx = prev.findIndex(
+          (m) => m.messageType === 'agent_review' && m.reviewId === msg.reviewId
+        );
+        if (existingIdx >= 0) {
+          const updated = [...prev];
+          // If incoming output is empty, preserve existing content
+          const incomingOutput = msg.content || '';
+          updated[existingIdx] = {
+            ...updated[existingIdx],
+            ...msg,
+            content: incomingOutput || updated[existingIdx].content || '',
+            id: updated[existingIdx].id,
+            timestamp: updated[existingIdx].timestamp,
+          };
           return updated;
         }
       }
@@ -491,6 +531,10 @@ function AppContent() {
       // Check for chat reply
       const reply = parseChatReply(message);
       if (reply) {
+        // Ignore in-flight progress messages after user clicked stop
+        if (stoppedRef.current && (reply.messageType === 'progress' || reply.messageType === 'agent_progress' || reply.messageType === 'thinking' || reply.messageType === 'thinking_done')) {
+          return;
+        }
         // Intercept template/scheduled data messages
         if (reply.messageType === 'text' && reply.content) {
           try {
@@ -541,6 +585,7 @@ function AppContent() {
           setThinkingDuration(null);
           setThinkingText(prev => (prev || '') + (reply.content || ''));
           setIsProcessing(true);
+          setIsThinking(true);
           return;
         }
         if (reply.messageType === 'thinking_done') {
@@ -549,15 +594,23 @@ function AppContent() {
             thinkingStartRef.current = null;
           }
           setIsThinking(false);
+          console.log('[DEBUG-THINKING] setIsThinking(false) in thinking_done');
           return;
         }
 
         addChatMessage(reply);
         clearActivity();
 
+        // Refresh credits after any LLM activity or during agent progress
+        if (reply.messageType === 'agent_progress' || reply.messageType === 'progress' ||
+            reply.messageType === 'result' || reply.messageType === 'text' ||
+            reply.messageType === 'plan') {
+          sendAction('refresh_credits');
+        }
+
         // Set isProcessing based on message type — only false for terminal types
         const TERMINAL_TYPES = ['result', 'text', 'plan', 'plan_validation_error', 'image_result', 'audio_result', 'video_result', 'file_result', 'transcription_result', 'tuning_proposal'];
-        if (reply.messageType === 'agent_progress' || reply.messageType === 'progress') {
+        if (reply.messageType === 'agent_progress' || reply.messageType === 'progress' || reply.messageType === 'agent_review') {
           setIsProcessing(true);
         } else if (TERMINAL_TYPES.includes(reply.messageType)) {
           setIsProcessing(false);
@@ -640,7 +693,8 @@ function AppContent() {
         const payloadTasks = payload.tasks || [];
         const hasRunning = payloadTasks.some((t: any) => t.status === 'running');
         const hasPendingApprovals = chatMessages.some((m: ChatMessage) => m.messageType === 'image_approval' && m.approvalStatus === 'pending');
-        if (!hasRunning && !hasPendingApprovals) {
+        const hasPendingReviews = chatMessages.some((m: ChatMessage) => m.messageType === 'agent_review' && m.reviewStatus === 'pending');
+        if (!hasRunning && !hasPendingApprovals && !hasPendingReviews) {
           clearActivity();
           setIsProcessing(false);
         }
@@ -650,7 +704,13 @@ function AppContent() {
     socket.on('new_message', handleStateMessage);
     socket.on('update_message', handleStateMessage);
 
+    // Poll credits every 15 seconds for more real-time updates
+    const creditInterval = setInterval(() => {
+      sendAction('refresh_credits');
+    }, 15000);
+
     return () => {
+      clearInterval(creditInterval);
       socket.disconnect();
     };
   }, [updateState, isAuthenticated, token]);
@@ -665,6 +725,7 @@ function AppContent() {
     setThinkingDuration(null);
     thinkingStartRef.current = Date.now();
     setIsThinking(true);
+    console.log('[DEBUG-THINKING] setIsThinking(true) in sendMessage');
     const message = {
       id: generateUUIDv4(),
       name: 'User',
@@ -709,44 +770,52 @@ function AppContent() {
   }, []);
 
   const handleSendCommand = useCallback(
-    async (message: string, attachment?: { url: string; name: string; mime: string }) => {
-      let attachmentUrl = attachment?.url;
+    async (message: string, attachments?: Array<{ url: string; name: string; mime: string }>) => {
+      const uploadedAttachments: Array<{ url: string; name: string; mime: string }> = [];
 
-      if (attachment && attachmentUrl) {
-        try {
-          const res = await fetch(`${BACKEND_URL}/api/upload`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              file_data: attachment.url,
-              file_name: attachment.name,
-              file_mime: attachment.mime,
-            }),
-          });
-          const data = await res.json();
-          if (data.url) {
-            attachmentUrl = `${BACKEND_URL}${data.url}`;
-          } else {
-            console.error('Upload failed:', data.error);
+      if (attachments && attachments.length > 0) {
+        for (const att of attachments) {
+          try {
+            const res = await fetch(`${BACKEND_URL}/api/upload`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                file_data: att.url,
+                file_name: att.name,
+                file_mime: att.mime,
+              }),
+            });
+            const data = await res.json();
+            if (data.url) {
+              uploadedAttachments.push({ url: `${BACKEND_URL}${data.url}`, name: att.name, mime: att.mime });
+            } else {
+              console.error('Upload failed:', data.error);
+              uploadedAttachments.push(att);
+            }
+          } catch (e) {
+            console.error('Upload error:', e);
+            uploadedAttachments.push(att);
           }
-        } catch (e) {
-          console.error('Upload error:', e);
         }
       }
 
-      const messageToSend = attachmentUrl
-        ? `${message}\n\n[ATTACHMENT|${attachmentUrl}|${attachment.name}|${attachment.mime}]`
+      const attachmentParts = uploadedAttachments.map(
+        (att) => `[ATTACHMENT|${att.url}|${att.name}|${att.mime}]`
+      );
+      const messageToSend = attachmentParts.length > 0
+        ? `${message}\n\n${attachmentParts.join('\n')}`
         : message;
       const prefixed = `__mode:${inputMode}__\n${messageToSend}`;
       addChatMessage({
         role: 'user',
         content: message,
-        attachmentUrl: attachmentUrl || attachment?.url,
-        attachmentName: attachment?.name,
-        attachmentMime: attachment?.mime,
+        attachmentUrl: uploadedAttachments[0]?.url,
+        attachmentName: uploadedAttachments[0]?.name,
+        attachmentMime: uploadedAttachments[0]?.mime,
       });
       clearActivity();
       setIsProcessing(true);
+      stoppedRef.current = false;
       sendMessage(prefixed);
     },
     [sendMessage, addChatMessage, addActivity, clearActivity, updateState, inputMode]
@@ -820,6 +889,27 @@ function AppContent() {
               : m
           )
         );
+      } else if (name === 'approve_agent_result') {
+        const reviewId = payload?.review_id;
+        setChatMessages((prev) =>
+          prev.map((m) =>
+            m.messageType === 'agent_review' && m.reviewId === reviewId
+              ? { ...m, reviewStatus: 'approved' }
+              : m
+          )
+        );
+        addActivity('Agent output approved — downstream agents can proceed');
+      } else if (name === 'reject_agent_result') {
+        const reviewId = payload?.review_id;
+        setChatMessages((prev) =>
+          prev.map((m) =>
+            m.messageType === 'agent_review' && m.reviewId === reviewId
+              ? { ...m, reviewStatus: 'rejected' }
+              : m
+          )
+        );
+        setIsProcessing(true);
+        addActivity('Agent output rejected — re-running with feedback...');
       } else if (name === 'retry_image') {
         const approvalId = payload?.approval_id;
         setChatMessages((prev) =>
@@ -885,10 +975,13 @@ function AppContent() {
   );
 
   const handleStop = useCallback(() => {
+    stoppedRef.current = true;
     sendMessage(JSON.stringify({ type: 'action', name: 'stop_generation', payload: {} }));
     setIsProcessing(false);
     setAiIsThinking(false);
     setAiThinkingText('');
+    setThinkingText('');
+    setIsThinking(false);
     addActivity('Stopped');
   }, [sendMessage, addActivity]);
 
@@ -938,7 +1031,7 @@ function AppContent() {
         />
         <AICreateTeamModal
           open={showAICreateModal}
-          onClose={() => { setShowAICreateModal(false); setAiChatMessages([]); setAiThinkingText(''); }}
+          onClose={() => { setShowAICreateModal(false); setAiThinkingText(''); handleAction('refresh_credits'); }}
           onSend={(msg) => {
             setAiChatMessages(prev => [...prev, { id: generateUUIDv4(), timestamp: Date.now(), role: 'user', content: msg, messageType: 'text' }]);
             setAiIsThinking(true);

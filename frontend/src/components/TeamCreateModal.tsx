@@ -226,7 +226,7 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
                     return <Cpu className={`w-3.5 h-3.5 shrink-0 ${modelPickerOpen ? 'text-accent' : ''}`} />;
                   })()}
                   <span className="text-sm font-medium text-text flex-1 truncate">
-                    {displayModel ? findModelName(displayModel, modelCatalog, modelSearchResults) : 'Auto Router'}
+                    {displayModel ? findModelName(displayModel, modelCatalog, modelSearchResults) : 'Free Router'}
                   </span>
                   <span className={`text-[9px] px-1.5 py-0.5 rounded-full shrink-0 ${managerModel ? 'bg-accent/15 text-accent' : 'bg-emerald-500/15 text-emerald-500'}`}>
                     {managerModel ? 'Manual' : 'Auto'}
@@ -378,7 +378,7 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
                             return <Cpu className={`w-3 h-3 shrink-0 ${agentModelPickerIdx === idx ? 'text-accent' : ''}`} />;
                           })()}
                           <span className="text-xs font-medium text-text flex-1 truncate">
-                            {agent.model ? findModelName(agent.model, modelCatalog, modelSearchResults) : 'Auto Router'}
+                            {agent.model ? findModelName(agent.model, modelCatalog, modelSearchResults) : 'Free Router'}
                           </span>
                           <span className={`text-[8px] px-1 py-0.5 rounded-full shrink-0 ${agent.model ? 'bg-accent/15 text-accent' : 'bg-emerald-500/15 text-emerald-500'}`}>
                             {agent.model ? 'Manual' : 'Auto'}

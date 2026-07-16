@@ -48,7 +48,7 @@ class AgentRegistry:
             "name": name,
             "role": role,
             "goal": spec.get("goal", ""),
-            "persona": spec.get("backstory", spec.get("persona", "")),
+            "persona": spec.get("persona", spec.get("backstory", "")),
             "personality": spec.get("personality", {
                 "tone": "",
                 "communication_style": "",
@@ -77,15 +77,34 @@ class AgentRegistry:
     def find_idle_agent(self, required_role: str, required_tools: list[str]) -> dict | None:
         required_role_lower = required_role.lower() if required_role else ""
         for agent in self.agents:
-            if agent.get("status") != "Idle":
-                continue
             if agent.get("is_manager"):
                 continue
             # 1) Exact tools match has highest priority
             if required_tools and all(t in agent.get("tools", []) for t in required_tools):
+                if agent.get("status") == "Busy":
+                    agent["status"] = "Idle"
+                    self._save()
                 return agent
             # 2) Role keyword match
             if required_role_lower and required_role_lower in agent.get("role", "").lower():
+                if agent.get("status") == "Busy":
+                    agent["status"] = "Idle"
+                    self._save()
+                return agent
+        return None
+
+    def find_by_name(self, name: str) -> dict | None:
+        """Find agent by name (case-insensitive). Returns None if not found."""
+        if not name:
+            return None
+        name_lower = name.strip().lower()
+        for agent in self.agents:
+            if agent.get("is_manager"):
+                continue
+            if agent.get("name", "").strip().lower() == name_lower:
+                if agent.get("status") == "Busy":
+                    agent["status"] = "Idle"
+                    self._save()
                 return agent
         return None
 

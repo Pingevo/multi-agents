@@ -163,7 +163,7 @@ export const AgentFormModal: React.FC<AgentFormModalProps> = ({
               type="text"
               value={form.model || ''}
               onChange={(e) => setForm({ ...form, model: e.target.value })}
-              placeholder="e.g. openrouter/auto (leave empty for system default)"
+              placeholder="e.g. openrouter/free (leave empty for system default)"
               className="w-full bg-surface-2 border border-border rounded-lg px-3 py-2 text-sm text-text placeholder:text-text-2 focus:outline-none focus:border-accent"
             />
           </div>

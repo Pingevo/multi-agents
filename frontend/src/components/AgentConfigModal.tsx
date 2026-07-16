@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { X } from 'lucide-react';
-import { ModelPicker, type ModelCatalogEntry } from './ModelPicker';
+import { X, Cpu, ChevronDown } from 'lucide-react';
+import { ModelPicker, findModelName, getProvider, PROVIDER_FAVICONS, type ModelCatalogEntry } from './ModelPicker';
 import type { Agent } from '../types/platform';
 
 interface AgentConfigModalProps {
@@ -14,6 +14,7 @@ interface AgentConfigModalProps {
   modelSearchResults?: ModelCatalogEntry[];
   onSearchModels?: (query: string) => void;
   onFetchModelCatalog?: () => void;
+  selectedModel?: string;
 }
 
 export const AgentConfigModal: React.FC<AgentConfigModalProps> = ({
@@ -27,6 +28,7 @@ export const AgentConfigModal: React.FC<AgentConfigModalProps> = ({
   modelSearchResults,
   onSearchModels,
   onFetchModelCatalog,
+  selectedModel,
 }) => {
   const [name, setName] = useState('');
   const [role, setRole] = useState('');
@@ -40,19 +42,26 @@ export const AgentConfigModal: React.FC<AgentConfigModalProps> = ({
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const modelBtnRef = useRef<HTMLButtonElement>(null);
 
+  const isManager = agent?.is_manager || agent?.role?.toLowerCase() === 'manager';
+  const effectiveModel = isManager ? (selectedModel || model) : model;
+  const modelProvider = getProvider(effectiveModel);
+  const modelFavicon = PROVIDER_FAVICONS[modelProvider];
+  const modelDisplayName = effectiveModel ? findModelName(effectiveModel, modelCatalog || {}, modelSearchResults || []) : 'Free Router';
+
   useEffect(() => {
     if (agent) {
       setName(agent.name || '');
       setRole(agent.role || '');
       setGoal(agent.goal || '');
       setPersona(agent.persona || '');
-      setModel(agent.model || '');
+      const isMgr = agent.is_manager || agent.role?.toLowerCase() === 'manager';
+      setModel(isMgr ? (selectedModel || agent.model || '') : (agent.model || ''));
       setTools(agent.tools || []);
       setExpertise((agent as any).expertise || []);
       setPersonality((agent as any).personality || {});
       setBrandContext((agent as any).brand_context || {});
     }
-  }, [agent]);
+  }, [agent, selectedModel]);
 
   const [editingField, setEditingField] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
@@ -201,33 +210,41 @@ export const AgentConfigModal: React.FC<AgentConfigModalProps> = ({
           </div>
 
           {/* Model */}
-          <div className="flex items-center justify-between py-2.5 border-b border-border">
-            <span className="text-xs text-text-2">Model</span>
-            <div className="flex items-center gap-2">
+          <div className="py-2.5 border-b border-border">
+            <span className="text-xs text-text-2 block mb-1">Model</span>
+            {isManager && (
+              <div className="text-[10px] text-text-3 px-2 py-1 rounded-md bg-surface-2 border border-border mb-1">
+                ⚡ เชื่อมกับตัวเลือกโมเดลด้านบนของแชท — เปลี่ยนที่จุดใดจุดหนึ่งจะอัปเดตทั้งสองจุด
+              </div>
+            )}
+            <div ref={modelBtnRef as any} className="relative">
               <button
-                ref={modelBtnRef}
                 onClick={() => {
                   if (onFetchModelCatalog) onFetchModelCatalog();
-                  setModelPickerOpen(true);
+                  setModelPickerOpen(!modelPickerOpen);
                 }}
-                className="flex items-center gap-1.5"
+                className={"w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg border transition-colors text-left " + (modelPickerOpen ? "bg-accent/10 border-accent/40 text-text" : "bg-surface-2 border-border text-text-2 hover:text-text hover:border-accent/30")}
               >
-                {model ? (
-                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-accent/15 text-accent font-medium">Manual</span>
+                {modelFavicon ? (
+                  <img src={modelFavicon} alt="" className="w-3.5 h-3.5 rounded shrink-0 object-contain" />
                 ) : (
-                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-success/15 text-success font-medium">Auto</span>
+                  <Cpu className={"w-3.5 h-3.5 shrink-0" + (modelPickerOpen ? " text-accent" : "")} />
                 )}
-                <span className="text-[10px] text-accent">เปลี่ยน</span>
+                <span className="text-xs font-medium text-text flex-1 truncate">{modelDisplayName}</span>
+                <span className={"text-[9px] px-1.5 py-0.5 rounded-full shrink-0 " + (effectiveModel ? "bg-accent/15 text-accent" : "bg-emerald-500/15 text-emerald-500")}>
+                  {effectiveModel ? "Manual" : "Auto"}
+                </span>
+                <ChevronDown className={"w-3.5 h-3.5 shrink-0 transition-transform" + (modelPickerOpen ? " rotate-180" : "")} />
               </button>
-              {modelPickerOpen && modelBtnRef.current && (
+              {modelPickerOpen && (
                 <ModelPicker
                   recommended={modelCatalog || {}}
                   searchResults={modelSearchResults || []}
-                  selectedModel={model}
+                  selectedModel={effectiveModel}
                   onSelect={(modelId) => { setModel(modelId); setModelPickerOpen(false); }}
                   onSearch={(query) => onSearchModels?.(query)}
                   onClose={() => setModelPickerOpen(false)}
-                  anchorRef={modelBtnRef}
+                  anchorRef={modelBtnRef as any}
                   showAutoRouter
                 />
               )}

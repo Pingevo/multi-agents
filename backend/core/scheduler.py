@@ -71,17 +71,17 @@ class BackgroundScheduler:
         """Execute a single scheduled task by injecting it into the chat flow."""
         try:
             import chainlit as cl
-            from backend.core.secretary import CentralSecretary
+            from backend.core.secretary import CentralManager
             from backend.llm.manager import LLMManager
 
             llm_manager = LLMManager()
-            secretary = CentralSecretary(llm_manager)
+            manager = CentralManager(llm_manager)
 
             prompt = task.get("prompt", "")
             mode = task.get("mode", "plan")
 
-            # Use secretary to assess and plan the task
-            result = await secretary.assess_and_plan(prompt)
+            # Use manager to assess and plan the task
+            result = await manager.assess_and_plan(prompt)
 
             # Mark as run
             store.mark_run(task["id"])

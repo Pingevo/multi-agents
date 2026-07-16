@@ -2,11 +2,12 @@ import { useState, useMemo } from 'react';
 import {
   Loader2, CheckCircle, XCircle, Bot, Zap, Image as ImageIcon,
   Video, PenTool, ChevronDown, ChevronUp, Pencil, Brain,
-  GitBranch, Cpu, Download, RotateCw, Copy,
+  GitBranch, Cpu, Download, RotateCw, Copy, Eye,
 } from 'lucide-react';
 import type { Agent, PendingApproval, ImageResult } from '../types/platform';
 import type { ChatMessage, AgentProgressEntry, PlanAgent, ResultAgent, PlanStatus } from './chatTypes';
 import { displayModelId } from './ModelPicker';
+import MarkdownRenderer from './MarkdownRenderer';
 
 // ============================================================
 // Types
@@ -20,6 +21,7 @@ interface StoryboardProps {
   onEditImagePrompt?: (approvalId: string, newPrompt: string) => void;
   onRetryTask?: () => void;
   onRateTask?: (rating: number) => void;
+  onSkipReview?: (agentName: string) => void;
 }
 
 interface StoryboardRun {
@@ -232,12 +234,71 @@ const FinalResultCard: React.FC<{
         {/* Content */}
         {expanded && (
           <div className="p-3 bg-bg">
-            <div className="text-sm text-text whitespace-pre-wrap leading-relaxed">
-              {result.summary}
-            </div>
+            <MarkdownRenderer content={result.summary} className="text-sm" />
           </div>
         )}
       </div>
+    </div>
+  );
+};
+
+// ============================================================
+// Review History (collapsible per-round)
+// ============================================================
+
+const ReviewHistory: React.FC<{
+  history: NonNullable<AgentProgressEntry['review_history']>;
+}> = ({ history }) => {
+  const [expandedRounds, setExpandedRounds] = useState<Set<number>>(new Set());
+
+  const toggleRound = (round: number) => {
+    setExpandedRounds((prev) => {
+      const next = new Set(prev);
+      if (next.has(round)) next.delete(round);
+      else next.add(round);
+      return next;
+    });
+  };
+
+  return (
+    <div className="mb-2 space-y-1">
+      <div className="text-[9px] text-text-3 uppercase tracking-wide font-medium">Review History</div>
+      {history.map((entry) => {
+        const isExpanded = expandedRounds.has(entry.round);
+        const isApproved = entry.status === 'approved';
+        return (
+          <div key={entry.round} className="rounded-md border border-border/40 bg-surface/40 overflow-hidden">
+            <button
+              onClick={() => toggleRound(entry.round)}
+              className="w-full flex items-center gap-1.5 px-2 py-1.5 hover:bg-surface-2 transition-colors"
+            >
+              {isExpanded ? <ChevronDown className="w-2.5 h-2.5 text-text-2 shrink-0" /> : <ChevronUp className="w-2.5 h-2.5 text-text-2 shrink-0" style={{ transform: 'rotate(90deg)' }} />}
+              <span className={`text-[8px] px-1 rounded font-semibold ${isApproved ? 'bg-success/20 text-success' : 'bg-danger/20 text-danger'}`}>
+                {isApproved ? 'PASS' : 'FAIL'}
+              </span>
+              <span className="text-[10px] text-text-2 font-medium">รอบที่ {entry.round}</span>
+              <span className="text-[9px] text-text-3 truncate flex-1 text-left">{entry.summary}</span>
+            </button>
+            {isExpanded && (
+              <div className="px-2 pb-2 space-y-1.5">
+                <div className="text-[9px] text-text-3">
+                  <span className="font-medium text-text-2">Summary:</span> {entry.summary}
+                </div>
+                {entry.feedback && (
+                  <div className="text-[9px] text-red-400/70">
+                    <span className="font-medium">Feedback:</span> {entry.feedback}
+                  </div>
+                )}
+                {entry.output_preview && (
+                  <div className="text-[9px] text-text-3 bg-surface-2/50 rounded p-1.5 max-h-32 overflow-y-auto whitespace-pre-wrap leading-relaxed border border-border/20">
+                    {entry.output_preview}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 };
@@ -255,8 +316,9 @@ const AgentCard: React.FC<{
   onRejectImage?: (approvalId: string) => void;
   onRetryImage?: (approvalId: string) => void;
   onEditImagePrompt?: (approvalId: string, newPrompt: string) => void;
+  onSkipReview?: (agentName: string) => void;
   isCreated?: boolean;
-}> = ({ agent, progress, pendingApprovals, imageResults, onApproveImage, onRejectImage, onRetryImage, onEditImagePrompt, isCreated }) => {
+}> = ({ agent, progress, pendingApprovals, imageResults, onApproveImage, onRejectImage, onRetryImage, onEditImagePrompt, onSkipReview, isCreated }) => {
   const [showOutput, setShowOutput] = useState(false);
 
   const status = progress?.status || 'pending';
@@ -264,6 +326,7 @@ const AgentCard: React.FC<{
   const isComplete = status === 'complete';
   const isError = status === 'error';
   const isWaitingApproval = status === 'waiting_approval';
+  const isAwaitingReview = status === 'awaiting_review';
   const isWaiting = status === 'pending' && ((agent as any).depends_on?.length || 0) > 0;
   const progressPercent = progress?.progress || 0;
   const hasOutput = !!progress?.output && progress.output.length > 0;
@@ -276,6 +339,8 @@ const AgentCard: React.FC<{
     ? 'border-danger/40'
     : isWaitingApproval
     ? 'border-purple-400/40'
+    : isAwaitingReview
+    ? 'border-amber-400/50'
     : isWaiting
     ? 'border-warning/30'
     : 'border-border';
@@ -288,6 +353,8 @@ const AgentCard: React.FC<{
     <span className="text-[8px] px-1.5 py-0.5 rounded bg-danger/20 text-danger font-semibold">ERR</span>
   ) : isWaitingApproval ? (
     <span className="text-[8px] px-1.5 py-0.5 rounded bg-purple-400/20 text-purple-400 font-semibold">WAIT</span>
+  ) : isAwaitingReview ? (
+    <span className="text-[8px] px-1.5 py-0.5 rounded bg-amber-400/20 text-amber-400 font-semibold">REVIEW</span>
   ) : isCreated ? (
     <span className="text-[8px] px-1.5 py-0.5 rounded bg-success/20 text-success font-semibold">CREATED</span>
   ) : (
@@ -311,6 +378,12 @@ const AgentCard: React.FC<{
       {/* Thinking/Running indicator */}
       {isRunning && (
         <div className="text-[10px] text-text-2 mb-2 bg-surface/60 rounded-md p-2 border border-border/30">
+          {progress?.review_feedback && (
+            <div className="text-[9px] text-red-400/80 mb-1.5 bg-red-500/5 rounded p-1.5 border border-red-400/20">
+              <div className="font-medium mb-0.5">Manager feedback (รอบที่ {progress.review_round || 1}):</div>
+              <div className="text-text-3">{progress.review_summary}</div>
+            </div>
+          )}
           {progress?.delegated_by && progress.delegated_by.length > 0 && (
             <div className="text-[9px] text-accent/80 mb-1 flex items-center gap-1">
               <GitBranch className="w-2.5 h-2.5" />
@@ -354,173 +427,49 @@ const AgentCard: React.FC<{
         </div>
       )}
 
+      {/* Awaiting review */}
+      {isAwaitingReview && (
+        <div className="text-[10px] text-amber-400 mb-2 bg-amber-500/5 rounded-md p-2 border border-amber-400/20">
+          <div className="flex items-center gap-1.5 mb-1">
+            <Eye className="w-3 h-3 shrink-0" />
+            <span>Manager กำลังตรวจ{progress?.review_round ? ` (รอบที่ ${progress.review_round})` : ''}...</span>
+          </div>
+          {progress?.review_summary && (
+            <div className="text-[9px] text-amber-300/80 mt-1">
+              {progress.review_summary}
+            </div>
+          )}
+          {hasOutput && !progress?.review_summary && (
+            <div className="text-[9px] text-text-3 line-clamp-3 mt-1">
+              {progress?.output}
+            </div>
+          )}
+          {onSkipReview && (
+            <button
+              onClick={() => onSkipReview(agent.name)}
+              className="mt-1.5 text-[9px] px-2 py-1 rounded bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 border border-amber-400/30 transition-colors font-medium"
+            >
+              หยุดตรวจ — ใช้ output นี้
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Progress bar */}
       {progressPercent > 0 && (
         <div className="mb-2">
           <div className="w-full bg-surface-2 rounded-full h-1 overflow-hidden">
             <div
-              className={`h-full rounded-full transition-all duration-500 ${isComplete ? 'bg-success' : isError ? 'bg-danger' : isWaitingApproval ? 'bg-purple-400' : 'bg-gradient-to-r from-warning to-amber-500'}`}
+              className={`h-full rounded-full transition-all duration-500 ${isComplete ? 'bg-success' : isError ? 'bg-danger' : isWaitingApproval ? 'bg-purple-400' : isAwaitingReview ? 'bg-amber-400' : 'bg-gradient-to-r from-warning to-amber-500'}`}
               style={{ width: `${progressPercent}%` }}
             />
           </div>
         </div>
       )}
 
-      {/* Output */}
-      {hasOutput && (
-        <div className="mt-1.5">
-          <div
-            className="text-[11px] text-text-3 bg-bg rounded-md p-2 max-h-32 overflow-y-auto whitespace-pre-wrap"
-            style={{ display: showOutput ? 'block' : '-webkit-box', WebkitLineClamp: showOutput ? 'unset' : 3, WebkitBoxOrient: 'vertical', overflow: showOutput ? 'auto' : 'hidden' }}
-          >
-            {progress?.output}
-          </div>
-          <button
-            onClick={(e) => { e.stopPropagation(); setShowOutput(!showOutput); }}
-            className="flex items-center gap-1 text-[10px] text-text-3 hover:text-text transition-colors mt-1"
-          >
-            {showOutput ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-            {showOutput ? 'Show less' : 'Show more'}
-          </button>
-        </div>
-      )}
-
-      {/* Pending media approvals */}
-      {pendingApprovals && pendingApprovals.length > 0 && (
-        <div className="mt-2 border-t border-border/30 pt-2 space-y-2">
-          {pendingApprovals.map((pa) => {
-            const isApprovalError = pa.approvalStatus === 'error';
-            const isApproved = pa.approvalStatus === 'approved';
-            const hasResult = imageResults?.some((ir) => ir.approvalId === pa.approvalId);
-            return (
-            <div key={pa.approvalId} className={`rounded-lg p-2 ${isApprovalError ? 'border border-danger/40 bg-danger/5' : isApproved ? 'border border-purple-400/40 bg-purple-500/10' : 'border border-purple-400/30 bg-purple-500/5'}`}>
-              <div className={`flex items-center gap-1 text-[10px] mb-1 ${isApprovalError ? 'text-danger' : 'text-purple-400'}`}>
-                {pa.mediaType === 'video' ? <Video className="w-2.5 h-2.5" /> : <ImageIcon className="w-2.5 h-2.5" />}
-                <span className="font-medium">{isApprovalError ? `${pa.mediaType === 'video' ? 'Video' : 'Image'} Failed` : isApproved ? (hasResult ? `${pa.mediaType === 'video' ? 'Video' : 'Image'} Generated` : `Generating ${pa.mediaType === 'video' ? 'Video' : 'Image'}`) : `${pa.mediaType === 'video' ? 'Video' : 'Image'} Approval`}</span>
-                {pa.duration > 0 && <span className="text-text-3">({pa.duration}s)</span>}
-                {isApproved && !hasResult && <Loader2 className="w-3 h-3 animate-spin ml-auto" />}
-              </div>
-              <div className="text-xs text-text-2 italic mb-2">"{pa.prompt}"</div>
-              {pa.model && (
-                <div className="flex items-center gap-1 text-[10px] text-text-2 mb-2">
-                  <Cpu className="w-2.5 h-2.5 shrink-0" />
-                  <span>Model: <span className="text-text font-mono">{displayModelId(pa.model)}</span></span>
-                </div>
-              )}
-              {isApprovalError && pa.imageError && (
-                <div className="text-[10px] text-danger bg-danger/10 rounded px-1.5 py-1 mb-2 border border-danger/20">
-                  ⚠️ {pa.imageError}
-                </div>
-              )}
-              {isApproved && !hasResult && (
-                <div className="w-full aspect-video rounded-md bg-surface-2 flex items-center justify-center mb-2">
-                  <Loader2 className="w-6 h-6 text-purple-400 animate-spin" />
-                </div>
-              )}
-              {hasResult && (
-                <div className="text-[10px] text-success flex items-center gap-1 mb-1">
-                  <CheckCircle className="w-3 h-3" /> Generated successfully
-                </div>
-              )}
-              <div className="flex gap-1.5 flex-wrap">
-                {isApprovalError ? (
-                  <>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); onRetryImage?.(pa.approvalId); }}
-                      className="flex items-center gap-1 text-[10px] px-2 py-1 rounded bg-purple-500 text-white hover:bg-purple-600 transition-colors"
-                    >
-                      🔄 Retry
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); onRejectImage?.(pa.approvalId); }}
-                      className="flex items-center gap-1 text-[10px] px-2 py-1 rounded bg-surface-2 text-text-2 border border-border hover:bg-surface-3 transition-colors"
-                    >
-                      ❌ Cancel
-                    </button>
-                  </>
-                ) : isApproved ? (
-                  hasResult ? (
-                    <span className="text-[10px] text-success italic">✅ สร้างภาพเสร็จแล้ว</span>
-                  ) : (
-                    <span className="text-[10px] text-text-3 italic">กำลังสร้างภาพ... กรุณารอ</span>
-                  )
-                ) : (
-                  <>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); onApproveImage?.(pa.approvalId); }}
-                      className="flex items-center gap-1 text-[10px] px-2 py-1 rounded bg-purple-500 text-white hover:bg-purple-600 transition-colors"
-                    >
-                      {pa.mediaType === 'video' ? '🎬' : '🖼️'} Generate
-                    </button>
-                    {onEditImagePrompt && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); const newPrompt = prompt('Edit prompt:', pa.prompt); if (newPrompt) onEditImagePrompt(pa.approvalId, newPrompt); }}
-                        className="flex items-center gap-1 text-[10px] px-2 py-1 rounded bg-surface-2 text-text-2 border border-border hover:bg-surface-3 transition-colors"
-                      >
-                        <Pencil className="w-2.5 h-2.5" /> Edit
-                      </button>
-                    )}
-                    <button
-                      onClick={(e) => { e.stopPropagation(); onRejectImage?.(pa.approvalId); }}
-                      className="flex items-center gap-1 text-[10px] px-2 py-1 rounded bg-surface-2 text-text-2 border border-border hover:bg-surface-3 transition-colors"
-                    >
-                      ❌ Cancel
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Generated media results */}
-      {imageResults && imageResults.length > 0 && (
-        <div className="mt-2 border-t border-border/30 pt-2 space-y-2">
-          <div className="text-[10px] text-text-2 mb-1 flex items-center gap-1">
-            <ImageIcon className="w-2.5 h-2.5" /> Generated media
-          </div>
-          {imageResults.map((ir) => (
-            <div key={ir.approvalId} className="rounded-md overflow-hidden border border-border/30">
-              {ir.mediaType === 'video' ? (
-                <video src={ir.imageUrl} controls className="w-full" />
-              ) : (
-                <img src={ir.imageUrl} alt={ir.prompt} className="w-full" loading="lazy" />
-              )}
-              <div className="flex items-center gap-1.5 p-1.5 bg-surface-2 border-t border-border/30">
-                {onRetryImage && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onRetryImage(ir.approvalId); }}
-                    className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-accent/10 text-accent hover:bg-accent/20 transition-colors"
-                    title="Regenerate"
-                  >
-                    <RotateCw className="w-2.5 h-2.5" /> Regenerate
-                  </button>
-                )}
-                {onEditImagePrompt && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); const newPrompt = prompt('Edit prompt:', ir.prompt); if (newPrompt) onEditImagePrompt(ir.approvalId, newPrompt); }}
-                    className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-surface-3 text-text-2 hover:bg-surface-2 border border-border/50 transition-colors"
-                    title="Edit prompt"
-                  >
-                    <Pencil className="w-2.5 h-2.5" /> Edit
-                  </button>
-                )}
-                <a
-                  href={ir.imageUrl}
-                  download
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-surface-3 text-text-2 hover:bg-surface-2 border border-border/50 transition-colors ml-auto"
-                  title="Download"
-                >
-                  <Download className="w-2.5 h-2.5" /> Download
-                </a>
-              </div>
-            </div>
-          ))}
-        </div>
+      {/* Review History */}
+      {progress?.review_history && progress.review_history.length > 0 && (
+        <ReviewHistory history={progress.review_history} />
       )}
 
     </div>
@@ -646,7 +595,8 @@ const RunTimeline: React.FC<{
   onEditImagePrompt?: (approvalId: string, newPrompt: string) => void;
   onRetryTask?: () => void;
   onRateTask?: (rating: number) => void;
-}> = ({ run, onApproveImage, onRejectImage, onRetryImage, onEditImagePrompt, onRetryTask, onRateTask }) => {
+  onSkipReview?: (agentName: string) => void;
+}> = ({ run, onApproveImage, onRejectImage, onRetryImage, onEditImagePrompt, onRetryTask, onRateTask, onSkipReview }) => {
   const planPending = run.planStatus === 'pending';
 
   // Convert PlanAgent[] to Agent[] for wave computation
@@ -675,6 +625,11 @@ const RunTimeline: React.FC<{
   const hasWaitingApproval = useMemo(() => {
     if (!run.progress) return false;
     return run.progress.some((ap) => ap.status === 'waiting_approval');
+  }, [run.progress]);
+
+  const hasAwaitingReview = useMemo(() => {
+    if (!run.progress) return false;
+    return run.progress.some((ap) => ap.status === 'awaiting_review');
   }, [run.progress]);
 
   return (
@@ -712,7 +667,7 @@ const RunTimeline: React.FC<{
         {waves.map((wave, waveIdx) => {
           const waveStarted = wave.agents.some(({ agent }) => {
             const p = run.progress?.find((ap) => ap.name === agent.name);
-            return p?.status === 'running' || p?.status === 'complete' || p?.status === 'error' || p?.status === 'waiting_approval';
+            return p?.status === 'running' || p?.status === 'complete' || p?.status === 'error' || p?.status === 'waiting_approval' || p?.status === 'awaiting_review';
           });
 
           return (
@@ -762,6 +717,7 @@ const RunTimeline: React.FC<{
                       onRejectImage={onRejectImage}
                       onRetryImage={onRetryImage}
                       onEditImagePrompt={onEditImagePrompt}
+                      onSkipReview={onSkipReview}
                       isCreated={run.planType === 'create_agents' && !planPending}
                     />
                   );
@@ -779,8 +735,16 @@ const RunTimeline: React.FC<{
           </div>
         )}
 
+        {/* Manager reviewing */}
+        {hasAwaitingReview && !run.result && (
+          <div className="mb-3 px-3 py-2 rounded-lg border border-amber-400/30 bg-amber-500/5">
+            <div className="text-[10px] text-text-3 uppercase tracking-wide mb-1">Manager Review</div>
+            <span className="text-xs text-text-2">Manager กำลังตรวจผลงานของ agent...</span>
+          </div>
+        )}
+
         {/* Manager Synthesizing */}
-        {allComplete && !run.result && !hasWaitingApproval && (
+        {allComplete && !run.result && !hasWaitingApproval && !hasAwaitingReview && (
           <div className="mb-3 px-3 py-2 rounded-lg border border-accent/30 bg-accent/5">
             <div className="text-[10px] text-text-3 uppercase tracking-wide mb-1">Manager — Synthesizing</div>
             <div className="flex items-center gap-2">
@@ -811,6 +775,7 @@ export const StoryboardArea: React.FC<StoryboardProps> = ({
   onEditImagePrompt,
   onRetryTask,
   onRateTask,
+  onSkipReview,
 }) => {
   const runs = useMemo(() => buildRuns(chatMessages), [chatMessages]);
 
@@ -838,6 +803,7 @@ export const StoryboardArea: React.FC<StoryboardProps> = ({
             onEditImagePrompt={onEditImagePrompt}
             onRetryTask={onRetryTask}
             onRateTask={onRateTask}
+            onSkipReview={onSkipReview}
           />
         ))}
       </div>

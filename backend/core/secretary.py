@@ -1,4 +1,4 @@
-"""CentralSecretary — the heart of the system: assess + plan in 1 LLM call."""
+"""CentralManager — the heart of the system: assess + plan in 1 LLM call."""
 
 import asyncio
 import json
@@ -12,8 +12,8 @@ from backend.agents.registry import AgentRegistry
 from backend.utils import _sanitize_error, _debug
 from backend.globals import STATE_IDLE, STATE_GATHERING_REQUIREMENTS
 
-class CentralSecretary:
-    """AI Assessor: ประเมินความต้องการ, ถาม requirement, วิเคราะห์และวางแผน multi-agent"""
+class CentralManager:
+    """AI Manager: ประเมินความต้องการ, ถาม requirement, วิเคราะห์และวางแผน multi-agent"""
 
     def __init__(self, llm_manager: LLMManager):
         self.llm_manager = llm_manager
@@ -22,9 +22,13 @@ class CentralSecretary:
         """ประเมินความต้องการ: CHAT (ตอบเลย) / INFO (ตอบเลย) / TASK_NEEDS_INFO (ถามเพิ่ม) / TASK_READY (วางแผน)"""
         history_text = ""
         if conversation_history:
+            recent = conversation_history[-20:]
             history_text = "\nConversation so far:\n"
-            for msg in conversation_history:
-                history_text += f"- {msg.get('role', 'user')}: {msg.get('content', '')[:100]}\n"
+            for msg in recent:
+                content = msg.get('content', '')
+                if len(content) > 4000:
+                    content = content[:4000] + "..."
+                history_text += f"- {msg.get('role', 'user')}: {content}\n"
 
         prompt = (
             "You are an AI Assessor for an Agent Management Platform.\n"
@@ -37,8 +41,9 @@ class CentralSecretary:
             "Guidelines:\n"
             "- If the user is just chatting or asking who you are → chat\n"
             "- If the user is asking about available agents or system status → info\n"
-            "- If the user wants something done but missing key details (scope, quantity, platform, timeline) → ask\n"
+            "- If the user wants something produced/created/designed but missing key details → ask\n"
             "- If the user has provided enough detail to design a plan → plan\n"
+            "- NEVER provide work output (concepts, designs, drafts, plans, content) directly in a chat response — this platform uses AI agents to do the work, not the assessor.\n"
             "- Use the same language as the user.\n\n"
             f"{history_text}"
             f"User message: {user_input}\n"
@@ -73,6 +78,8 @@ class CentralSecretary:
         team_name: str | None = None,
         force_plan: bool = False,
         force_proceed: bool = False,
+        has_attachment: bool = False,
+        chat_only: bool = False,
     ) -> dict:
         """Unified call: assess + analyze + model assignment in one LLM response.
 
@@ -83,9 +90,13 @@ class CentralSecretary:
         """
         history_text = ""
         if conversation_history:
+            recent = conversation_history[-20:]
             history_text = "\nConversation so far:\n"
-            for msg in conversation_history:
-                history_text += f"- {msg.get('role', 'user')}: {msg.get('content', '')[:100]}\n"
+            for msg in recent:
+                content = msg.get('content', '')
+                if len(content) > 4000:
+                    content = content[:4000] + "..."
+                history_text += f"- {msg.get('role', 'user')}: {content}\n"
 
         cap_registry = CapabilityRegistry()
         catalog = cap_registry.list_catalog()
@@ -93,7 +104,7 @@ class CentralSecretary:
             f"- {c['name']}: {c['description']}" for c in catalog
         ) if catalog else "none"
 
-        models_text = "Use 'openrouter/auto' for all model fields. Do not assign specific models."
+        models_text = "Assign each agent a model from this list: 'google/gemini-3.5-flash', 'anthropic/claude-sonnet-5', 'openai/gpt-5.6-luna'. Choose the most suitable model based on the agent's role and tasks. The Manager uses 'openrouter/free' by default."
 
         # Build last task context (if any)
         last_task_text = ""
@@ -137,36 +148,84 @@ class CentralSecretary:
                 tools = a.get('tools', [])
                 team_text += f"- {name} (id={aid}) | role={role} | model={model} | tools={tools}\n"
 
-        prompt = (
-            "You are the Central Secretary of an AI Agent Management Platform.\n"
-            "This platform CREATES and MANAGES AI agents (not human workers) to do tasks.\n"
-            "Users can request new AI agents to be created, assign them tasks, and tune their behavior.\n\n"
-            "Evaluate the user's message and respond with a single JSON object.\n\n"
-            "First, decide what to do:\n"
-            "- chat: greetings, small talk, general questions, self-introduction requests\n"
-            "- info: questions about system/agents/status\n"
-            "- ask: user wants work done but needs are unclear\n"
-            "- create_agents: user wants to CREATE agents to keep in the team WITHOUT running a task right now\n"
-            "  Use this when user says 'สร้าง agent ไว้ในทีม', 'อยากได้นัก...ไว้ในทีม', 'เพิ่ม agent' without specifying work to do\n"
-            "  Respond with agent specs (same format as plan) but action='create_agents'\n"
-            "- plan: user wants specific work/task produced (content, images, videos, analysis, etc.)\n"
-            "  Use 'plan' when user clearly states WHAT work to do, not just WHAT roles they want.\n"
-            "  If team already has agents with matching roles, REUSE them — set 'reuse_existing' to true and reference by name\n"
-            "- tuning: user wants to adjust, refine, or change how an agent behaves — tone, style, personality, expertise, or any aspect.\n"
-            "  This can happen at ANY time: after a task, before a task, or even with no task at all.\n"
-            "  If the user mentions a specific agent, tune that one. If not, use context to determine which agent(s) to tune.\n\n"
-        )
+        if has_attachment:
+            attachment_status = "A file/image is attached. The user may want to discuss it, ask questions about it, or have agents process it."
+        else:
+            attachment_status = "No file is attached. If the user's request involves analyzing, reviewing, or extracting information from a file, document, PDF, image, or spreadsheet, you MUST use 'ask' to request the file before creating a plan. Do NOT proceed with assumptions about file contents."
+
+        if chat_only:
+            prompt = (
+                "You are the Central Secretary of an AI Agent Management Platform.\n"
+                "This platform CREATES and MANAGES AI agents (not human workers) to do tasks.\n\n"
+                f"Attachment status: {attachment_status}\n\n"
+                "You are in CHAT MODE. You can ONLY respond with 'chat'.\n"
+                "Answer the user's question directly — this includes answering questions about attached images/files,\n"
+                "analyzing images, summarizing documents, general conversation, and self-introduction.\n"
+                "Do NOT create plans, agents, or tuning proposals.\n"
+                "If the user seems to want work produced (content creation, image generation, etc.),\n"
+                "suggest they switch to Plan mode to create a plan.\n\n"
+                "Respond with:\n"
+                '  {"action": "chat", "message": "your reply"}\n\n'
+                "Use the same language as the user.\n\n"
+                f"{history_text}"
+                f"User message: {user_input}\n\n"
+                "Output ONLY the JSON object, no explanation:"
+            )
+        else:
+            prompt = (
+                "You are the Central Secretary of an AI Agent Management Platform.\n"
+                "This platform CREATES and MANAGES AI agents (not human workers) to do tasks.\n"
+                "Users can request new AI agents to be created, assign them tasks, and tune their behavior.\n\n"
+                f"Attachment status: {attachment_status}\n\n"
+                "Evaluate the user's message and respond with a single JSON object.\n\n"
+                "First, decide what to do:\n"
+                "- chat: greetings, small talk, general questions, self-introduction requests, questions about an attached image/file, image analysis, document summary\n"
+                "- info: questions about system/agents/status\n"
+                "- ask: user wants work done but needs are unclear\n"
+                "- create_agents: user wants to CREATE agents to keep in the team WITHOUT running a task right now\n"
+                "  Use this when user says 'สร้าง agent ไว้ในทีม', 'อยากได้นัก...ไว้ในทีม', 'เพิ่ม agent' without specifying work to do\n"
+                "  Respond with agent specs (same format as plan) but action='create_agents'\n"
+                "  When the user specifies a number of agents (e.g. '2 คน', '3 agents'), create EXACTLY that many agents.\n"
+                "  Do NOT reduce, consolidate, or reuse existing agents when the user explicitly asks to create new ones.\n"
+                "  Each agent should have a distinct focus even if they share the same role.\n"
+                "  Create agents that match EXACTLY what the user requests — same role, same quantity.\n"
+                "  Do NOT substitute with a different role or create fewer agents than requested.\n"
+                "- plan: user wants specific work/task produced and delivered (content creation, images to generate, videos to produce, reports to write, etc.)\n"
+                "  Use 'plan' when user clearly states WHAT work to do, not just WHAT roles they want.\n"
+                "  If team already has agents with matching roles, REUSE them — set 'reuse_existing' to true and reference by name\n"
+                "- tuning: user wants to adjust, refine, or change how an EXISTING agent behaves — one that has already been created and saved in the registry.\n"
+                "  This applies to tone, style, personality, expertise, or any aspect of a registered agent.\n"
+                "  If the user mentions a specific agent, tune that one. If not, use context to determine which agent(s) to tune.\n\n"
+            )
 
         if force_plan:
             prompt += (
-                "IMPORTANT: The user is in PLAN MODE. You MUST respond with 'plan', 'create_agents', 'tuning', or 'ask'.\n"
-                "Do NOT use 'chat' or 'info'.\n\n"
-                "Use 'ask' ONLY when the user's request is too vague to create a meaningful plan or agents.\n"
-                "If the conversation history shows you already asked questions and the user has answered, use their answers to proceed — do NOT ask the same questions again.\n\n"
-                "Use 'tuning' when the user wants to PERMANENTLY change an agent's behavior, personality, tone, or style\n"
-                "— phrases like 'ต่อไปให้...', 'ปรับให้...ตลอด', 'อยากให้ agent นี้เป็นแบบ...' indicate tuning.\n"
-                "Use 'create_agents' when the user wants to create agents without running a task.\n"
-                "Use 'plan' for everything else — creating work, refining output, producing content.\n\n"
+                "IMPORTANT: The user is in PLAN MODE. This mode supports ALL actions: creating agents, executing tasks, tuning agents, and more.\n"
+                "Do NOT restrict yourself to only team creation — evaluate what the user wants and respond accordingly.\n\n"
+                "You MUST respond with 'plan', 'create_agents', or 'tuning'.\n"
+                "Do NOT use 'chat' or 'info'.\n"
+                "You MAY use 'ask' ONLY when a critical input is clearly missing (e.g. the user references a file/document/image but none is attached).\n"
+                "If information is missing or vague, make reasonable assumptions and proceed.\n"
+                "The user will review your proposal and can reject it with feedback if needed.\n\n"
+                "When the user specifies a number of agents (e.g. '2 คน', '3 agents'), create EXACTLY that many agents.\n"
+                "Do NOT reduce, consolidate, or reuse existing agents when the user explicitly asks to create new ones.\n"
+                "Each agent should have a distinct focus even if they share the same role.\n"
+                "Create agents that match EXACTLY what the user requests — same role, same quantity.\n"
+                "Do NOT substitute with a different role or create fewer agents than requested.\n\n"
+                "If the conversation history contains a '[REJECTED]' entry, the user rejected the previous plan.\n"
+                "Read their feedback carefully and create a REVISED plan that addresses their concerns.\n"
+                "Do NOT create the same plan again — change what the user asked to change.\n\n"
+                "Use 'tuning' ONLY when agents already exist in the registry (shown in 'Current team agents' above) AND the user wants to modify existing agent behavior.\n"
+                "If the conversation history contains a 'Proposed team:' entry and the user wants to modify, adjust, or refine that team, use 'create_agents' — NOT 'tuning'.\n"
+                "The 'Proposed team' is a draft, not yet created. Modifying a draft means regenerating it with changes, which is 'create_agents'.\n"
+                "'tuning' applies to agents that have already been created and saved in the system.\n\n"
+                "Use 'create_agents' when the user wants to create new agents WITHOUT running a task right now, OR when modifying a previously proposed team.\n"
+                "When modifying a previously proposed team, PRESERVE all unchanged agents exactly as they were — keep their name, role, goal, persona, tools, and model.\n"
+                "Only change the specific agents or fields the user mentioned, or add/remove agents as requested.\n"
+                "Do NOT regenerate unchanged agents from scratch.\n"
+                "Use 'plan' when the user wants WORK DONE — producing content, images, videos, analysis, or any deliverable.\n"
+                "If team already has agents with matching roles, REUSE them — set 'reuse_existing' to true and reference by name.\n"
+                "Only create NEW agents when the team lacks the required capability.\n\n"
 
                 "If there is a 'Last completed task' above, the user's message is likely a FOLLOW-UP or REFINEMENT of that task.\n"
                 "In that case, create a plan that builds on the previous work — reuse the same agents or add new ones,\n"
@@ -200,14 +259,29 @@ class CentralSecretary:
             "For tuning, respond with:\n"
             '  {"action": "tuning", "tuning_text": "what the user wants to change", "target_agent": "agent name or empty if unclear"}\n\n'
 
-            "For create_agents, respond with the SAME format as plan (agents array with full specs), but use action='create_agents':\n"
+            "For create_agents, respond with essential fields at minimum:\n"
             "{\n"
             '  "action": "create_agents",\n'
             '  "summary": "brief summary of agents being created",\n'
             '  "team_name": "a short, descriptive team name (NOT the user prompt)",\n'
             '  "team_description": "1-2 sentence description of the team purpose",\n'
-            '  "agents": [ ... same format as plan ... ]\n'
-            "}\n\n"
+            '  "agents": [\n'
+            "    {\n"
+            '      "name": "Role #N (e.g. Creative Writer #1)",\n'
+            '      "role": "Agent Role",\n'
+            '      "goal": "Agent Goal",\n'
+            '      "persona": "Brief persona/backstory as a single string",\n'
+            '      "personality": {"tone": "...", "communication_style": "...", "language": "..."},\n'
+            '      "expertise": ["skill1", "skill2"],\n'
+            '      "brand_context": {"brand_name": "", "guidelines": "", "target_audience": ""},\n'
+            '      "tools": ["capability_name"],\n'
+            '      "model": "choose from: google/gemini-3.5-flash, anthropic/claude-sonnet-5, openai/gpt-5.6-luna"\n'
+            "    }\n"
+            "  ]\n"
+            "}\n"
+            "You MUST include name, role, goal, persona, personality, expertise, brand_context, tools, and model for every agent.\n"
+            "Always generate personality, expertise, and brand_context even if the user doesn't specify them — infer from the role and goal.\n"
+            "If the conversation history shows a previously proposed team and the user wants to modify it, UPDATE that team instead of creating a new one.\n\n"
 
             "For plan, respond with a complete plan including agents AND model assignments:\n"
             "{\n"
@@ -233,10 +307,9 @@ class CentralSecretary:
             '      "tools": ["capability_name"],\n'
             '      "task_description": "What this agent should do",\n'
             '      "depends_on": [],\n'
-            '      "model": "model_id from the list"\n'
+            '      "model": "choose from: google/gemini-3.5-flash, anthropic/claude-sonnet-5, openai/gpt-5.6-luna"\n'
             "    }\n"
             "  ],\n"
-            '  "manager_model": "model_id from the list or openrouter/auto",\n'
             '  "image_model": "model_id from specialized catalog (REQUIRED if plan uses generate_image)",\n'
             '  "video_model": "model_id from specialized catalog (REQUIRED if plan uses generate_video)",\n'
             '  "search_model": "model_id from specialized catalog (REQUIRED if plan uses search_web)",\n'
@@ -244,19 +317,19 @@ class CentralSecretary:
             '  "stt_model": "model_id from specialized catalog (REQUIRED if plan uses transcribe_audio)",\n'
             '  "vision_model": "model_id from specialized catalog (REQUIRED if plan uses analyze_image)"\n'
             "}\n\n"
-
             "Design Rules for plan:\n"
-            "- Do NOT include a Manager agent in your response — the system adds a Manager automatically. Only include worker agents.\n"
+            "- Do NOT include a Manager agent in your response — the system has a Manager already. Only include worker agents.\n"
             "- REUSE existing team agents when possible — if a team agent already has the right role/tools, include it by name instead of creating a new one\n"
             "- Only create NEW agents when the team lacks the required capability\n"
             "- If the user mentions @AgentName, that agent MUST be included in the plan — use the exact name from the team agents list\n"
+            "- Each agent has a 'reuse_existing' field: set true to use an existing agent as-is, false to create new or modify. You decide based on context.\n"
             "- Create as many agents as needed (1, 2, 3, or more)\n"
             "- Each agent should have a clear, distinct responsibility\n"
             "- Assign capabilities based on the descriptions below\n"
             "- Capabilities of type 'tool' (search_web, generate_image, generate_video, text_to_speech, transcribe_audio, analyze_image, scrape_web, generate_document) give external abilities\n"
             "- Capabilities of type 'model_trait' (reasoning, creative_writing, write_code, long_context) guide model selection\n"
-            "- Use 'openrouter/auto' for all model fields — do NOT assign specific model IDs\n"
-            "- Leave image_model/video_model/search_model/tts_model/stt_model/vision_model empty — the system handles defaults\n"
+            "- Assign each agent the most suitable model from: 'google/gemini-3.5-flash', 'anthropic/claude-sonnet-5', 'openai/gpt-5.6-luna'. Consider the agent's role and tasks when choosing.\n"
+            "- Leave image_model/video_model/search_model/tts_model/stt_model/vision_model empty — the user will select models in the plan card\n"
             "- Write all content in the SAME language as the user's request\n"
             "- Name agents as 'Role #N' (e.g. Creative Writer #1, Graphic Designer #2)\n"
             "- Give each agent a personality (tone, communication_style, language) that fits their role\n"
@@ -271,10 +344,17 @@ class CentralSecretary:
             "- Agents WITH depends_on CAN reference the upstream agent's output — e.g. 'Based on the caption from Creative Copywriter, generate an image that matches'.\n"
             "- Decide how many agents to create based on the user's request. You may create one agent per item or one agent that handles multiple items — use your judgment.\n"
             "- Each task_description MUST be specific — tell the agent EXACTLY what to produce, including how many items and what subject/theme.\n"
+            "- Each agent's task_description MUST be scoped to ONLY their responsibility — do NOT overlap with other agents' work.\n"
+            "- If there is a content writer and an image designer, the content writer writes ONLY the text content. The image designer creates images.\n"
+            "- Do NOT have one agent describe or produce what another agent should create.\n"
+            "- If an image designer needs to create images based on a content writer's output, set depends_on: [\"Content Writer name\"] so the image designer receives the content automatically.\n"
             "- BAD: 'Generate images based on descriptions provided by the manager' (vague, no depends_on)\n"
+            "- BAD: 'Write an article AND describe image concepts' (scope overlap — image concepts are the image designer's job)\n"
             "- GOOD (no depends_on): 'Write 1 engaging caption for a coffee shop post about latte art. Include hashtags and CTA.'\n"
             "- GOOD (with depends_on): 'Based on the caption from Creative Copywriter, create 1 image that visually matches the described scene. Call generate_image with a detailed English prompt.' + depends_on: [\"Creative Copywriter\"]\n"
-            "- Include: what to create, how many, subject/theme, and which tool to call.\n\n"
+            "- Include: what to create, how many, subject/theme, and which tool to call.\n"
+            "- If an agent has generate_image in tools, its task_description MUST explicitly say 'Call generate_image to create N images of [specific subject]' — not 'design images' or 'create visual concepts'.\n"
+            "- Agents with media tools (generate_image, generate_video) MUST call those tools as part of their work. Writing image/video prompts as text output is NOT acceptable — the agent must CALL the tool.\n\n"
 
             f"Available capabilities:\n{caps_text}\n\n"
             f"{history_text}"
@@ -333,10 +413,16 @@ class CentralSecretary:
             }
         if os.getenv("DEBUG_MODE", "false").lower() == "true":
             print(f"[DEBUG-PLAN-RAW] LLM response (first 800 chars): {response[:800]}", flush=True)
-        return self._parse_unified_response(response, valid_model_ids)
+        result = self._parse_unified_response(response, valid_model_ids, chat_only=chat_only)
+        if chat_only and result.get("action") != "chat":
+            result = {
+                "action": "chat",
+                "message": result.get("message") or "ฟังก์ชันนี้ต้องใช้ในโหมด Plan ครับ กรุณาสลับไปโหมด Plan เพื่อสร้างแผนงานหรือจัดการ agent",
+            }
+        return result
 
     def _parse_unified_response(
-        self, text: str, valid_model_ids: set[str] | None = None
+        self, text: str, valid_model_ids: set[str] | None = None, chat_only: bool = False
     ) -> dict:
         """Parse unified assess_and_plan response."""
         try:
@@ -348,7 +434,7 @@ class CentralSecretary:
                     return {
                         "action": "chat",
                         "message": (
-                            f"⚠️ โมเดล '{selected}' ส่งคำตอบกลับมาไม่ถูกต้อง (ไม่มี JSON action) "
+                            f"⚠️ โมเดล '{selected}' ส่งคำตอบกลับมาไม่ถูกต้อง "
                             f"ลองเปลี่ยนโมเดลแล้วส่งใหม่อีกครั้ง"
                         )
                     }
@@ -364,6 +450,7 @@ class CentralSecretary:
                                 "name": item.get("name", "").strip(),
                                 "role": item.get("role", "").strip(),
                                 "goal": item.get("goal", "").strip(),
+                                "persona": item.get("persona", item.get("backstory", "")).strip() if isinstance(item.get("persona", item.get("backstory", "")), str) else "",
                                 "backstory": item.get("backstory", "").strip(),
                                 "personality": item.get("personality", {}) if isinstance(item.get("personality"), dict) else {},
                                 "expertise": item.get("expertise", []) if isinstance(item.get("expertise"), list) else [],
@@ -371,15 +458,15 @@ class CentralSecretary:
                                 "tools": item.get("tools", []) if isinstance(item.get("tools"), list) else [],
                                 "task_description": item.get("task_description", "").strip(),
                                 "depends_on": [d.strip() for d in depends_on if isinstance(d, str) and d.strip()],
-                                "model": "openrouter/auto",
+                                "model": item.get("model", "openrouter/free").strip() or "openrouter/free",
                                 "reuse_existing": item.get("reuse_existing", False),
                             })
                     if not agents:
                         return {"action": "chat", "message": "ไม่สามารถวางแผนได้ กรุณาลองใหม่"}
 
-                    model_assignment = {"manager": "openrouter/auto", "workers": {}}
+                    model_assignment = {"manager": "openrouter/free", "workers": {}}
                     for a in agents:
-                        model_assignment["workers"][a["name"]] = "openrouter/auto"
+                        model_assignment["workers"][a["name"]] = a.get("model", "openrouter/free")
 
                     return {
                         "action": result["action"],
@@ -401,6 +488,14 @@ class CentralSecretary:
             print(f"[DEBUG-PARSE-UNIFIED] Failed: {e}", flush=True)
             print(f"[DEBUG-PARSE-UNIFIED] Response (first 500 chars): {text[:500]}", flush=True)
         selected = self.llm_manager._selected_model or self.llm_manager._default_model or "auto"
+        if chat_only:
+            return {
+                "action": "chat",
+                "message": (
+                    f"⚠️ โมเดล '{selected}' ส่งคำตอบกลับมาไม่ถูกต้อง "
+                    f"ลองเปลี่ยนโมเดลแล้วส่งใหม่อีกครั้ง"
+                )
+            }
         return {
             "action": "chat",
             "message": (
@@ -414,6 +509,7 @@ class CentralSecretary:
         feedback_text: str,
         agent_specs: list[dict],
         task_result: str = "",
+        conversation_history: list[dict] | None = None,
     ) -> dict:
         """Analyze user feedback/tuning request and propose persona changes for agents.
 
@@ -440,30 +536,50 @@ class CentralSecretary:
                 "name": spec.get("name", "Agent"),
                 "id": spec.get("registry_id", spec.get("id", "")),
                 "role": spec.get("role", ""),
+                "goal": spec.get("goal", ""),
                 "persona": spec.get("backstory", spec.get("persona", ""))[:200],
                 "personality": personality,
                 "expertise": spec.get("expertise", []),
                 "brand_context": spec.get("brand_context", {}),
+                "tools": spec.get("tools", []),
+                "model": spec.get("model", ""),
             })
+
+        history_text = ""
+        if conversation_history:
+            recent = conversation_history[-20:]
+            history_text = "\nConversation context:\n"
+            for msg in recent:
+                content = msg.get('content', '')
+                if len(content) > 4000:
+                    content = content[:4000] + "..."
+                history_text += f"- {msg.get('role', 'user')}: {content}\n"
 
         prompt = (
             "You are the Central Secretary analyzing a user request to tune/adjust agents.\n"
-            "Based on the user's request, propose specific tuning changes to agent personas.\n\n"
+            "Based on the user's request, propose specific tuning changes to agents.\n\n"
             f"User request: {feedback_text}\n\n"
         )
         if task_result:
             prompt += f"Last task result (for context):\n{task_result[:1000]}\n\n"
+        if history_text:
+            prompt += f"{history_text}\n"
         prompt += (
             f"Agents available for tuning:\n{json.dumps(agents_info, ensure_ascii=False, indent=2)}\n\n"
-            "Analyze the request and decide which agent(s) need persona adjustments.\n"
+            "Analyze the request and decide which agent(s) need adjustments.\n"
             "For each agent, specify which fields to change and why.\n\n"
             "Tunable fields:\n"
+            "- goal (the agent's objective — what it should accomplish)\n"
             "- personality.tone (e.g. professional, casual, friendly, formal)\n"
             "- personality.communication_style (e.g. concise, detailed, conversational)\n"
             "- personality.language (e.g. th, en, mixed)\n"
             "- persona/backstory (free text describing the agent's character)\n"
             "- expertise (list of skills/knowledge areas)\n"
-            "- brand_context.guidelines (tone/style rules)\n\n"
+            "- brand_context.brand_name (the brand the agent works for)\n"
+            "- brand_context.guidelines (tone/style rules)\n"
+            "- brand_context.target_audience (who the agent's output is for)\n"
+            "- tools (list of capability names — e.g. search_web, generate_image, generate_video, text_to_speech, transcribe_audio, analyze_image, scrape_web, generate_document)\n"
+            "- model (LLM model ID — choose from: google/gemini-3.5-flash, anthropic/claude-sonnet-5, openai/gpt-5.6-luna)\n\n"
             "Respond with ONLY this JSON (no other text):\n"
             "{\n"
             '  "tuning_proposals": [\n'
@@ -543,13 +659,18 @@ class CentralSecretary:
         valid_model_ids: set[str] | None = None,
         media_catalog: str | None = None,
         stream_callback=None,
+        chat_only: bool = False,
     ) -> dict:
         """assess_and_plan with multimodal content blocks (image, PDF, audio, video)."""
         history_text = ""
         if conversation_history:
+            recent = conversation_history[-20:]
             history_text = "\nConversation so far:\n"
-            for msg in conversation_history:
-                history_text += f"- {msg.get('role', 'user')}: {msg.get('content', '')[:100]}\n"
+            for msg in recent:
+                content = msg.get('content', '')
+                if len(content) > 4000:
+                    content = content[:4000] + "..."
+                history_text += f"- {msg.get('role', 'user')}: {content}\n"
 
         cap_registry = CapabilityRegistry()
         catalog = cap_registry.list_catalog()
@@ -557,17 +678,35 @@ class CentralSecretary:
             f"- {c['name']}: {c['description']}" for c in catalog
         ) if catalog else "none"
 
-        models_text = "Use 'openrouter/auto' for all model fields. Do not assign specific models."
+        models_text = "Assign each agent a model from this list: 'google/gemini-3.5-flash', 'anthropic/claude-sonnet-5', 'openai/gpt-5.6-luna'. Choose the most suitable model based on the agent's role and tasks. The Manager uses 'openrouter/free' by default."
 
-        prompt = (
-            "You are the Central Secretary of an Agent Management Platform.\n"
-            "Evaluate the user's message and respond with a single JSON object.\n\n"
-            "First, decide what to do:\n"
-            "- chat: greetings, small talk, general questions, self-introduction requests\n"
-            "- info: questions about system/agents/status\n"
-            "- ask: user wants work done but needs are unclear\n"
-            "- plan: user wants specific work produced (content, images, videos, analysis, etc.)\n\n"
-            "The user has attached a file. Analyze the attached content and use it in your assessment.\n\n"
+        if chat_only:
+            prompt = (
+                "You are the Central Secretary of an Agent Management Platform.\n"
+                "You are in CHAT MODE. You can ONLY respond with 'chat'.\n"
+                "Answer the user's question directly — this includes answering questions about attached images/files,\n"
+                "analyzing images, summarizing documents, general conversation, and self-introduction.\n"
+                "Do NOT create plans, agents, or tuning proposals.\n"
+                "If the user seems to want work produced (content creation, image generation, etc.),\n"
+                "suggest they switch to Plan mode to create a plan.\n\n"
+                "The user has attached a file. Analyze the attached content and use it in your response.\n\n"
+                "Respond with:\n"
+                '  {"action": "chat", "message": "your reply"}\n\n'
+                "Use the same language as the user.\n\n"
+                f"{history_text}"
+                f"User message: {user_input}\n\n"
+                "Output ONLY the JSON object, no explanation:"
+            )
+        else:
+            prompt = (
+                "You are the Central Secretary of an Agent Management Platform.\n"
+                "Evaluate the user's message and respond with a single JSON object.\n\n"
+                "First, decide what to do:\n"
+                "- chat: greetings, small talk, general questions, self-introduction requests, questions about an attached image/file, image analysis, document summary\n"
+                "- info: questions about system/agents/status\n"
+                "- ask: user wants work done but needs are unclear\n"
+                "- plan: user wants specific work produced (content, images, videos, analysis, etc.)\n\n"
+                "The user has attached a file. Analyze the attached content and use it in your assessment.\n\n"
             "For chat/info/ask, respond with:\n"
             '  {"action": "chat", "message": "your reply"}\n'
             '  {"action": "info", "message": "your reply"}\n'
@@ -596,10 +735,9 @@ class CentralSecretary:
             '      "tools": ["capability_name"],\n'
             '      "task_description": "What this agent should do",\n'
             '      "depends_on": [],\n'
-            '      "model": "model_id from the list"\n'
+            '      "model": "choose from: google/gemini-3.5-flash, anthropic/claude-sonnet-5, openai/gpt-5.6-luna"\n'
             "    }\n"
             "  ],\n"
-            '  "manager_model": "model_id from the list or openrouter/auto",\n'
             '  "image_model": "model_id from specialized catalog (REQUIRED if plan uses generate_image)",\n'
             '  "video_model": "model_id from specialized catalog (REQUIRED if plan uses generate_video)",\n'
             '  "search_model": "model_id from specialized catalog (REQUIRED if plan uses search_web)",\n'
@@ -608,14 +746,15 @@ class CentralSecretary:
             '  "vision_model": "model_id from specialized catalog (REQUIRED if plan uses analyze_image)"\n'
             "}\n\n"
             "Design Rules for plan:\n"
-            "- Do NOT include a Manager agent in your response — the system adds a Manager automatically. Only include worker agents.\n"
+            "- Do NOT include a Manager agent in your response — the system has a Manager already. Only include worker agents.\n"
             "- REUSE existing team agents when possible — if a team agent already has the right role/tools, include it by name instead of creating a new one\n"
             "- Only create NEW agents when the team lacks the required capability\n"
             "- If the user mentions @AgentName, that agent MUST be included in the plan — use the exact name from the team agents list\n"
+            "- Each agent has a 'reuse_existing' field: set true to use an existing agent as-is, false to create new or modify. You decide based on context.\n"
             "- Create as many agents as needed (1, 2, 3, or more)\n"
             "- Each agent should have a clear, distinct responsibility\n"
             "- Assign capabilities based on the descriptions below\n"
-            "- Use 'openrouter/auto' for all model fields — do NOT assign specific model IDs\n"
+            "- Assign each agent the most suitable model from: 'google/gemini-3.5-flash', 'anthropic/claude-sonnet-5', 'openai/gpt-5.6-luna'. Consider the agent's role and tasks when choosing.\n"
             "- Write all content in the SAME language as the user's request\n"
             "- Name agents as 'Role #N' (e.g. Creative Writer #1)\n"
             "- Give each agent personality, expertise, and brand_context fields\n"
@@ -668,7 +807,13 @@ class CentralSecretary:
                 "action": "chat",
                 "message": f"❌ โมเดล '{selected}' ส่งคำตอบกลับมาว่างเปล่า อาจไม่รองรับ multimodal input"
             }
-        return self._parse_unified_response(response, valid_model_ids)
+        result = self._parse_unified_response(response, valid_model_ids, chat_only=chat_only)
+        if chat_only and result.get("action") != "chat":
+            result = {
+                "action": "chat",
+                "message": result.get("message") or "ฟังก์ชันนี้ต้องใช้ในโหมด Plan ครับ กรุณาสลับไปโหมด Plan เพื่อสร้างแผนงานหรือจัดการ agent",
+            }
+        return result
 
     async def info_response(self, user_input: str, agents: list[dict], tasks: list[dict], state: str) -> str:
         """ตอบคำถามข้อมูลระบบ"""
@@ -698,9 +843,13 @@ class CentralSecretary:
 
         history_text = ""
         if conversation_history:
+            recent = conversation_history[-20:]
             history_text = "\nConversation context:\n"
-            for msg in conversation_history[-10:]:
-                history_text += f"- {msg.get('role', 'user')}: {msg.get('content', '')[:150]}\n"
+            for msg in recent:
+                content = msg.get('content', '')
+                if len(content) > 4000:
+                    content = content[:4000] + "..."
+                history_text += f"- {msg.get('role', 'user')}: {content}\n"
 
         prompt = (
             "You are the Central Secretary of an Agent Management Platform.\n"
@@ -739,9 +888,30 @@ class CentralSecretary:
         self, agent_spec: dict, registry: AgentRegistry
     ) -> dict:
         """
-        เช็ค Registry ว่ามี Agent ที่ว่างและตรงสายงานหรือไม่
+        เช็ค Registry ว่ามี Agent ที่ตรงกับ spec หรือไม่
+        ลำดับการเช็ค:
+        1. reuse_existing=True → หาจาก name
+        2. name ตรงกับ agent เดิม → ใช้ของเดิม + override fields
+        3. fallback: หาจาก role/tools (เดิม)
+        4. ไม่เจอ → create new
         Returns: {"type": "existing", "agent": {...}} หรือ {"type": "create", "spec": {...}}
         """
+        spec_name = agent_spec.get("name", "").strip()
+        reuse_existing = agent_spec.get("reuse_existing", False)
+
+        # 1) If LLM says reuse_existing, try name match first
+        if reuse_existing and spec_name:
+            existing = registry.find_by_name(spec_name)
+            if existing and not existing.get("is_manager"):
+                return {"type": "existing", "agent": existing}
+
+        # 2) If name matches an existing agent (even without reuse_existing), use it
+        if spec_name:
+            existing = registry.find_by_name(spec_name)
+            if existing and not existing.get("is_manager"):
+                return {"type": "existing", "agent": existing}
+
+        # 3) Fallback: role/tools match (original behavior)
         existing = registry.find_idle_agent(
             agent_spec.get("role", ""), agent_spec.get("tools", [])
         )

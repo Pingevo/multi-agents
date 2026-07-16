@@ -95,14 +95,17 @@ async def on_action_accept(action: cl.Action):
     current_team_id = cl.user_session.get("current_team_id")
     team_registry = cl.user_session.get("team_registry") or TeamRegistry()
     registered_specs = []
+    print(f"[DEBUG-ACCEPT] Registering {len(agent_specs)} specs, plan_type={cl.user_session.get('current_plan_type')}, team_id={current_team_id}", flush=True)
     for spec in agent_specs:
         if spec.get("registry_id"):
             # Already registered
+            print(f"[DEBUG-ACCEPT] Agent '{spec.get('name')}' already registered (id={spec.get('registry_id')})", flush=True)
             registered_specs.append(spec)
         else:
             if current_team_id:
                 spec["team_id"] = current_team_id
             new_agent = registry.add_agent(spec)
+            print(f"[DEBUG-ACCEPT] Registered agent: {new_agent.get('name')} (id={new_agent.get('id')})", flush=True)
             merged = registry.to_spec(new_agent)
             merged["task_description"] = spec.get("task_description", user_input)
             merged["depends_on"] = spec.get("depends_on", [])
@@ -116,6 +119,7 @@ async def on_action_accept(action: cl.Action):
     if messenger:
         messenger.update_plan_status("approved")
         await messenger.update_agents(registry)
+        print(f"[DEBUG-ACCEPT] update_agents sent, registry has {len(registry.list_agents())} agents", flush=True)
         await messenger.clear_plan()
 
     # Check if this is a create_agents plan (only create agents, don't run task)
@@ -152,13 +156,23 @@ async def on_action_reject(action: cl.Action):
         return
 
     cl.user_session.set("state", STATE_IDLE)
+    rejected_specs = cl.user_session.get("current_agent_specs") or []
     cl.user_session.set("current_agent_specs", None)
-    cl.user_session.set("current_input", None)
     cl.user_session.set("current_registry_id", None)
     if messenger:
         messenger.update_plan_status("rejected")
         await messenger.clear_plan()
-        await messenger.reply("🔄 แผนงานถูกปฏิเสธ กรุณาพิมพ์คำสั่งใหม่หรืออธิบายเพิ่มเติม")
+        # Store rejected plan in conversation history so AI can revise it
+        conversation_history = cl.user_session.get("conversation_history") or []
+        if rejected_specs:
+            plan_summary = json.dumps([
+                {"name": a.get("name", ""), "role": a.get("role", ""), "task": a.get("task_description", "")}
+                for a in rejected_specs
+            ], ensure_ascii=False)
+            conversation_history.append({"role": "assistant", "content": f"Proposed team: {plan_summary}"})
+            conversation_history.append({"role": "user", "content": "[REJECTED] แผนนี้ถูกปฏิเสธ กรุณาพิมพ์คำสั่งใหม่หรืออธิบายสิ่งที่ต้องการแก้"})
+            cl.user_session.set("conversation_history", conversation_history)
+        await messenger.reply("🔄 แผนงานถูกปฏิเสธ กรุณาพิมพ์คำสั่งใหม่หรืออธิบายสิ่งที่ต้องการแก้")
 
 
 @cl.action_callback("cancel_plan")
@@ -251,6 +265,11 @@ async def on_action_delete_agent(action: cl.Action):
     if not agent:
         if messenger:
             await messenger.notify("❌ ไม่พบ Agent ที่ต้องการลบ")
+        return
+
+    if agent.get("is_manager"):
+        if messenger:
+            await messenger.notify("❌ ไม่สามารถลบ Manager ได้ — Manager เป็นส่วนสำคัญของทีม")
         return
 
     registry.delete_agent(agent_id)
@@ -384,6 +403,8 @@ async def on_action_confirm_tuning(action: cl.Action):
                     update_fields["persona"] = new_value
                 elif field == "expertise":
                     update_fields["expertise"] = new_value if isinstance(new_value, list) else [new_value]
+                elif field == "tools":
+                    update_fields["tools"] = new_value if isinstance(new_value, list) else [new_value]
                 elif field in ("goal", "name", "role", "model", "team_id"):
                     update_fields[field] = new_value
 
@@ -442,8 +463,8 @@ async def on_action_create_team(action: cl.Action):
 
     # Create manager agent for this team
     registry = cl.user_session.get("registry") or AgentRegistry()
-    default_goal = f"Coordinate the team '{name}' to accomplish user tasks efficiently. Delegate work, run independent tasks in parallel, and synthesize results."
-    default_persona = "You are an experienced project manager who coordinates teams effectively. You know when tasks can run in parallel and when one must wait for another. You ensure quality by reviewing each agent's output before moving forward."
+    default_goal = f"Coordinate the team '{name}' to accomplish user tasks efficiently. Plan work, delegate tasks, run independent tasks in parallel, and synthesize results."
+    default_persona = "You are an experienced team manager who coordinates teams effectively. You know when tasks can run in parallel and when one must wait for another. You plan work, delegate tasks, and synthesize results to ensure quality."
     manager_agent = registry.add_agent({
         "name": f"{name} Manager",
         "role": "Manager",
@@ -536,7 +557,7 @@ async def on_action_delete_team(action: cl.Action):
         registry.delete_agent(agent_id)
 
     # Delete all chat sessions belonging to this team
-    chat_store = ChatStore()
+    chat_store = cl.user_session.get("chat_store") or ChatStore(user_id=cl.user_session.get("user_id", "default"))
     chat_store.delete_sessions_by_team(team_id)
 
     team_registry.delete_team(team_id)
@@ -559,7 +580,7 @@ async def on_action_delete_chat_session(action: cl.Action):
             await messenger.notify("❌ ไม่พบ Session ID")
         return
 
-    chat_store = cl.user_session.get("chat_store") or ChatStore()
+    chat_store = cl.user_session.get("chat_store") or ChatStore(user_id=cl.user_session.get("user_id", "default"))
     chat_store.delete_session(session_id)
 
     if messenger:
@@ -597,4 +618,9 @@ async def on_action_config_agent(action: cl.Action):
             await messenger.notify(f"✅ อัปเดต {agent.get('name', 'Agent')} แล้ว")
 
 
-
+@cl.action_callback("refresh_credits")
+async def on_action_refresh_credits(action: cl.Action):
+    """Refresh credit balance from OpenRouter and send updated platform state."""
+    messenger = get_messenger()
+    if messenger:
+        await messenger._send(trigger="refresh")

@@ -24,7 +24,7 @@ interface TeamDetailPageProps {
   team: Team;
   onBack: () => void;
   onDeleteTeam: (teamId: string) => void;
-  onSendCommand: (message: string, attachment?: { url: string; name: string; mime: string }) => void | Promise<void>;
+  onSendCommand: (message: string, attachments?: Array<{ url: string; name: string; mime: string }>) => void | Promise<void>;
   onStop?: () => void;
   onAction: (name: string, payload?: Record<string, any>) => void;
   connectionStatus: 'connecting' | 'connected' | 'disconnected';
@@ -76,7 +76,8 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({
   const { agents, current_plan, system_status, available_tools, credits } = usePlatform();
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
-  const [configAgent, setConfigAgent] = useState<Agent | null>(null);
+  const [configAgentId, setConfigAgentId] = useState<string | null>(null);
+  const configAgent = configAgentId ? agents.find(a => a.id === configAgentId) || null : null;
   const [mentionText, setMentionText] = useState('');
 
   const handleMentionAgent = useCallback((agentName: string) => {
@@ -89,12 +90,17 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({
   const statusText = connectionStatus === 'connected' ? system_status : 'Connecting...';
 
   const handleConfigAgent = useCallback((agent: Agent) => {
-    setConfigAgent(agent);
+    setConfigAgentId(agent.id);
   }, []);
 
   const handleSaveConfig = useCallback((data: { agent_id: string; name: string; role: string; goal: string; persona: string; model: string; tools: string[] }) => {
     onAction('config_agent', data);
-  }, [onAction]);
+    // If this is a manager agent, sync model to top bar
+    const agent = agents.find(a => a.id === data.agent_id);
+    if (agent && (agent.is_manager || agent.role?.toLowerCase() === 'manager') && data.model) {
+      onAction('set_selected_model', { model_id: data.model });
+    }
+  }, [onAction, agents]);
 
   return (
     <div className="h-full w-full flex flex-col bg-bg">
@@ -176,7 +182,7 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({
                         <div className="text-[10px] text-text-3 mt-0.5">{session.updated_at ? timeAgo(session.updated_at) : ''}</div>
                       </div>
                       <button
-                        onClick={(e) => { e.stopPropagation(); onAction('delete_chat', { session_id: session.id }); }}
+                        onClick={(e) => { e.stopPropagation(); if (confirm('ลบแชทนี้?')) onAction('delete_chat', { session_id: session.id }); }}
                         className="text-text-3 opacity-0 group-hover:opacity-100 hover:text-danger transition-all shrink-0 ml-2"
                       >
                         <Trash2 className="w-3 h-3" />
@@ -215,7 +221,7 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({
                   <p className="text-[10px] text-text-3 ml-3.5 mt-0.5">{managerAgent.role}</p>
                   <div className="flex items-center gap-1 ml-3.5 mt-1">
                     <Cpu className="w-2.5 h-2.5 text-text-3" />
-                    <span className="text-[9px] text-text-3">{managerAgent.model || 'auto'}</span>
+                    <span className="text-[9px] text-text-3">{selectedModel || managerAgent.model || 'auto'}</span>
                   </div>
                 </div>
               )}
@@ -296,6 +302,8 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({
               onRejectImage={(approvalId) => onAction('reject_image', { approval_id: approvalId })}
               onRetryImage={(approvalId) => onAction('retry_image', { approval_id: approvalId })}
               onEditImagePrompt={(approvalId, newPrompt) => onAction('edit_image_prompt', { approval_id: approvalId, new_prompt: newPrompt })}
+              onApproveAgentResult={(reviewId) => onAction('approve_agent_result', { review_id: reviewId })}
+              onRejectAgentResult={(reviewId, feedback) => onAction('reject_agent_result', { review_id: reviewId, feedback })}
               onFetchModelCatalog={() => onAction('fetch_model_catalog')}
               onFetchMediaCatalog={(mediaType) => onAction('fetch_media_catalog', { media_type: mediaType })}
               onSearchModels={(query) => onAction('search_models', { query })}
@@ -335,6 +343,7 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({
                 onEditImagePrompt={(approvalId, newPrompt) => onAction('edit_image_prompt', { approval_id: approvalId, new_prompt: newPrompt })}
                 onRetryTask={() => onAction('retry_task')}
                 onRateTask={(rating) => onAction('rate_task', { rating })}
+                onSkipReview={(agentName) => onAction('skip_review', { agent_name: agentName })}
               />
             </div>
           </div>
@@ -355,13 +364,14 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({
         open={!!configAgent}
         agent={configAgent}
         availableTools={available_tools || []}
-        onClose={() => setConfigAgent(null)}
+        onClose={() => setConfigAgentId(null)}
         onSave={handleSaveConfig}
         onAction={onAction}
         modelCatalog={preloadedModelCatalog}
         modelSearchResults={preloadedModelSearchResults}
         onSearchModels={(query) => onAction('search_models', { query })}
         onFetchModelCatalog={() => onAction('fetch_model_catalog')}
+        selectedModel={selectedModel}
       />
 
     </div>

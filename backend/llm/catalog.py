@@ -12,12 +12,18 @@ class ModelCatalog:
     - all: full list with metadata
     """
 
+    _WHITELIST = {
+        "openrouter/free",
+        "google/gemini-3.5-flash",
+        "anthropic/claude-sonnet-5",
+        "openai/gpt-5.6-luna",
+    }
+
     _CATEGORY_KEYWORDS = {
         "reasoning": ["o3", "o1", "thinking", "reasoning", "deepseek-r1", "qwq"],
         "coding": ["coder", "code", "starcoder", "deepseek-coder", "qwen2.5-coder"],
         "vision": ["vision", "llava", "pixtral", "gpt-4o", "claude-3", "gemini", "qwen2-vl", "qwen2.5-vl"],
         "fast": ["flash", "mini", "haiku", "8b", "7b", "3b", "1.5b", "nano"],
-        "free": [":free"],
     }
 
     _POPULAR_PREFIXES = [
@@ -30,6 +36,10 @@ class ModelCatalog:
         self.api_key = api_key
         self.base_url = base_url
         self._all_models: list[dict] | None = None
+
+    def _is_allowed(self, model_id: str) -> bool:
+        """Check if model is in whitelist."""
+        return model_id in self._WHITELIST
 
     def _fetch_all(self) -> list[dict]:
         if self._all_models is not None:
@@ -102,6 +112,9 @@ class ModelCatalog:
         all_models = self._fetch_all()
         by_cat: dict[str, list[dict]] = {}
         for m in all_models:
+            mid = m.get("id", "")
+            if not self._is_allowed(mid):
+                continue
             summary = self._model_summary(m)
             for cat in summary["categories"]:
                 by_cat.setdefault(cat, []).append(summary)
@@ -120,9 +133,11 @@ class ModelCatalog:
             return []
         results = []
         for m in all_models:
-            mid = m.get("id", "").lower()
+            mid = m.get("id", "")
+            if not self._is_allowed(mid):
+                continue
             mname = m.get("name", "").lower()
-            if q in mid or q in mname:
+            if q in mid.lower() or q in mname:
                 results.append(self._model_summary(m))
         return results if limit <= 0 else results[:limit]
 

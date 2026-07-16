@@ -13,7 +13,7 @@ import type { Agent } from '../types/platform';
 import type { Node, Edge } from '@xyflow/react';
 
 interface MainLayoutProps {
-  onSendCommand: (message: string, attachment?: { url: string; name: string; mime: string }) => void | Promise<void>;
+  onSendCommand: (message: string, attachments?: Array<{ url: string; name: string; mime: string }>) => void | Promise<void>;
   onStop?: () => void;
   onAction: (name: string, payload?: Record<string, any>) => void;
   connectionStatus: 'connecting' | 'connected' | 'disconnected';
@@ -118,8 +118,8 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
     setSelectedAgent(null);
   };
 
-  const handleApproveImage = useCallback((approvalId: string) => {
-    onAction('approve_image', { approval_id: approvalId });
+  const handleApproveImage = useCallback((approvalId: string, model?: string) => {
+    onAction('approve_image', { approval_id: approvalId, model });
   }, [onAction]);
 
   const handleRejectImage = useCallback((approvalId: string) => {
@@ -172,6 +172,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
           onRejectImage={handleRejectImage}
           onRetryImage={handleRetryImage}
           onEditImagePrompt={handleEditImagePrompt}
+          onSkipReview={(agentName) => onAction('skip_review', { agent_name: agentName })}
         />
 
         <ChatPanelRight
@@ -203,6 +204,8 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
           onEditImagePrompt={(approvalId, newPrompt) =>
             onAction('edit_image_prompt', { approval_id: approvalId, new_prompt: newPrompt })
           }
+          onApproveAgentResult={(reviewId) => onAction('approve_agent_result', { review_id: reviewId })}
+          onRejectAgentResult={(reviewId, feedback) => onAction('reject_agent_result', { review_id: reviewId, feedback })}
           onFetchModelCatalog={() => onAction('fetch_model_catalog')}
           onFetchMediaCatalog={(mediaType) => onAction('fetch_media_catalog', { media_type: mediaType })}
           onSearchModels={(query) => onAction('search_models', { query })}

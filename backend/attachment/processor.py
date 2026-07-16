@@ -137,18 +137,12 @@ async def process_attachment(file_url: str, file_name: str, file_mime: str) -> d
                 file_bytes = f.read()
             b64 = base64.b64encode(file_bytes).decode("utf-8")
             data_url = f"data:{file_mime};base64,{b64}"
-            crewai_files = {}
-            try:
-                from crewai_files import ImageFile
-                crewai_files = {"image": ImageFile(source=file_path)}
-            except ImportError:
-                pass
             return {
                 "type": "multimodal",
                 "content_blocks": [{"type": "image_url", "image_url": {"url": data_url}}],
                 "plugins": None,
-                "crewai_files": crewai_files or None,
-                "text_content": "",
+                "crewai_files": None,  # Don't use CrewAI input_files — bypass to OpenRouter format
+                "text_content": f"[Image for multimodal processing: {data_url}]",
                 "context_text": f"[Image: {file_name}]",
                 "required_modality": "image",
                 "file_name": file_name,
@@ -163,18 +157,26 @@ async def process_attachment(file_url: str, file_name: str, file_mime: str) -> d
             with open(file_path, "rb") as f:
                 file_bytes = f.read()
             b64 = base64.b64encode(file_bytes).decode("utf-8")
-            crewai_files = {}
-            try:
-                from crewai_files import PDFFile
-                crewai_files = {"pdf": PDFFile(source=file_path)}
-            except ImportError:
-                pass
+            data_url = f"data:application/pdf;base64,{b64}"
+
+            # Extract text as fallback/ supplement
+            extracted_text = _extract_text_content(file_path, file_mime)
+
+            # Build text_content: extracted text + OpenRouter data URL
+            # OpenRouter accepts data:application/pdf;base64,... in message content
+            # with plugins: [{id: "file-parser", pdf: {engine: "mistral-ocr"}}] in request body
+            text_parts = []
+            if extracted_text:
+                text_parts.append(f"[PDF text content: {file_name}]\n{extracted_text}")
+            text_parts.append(f"[PDF file for multimodal processing: {data_url}]")
+            combined_text = "\n\n".join(text_parts)
+
             return {
                 "type": "multimodal",
-                "content_blocks": [{"type": "file", "file": {"filename": file_name, "file_data": f"data:application/pdf;base64,{b64}"}}],
-                "plugins": [{"id": "file-parser", "pdf": {"engine": "cloudflare-ai"}}],
-                "crewai_files": crewai_files or None,
-                "text_content": "",
+                "content_blocks": [{"type": "file", "file": {"filename": file_name, "file_data": data_url}}],
+                "plugins": [{"id": "file-parser", "pdf": {"engine": "mistral-ocr"}}],
+                "crewai_files": None,  # Don't use CrewAI input_files — bypass to OpenRouter format
+                "text_content": combined_text,
                 "context_text": f"[PDF: {file_name}]",
                 "required_modality": "pdf",
                 "file_name": file_name,
@@ -203,18 +205,13 @@ async def process_attachment(file_url: str, file_name: str, file_mime: str) -> d
                 file_bytes = f.read()
             b64 = base64.b64encode(file_bytes).decode("utf-8")
             fmt = AUDIO_FORMAT_MAP.get(file_mime, "mp3")
-            crewai_files = {}
-            try:
-                from crewai_files import AudioFile
-                crewai_files = {"audio": AudioFile(source=file_path)}
-            except ImportError:
-                pass
+            data_url = f"data:{file_mime};base64,{b64}"
             return {
                 "type": "multimodal",
                 "content_blocks": [{"type": "input_audio", "input_audio": {"data": b64, "format": fmt}}],
                 "plugins": None,
-                "crewai_files": crewai_files or None,
-                "text_content": "",
+                "crewai_files": None,
+                "text_content": f"[Audio for multimodal processing: {data_url}]",
                 "context_text": f"[Audio: {file_name}]",
                 "required_modality": "audio",
                 "file_name": file_name,
@@ -231,18 +228,13 @@ async def process_attachment(file_url: str, file_name: str, file_mime: str) -> d
                 with open(file_path, "rb") as f:
                     file_bytes = f.read()
                 b64 = base64.b64encode(file_bytes).decode("utf-8")
-                crewai_files = {}
-                try:
-                    from crewai_files import VideoFile
-                    crewai_files = {"video": VideoFile(source=file_path)}
-                except ImportError:
-                    pass
+                data_url = f"data:{file_mime};base64,{b64}"
                 return {
                     "type": "multimodal",
-                    "content_blocks": [{"type": "video_url", "video_url": {"url": f"data:{file_mime};base64,{b64}"}}],
+                    "content_blocks": [{"type": "video_url", "video_url": {"url": data_url}}],
                     "plugins": None,
-                    "crewai_files": crewai_files or None,
-                    "text_content": "",
+                    "crewai_files": None,
+                    "text_content": f"[Video for multimodal processing: {data_url}]",
                     "context_text": f"[Video: {file_name}]",
                     "required_modality": "video",
                     "file_name": file_name,

@@ -1,7 +1,7 @@
 """Document generation tool — create downloadable text/markdown files."""
 
 from crewai.tools import tool
-from backend.globals import _progress_callback
+from backend.globals import _progress_callback, _media_tool_results
 
 
 @tool
@@ -42,11 +42,7 @@ def generate_document(filename: str, content: str, doc_type: str = "markdown") -
     if _progress_callback:
         _progress_callback(100, f"📄 สร้างเอกสาร {filename_clean} แล้ว")
 
-    # Store for frontend to provide as download
-    import chainlit as cl
-    import base64
-    import json
-
+    # Store for frontend to provide as download — use global to avoid Chainlit context issues
     file_data = {
         "type": "document",
         "filename": filename_clean,
@@ -54,9 +50,6 @@ def generate_document(filename: str, content: str, doc_type: str = "markdown") -
         "doc_type": doc_type_clean,
     }
 
-    # Store in session for the frontend to pick up
-    media_results = cl.user_session.get("_media_tool_results") or []
-    media_results.append(file_data)
-    cl.user_session.set("_media_tool_results", media_results)
+    _media_tool_results.append(file_data)
 
     return f"[DOCUMENT_READY]\nFilename: {filename_clean}\nType: {doc_type_clean}\nLength: {len(content_clean)} chars"

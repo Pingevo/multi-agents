@@ -102,38 +102,7 @@ class AgentFactory:
             max_retry_limit=3,
         )
 
-    def create_manager_agent(self, user_input: str, agent_specs: list[dict], model_id: str = "") -> Agent:
-        agent_names = ", ".join(s.get("name", "Agent") for s in agent_specs)
-        agent_roles = "; ".join(f"{s.get('name', 'Agent')} ({s.get('role', '')})" for s in agent_specs)
-
-        if model_id:
-            print(f"[AgentFactory] Manager assigned model: {model_id}")
-            llm = self.llm_manager.build_llm_for_model(model_id)
-        else:
-            llm = self.llm_manager.get_llm()
-
-        return Agent(
-            role="Project Manager",
-            goal=(
-                f"Coordinate the team to accomplish: {user_input}\n"
-                f"Available team members: {agent_roles}\n"
-                "Delegate tasks efficiently, run independent tasks in parallel, "
-                "and synthesize results into a final deliverable."
-            ),
-            backstory=(
-                "You are an experienced project manager who coordinates teams effectively. "
-                "You know when tasks can run in parallel and when one must wait for another. "
-                "You ensure quality by reviewing each agent's output before moving forward."
-            ),
-            llm=llm,
-            tools=[],
-            allow_delegation=True,
-            verbose=True,
-            max_iter=25,
-            max_retry_limit=3,
-        )
-
-    def create_task(self, agent: Agent, spec: dict, user_input: str) -> Task:
+    def create_task(self, agent: Agent, spec: dict, user_input: str, agent_memory: list[dict] | None = None) -> Task:
         tool_names = spec.get("tools", [])
         tool_instructions = ""
         cap_registry = CapabilityRegistry()
@@ -166,15 +135,11 @@ class AgentFactory:
 
         attachment_ctx = cl.user_session.get("attachment_context")
         attachment_text = ""
-        input_files = None
         if attachment_ctx:
             if attachment_ctx.get("text_content"):
-                attachment_text = f"\n\nAttached file content:\n{attachment_ctx['text_content'][:5000]}\n"
+                attachment_text = f"\n\nAttached file content:\n{attachment_ctx['text_content'][:50000]}\n"
             if attachment_ctx.get("context_text"):
                 attachment_text += f"\nAttachment context: {attachment_ctx['context_text']}"
-            crewai_files = cl.user_session.get("attachment_crewai_files")
-            if crewai_files:
-                input_files = crewai_files
 
         # Build self-check instruction for quality
         self_check = (
@@ -184,17 +149,47 @@ class AgentFactory:
             "If something is missing, fix it before submitting."
         )
 
+        # Build team context so each agent knows what others are doing
+        team_context = ""
+        all_specs = cl.user_session.get("current_agent_specs") or []
+        if all_specs and len(all_specs) > 1:
+            team_lines = []
+            for s in all_specs:
+                if s.get("name") == spec.get("name"):
+                    continue
+                team_lines.append(f"  - {s.get('name', 'Agent')}: {s.get('task_description', s.get('role', ''))[:120]}")
+            if team_lines:
+                team_context = f"\nYour team members are handling:\n" + "\n".join(team_lines) + "\n"
+
+        # Build agent memory section from previous attempts (experiential memory)
+        memory_text = ""
+        if agent_memory:
+            memory_lines = ["\n--- PREVIOUS ATTEMPTS ---"]
+            for i, mem in enumerate(agent_memory):
+                memory_lines.append(f"Attempt {i+1}:")
+                prev_output = mem.get("output", "")[:3000]
+                mem_feedback = mem.get("feedback", "")
+                memory_lines.append(f"Output: {prev_output}")
+                if mem_feedback:
+                    memory_lines.append(f"Manager feedback: {mem_feedback}")
+            memory_lines.append("--- END PREVIOUS ATTEMPTS ---")
+            memory_lines.append("Address the feedback above in your new attempt. Do NOT repeat the same mistakes.")
+            memory_text = "\n".join(memory_lines) + "\n"
+
         task_kwargs = {
             "description": (
                 f"Context: A user requested: {user_input}\n\n"
                 f"You are: {spec.get('name', 'Agent')} — {spec.get('role', '')}\n"
-                f"Your task: {spec.get('task_description', '')}\n\n"
-                "You are a worker agent in a multi-agent system. "
-                "Your output will be collected and synthesized by a manager agent — it will NOT be shown directly to the user. "
-                "Write your output as a report to the manager, not as a message to the user. "
+                f"Your task: {spec.get('task_description', '')}\n"
+                f"{team_context}\n"
+                f"{memory_text}"
+                "Your deliverable must be EXACTLY what your task_description specifies. "
+                "If it's not in your task_description, it's not your job — another team member is handling it. "
+                "Your output will be reviewed by the user before downstream agents can proceed. "
+                "Write your output as a structured deliverable. "
+                "USE YOUR ASSIGNED TOOLS — do not describe what you would create, actually CALL the tools to produce output. "
                 "Do not use conversational language (e.g., greetings, 'here are your...', 'please review'). "
                 "Produce your work as a structured deliverable. "
-                "Use your assigned tools when needed. "
                 "Do not explain how things work internally."
                 f"{tool_instructions}"
                 f"{self_check}"
@@ -207,8 +202,6 @@ class AgentFactory:
                 "This is a report to the manager agent, not a message to the user."
             ),
         }
-        if input_files:
-            task_kwargs["input_files"] = input_files
         return Task(**task_kwargs)
 
 

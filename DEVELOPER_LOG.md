@@ -1412,5 +1412,23 @@ Canvas ไม่ใช่แค่แสดง nodes เป็น grid แต่
 
 **Files changed:**
 - `frontend/src/App.tsx` — route plan to AI modal, set aiIsThinking on send, pass onStop, reset AI state on stop
+
+## 2026-07-14 (Session 12) — Bugfix: Storyboard Flicker + Session-Team Association
+
+### Summary
+Fixed storyboard agent status flickering (running→idle→running) caused by `_build_progress({})` ignoring accumulated `_agent_state` at wave boundaries. Also fixed chat session not belonging to the correct team after page refresh.
+
+### Files Modified
+- `backend/core/orchestrator.py` — Fixed 2 calls to `_build_progress({})` → `_build_progress({}, self._agent_state)` at wave start (line 448) and manager synthesis (line 571)
+- `backend/handlers/chat.py` — Restore `team_id` from session on reconnect; persist `current_team_id` in chat settings on `select_team`
+- `frontend/src/components/StoryboardArea.tsx` — Added+removed debug log (Phase 1 feedback loop, cleaned up in Phase 6)
+
+### Root Causes
+1. **Flicker**: `orchestrator.py` line 448 & 571 called `self._build_progress({})` without passing `self._agent_state`, resetting all agents to defaults (pending/0%) and losing event-driven state (running, thinking, current_tool). Event listeners (`_merge_and_send`) correctly used `_agent_state`, but wave-level progress ignored it → status flip.
+2. **Session-team mismatch**: `on_chat_start` picked `sessions[0]` without checking `team_id`. `current_team_id` was only set in `cl.user_session` (not persisted) → lost on refresh.
+
+### Key Changes
+1. **Flicker fix**: Pass `self._agent_state` to `_build_progress()` so wave-level progress preserves accumulated state from event listeners
+2. **Session-team fix**: Restore `team_id` from session record on reconnect; persist `current_team_id` in chat settings when user selects a team
 - `frontend/src/components/AICreateTeamModal.tsx` — add onStop prop, stop button UI
 - `backend/handlers/actions.py` — reset state in create_team handler

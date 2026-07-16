@@ -50,6 +50,7 @@ class ExecutionOrchestrator:
         self._main_loop: asyncio.AbstractEventLoop | None = None
         self._state_lock = __import__("threading").Lock()
         self._ctx: contextvars.Context | None = None
+        self.skip_review_agents: set[str] = set()
         self.model_selector: ModelSelector | None = None
         if llm_manager._is_openrouter():
             self.model_selector = ModelSelector(
@@ -283,8 +284,12 @@ class ExecutionOrchestrator:
         _search_model = ai_search_model
 
         # Use pre-assigned models from unified call, or fall back to LLM assignment
+        _selected_model = cl.user_session.get("selected_model") or ""
         if pre_assigned_models and pre_assigned_models.get("workers"):
             model_assignment = pre_assigned_models
+            # Force manager model = user's top-bar selection (overrides any stale value)
+            if _selected_model:
+                model_assignment["manager"] = _selected_model
             print(f"[ExecutionOrchestrator] Using pre-assigned models: {model_assignment}", flush=True)
         else:
             model_assignment = {"manager": "", "workers": {}}
@@ -299,6 +304,9 @@ class ExecutionOrchestrator:
                     )
                 except Exception as e:
                     print(f"[ExecutionOrchestrator] ModelSelector error: {e}")
+            # Force manager model = user's top-bar selection
+            if _selected_model:
+                model_assignment["manager"] = _selected_model
 
         self._main_loop = asyncio.get_event_loop()
         self._ctx = contextvars.copy_context()
@@ -352,10 +360,6 @@ class ExecutionOrchestrator:
                 else:
                     asyncio.ensure_future(callback(initial))
 
-            manager = self.agent_factory.create_manager_agent(
-                user_input, agent_specs, model_id=model_assignment["manager"]
-            )
-
             # Run all worker agents in parallel — each in its own thread
             loop = asyncio.get_event_loop()
 
@@ -402,173 +406,417 @@ class ExecutionOrchestrator:
                 _debug(f"[DEBUG-PARALLEL] Agent {name} completed, output_len={len(str(raw))}", flush=True)
                 return {"name": name, "role": role, "output": str(raw)}
 
-            # === Wave-based dependency-aware execution ===
-            # Build dependency graph: compute waves (topological order)
+            # === Dependency-driven scheduler with Manager auto-review ===
+            # Each agent starts as soon as all its depends_on targets are approved.
+            # On completion, Manager LLM reviews output automatically.
+            # If approved, output is available to dependents. If not, agent re-runs with feedback.
             agent_name_to_idx = {agent_specs[i].get("name", f"Agent {i+1}"): i for i in range(len(agents))}
-            print(f"[DEBUG-WAVES] agent_specs deps: {[(s.get('name'), s.get('depends_on', [])) for s in agent_specs]}", flush=True)
-            completed_outputs: dict[str, str] = {}  # name -> output
+            print(f"[DEBUG-SCHED] agent_specs deps: {[(s.get('name'), s.get('depends_on', [])) for s in agent_specs]}", flush=True)
+
+            approved_outputs: dict[str, str] = {}   # name -> approved output
             agent_outputs = [None] * len(agents)
 
-            # Compute waves: agents with no unresolved depends_on go in current wave
-            remaining = set(range(len(agents)))
-            waves: list[list[int]] = []
-            max_iterations = len(agents) + 1  # prevent infinite loop on circular deps
-            iteration = 0
-            while remaining and iteration < max_iterations:
-                iteration += 1
-                wave = []
-                for i in list(remaining):
-                    deps = agent_specs[i].get("depends_on", [])
-                    # Check if all dependencies are satisfied (completed or not in this run)
-                    all_satisfied = all(
-                        dep_name in completed_outputs or dep_name not in agent_name_to_idx
-                        for dep_name in deps
+            # Get messenger for sending progress updates
+            _messenger = cl.user_session.get("messenger")
+
+            # Get Manager config from registry for auto-review
+            _registry = cl.user_session.get("registry")
+            _manager_persona = "You are an experienced team manager who coordinates teams effectively."
+            _manager_goal = "Coordinate the team and synthesize results."
+            _manager_model = model_assignment.get("manager", "")
+            # Force manager model = user's top-bar selection (highest priority)
+            _selected = cl.user_session.get("selected_model") or ""
+            if _selected:
+                _manager_model = _selected
+            if _registry:
+                _current_team_id = cl.user_session.get("current_team_id")
+                _team_agents = _registry.list_agents(team_id=_current_team_id) if _current_team_id else _registry.list_agents()
+                _manager_agent = next((a for a in _team_agents if a.get("is_manager")), None)
+                if _manager_agent:
+                    _manager_persona = _manager_agent.get("persona", _manager_persona)
+                    _manager_goal = _manager_agent.get("goal", _manager_goal)
+
+            def _send_progress_for_agent(idx, status, output_text="", review_round=None, review_summary=None, review_feedback=None, review_history=None):
+                """Send progress update for a single agent."""
+                if not (self._agent_progress_callback and self._main_loop and self._ctx):
+                    return
+                with self._state_lock:
+                    if idx not in self._agent_state:
+                        self._agent_state[idx] = {
+                            "name": agent_specs[idx].get("name", "Agent"),
+                            "role": agent_specs[idx].get("role", ""),
+                            "status": "pending",
+                            "progress": 0,
+                            "model": agent_specs[idx].get("model", ""),
+                            "review_history": [],
+                        }
+                    self._agent_state[idx]["status"] = status
+                    self._agent_state[idx]["progress"] = 100 if status in ("complete", "error", "awaiting_review") else 0
+                    if output_text:
+                        self._agent_state[idx]["output"] = output_text[:8000]
+                    if review_round is not None:
+                        self._agent_state[idx]["review_round"] = review_round
+                    if review_summary is not None:
+                        self._agent_state[idx]["review_summary"] = review_summary
+                    if review_feedback is not None:
+                        self._agent_state[idx]["review_feedback"] = review_feedback
+                    if review_history is not None:
+                        self._agent_state[idx]["review_history"] = review_history
+                    progress = self._build_progress({}, self._agent_state)
+                _ctx = self._ctx
+                _loop = self._main_loop
+                _cb = self._agent_progress_callback
+                _loop.call_soon_threadsafe(lambda p=progress: _loop.create_task(_async_progress_callback(_cb, p), context=_ctx))
+
+            async def _batch_manager_review(agents_data, retry_count):
+                """Manager LLM reviews multiple agent outputs in one call.
+                
+                agents_data: list of {idx, name, role, goal, output}
+                Returns: dict {idx: {approved, feedback, summary}}
+                """
+                # Build combined review prompt
+                agents_section = ""
+                for a in agents_data:
+                    agents_section += (
+                        f"\n--- Agent: {a['name']} (role: {a['role']}) ---\n"
+                        f"Task: {a['goal']}\n"
+                        f"Output:\n{a['output'][:6000]}\n"
                     )
-                    if all_satisfied:
-                        wave.append(i)
-                if not wave:
-                    # Circular dependency or unresolvable — force remaining into one wave
-                    wave = list(remaining)
-                    print(f"[WARN] Circular/unresolvable dependencies detected, forcing remaining agents into one wave", flush=True)
-                waves.append(wave)
-                # Remove waved agents from remaining and mark as completed for next wave's dependency check
-                for i in wave:
-                    remaining.discard(i)
-                    name = agent_specs[i].get("name", f"Agent {i+1}")
-                    completed_outputs[name] = "__pending__"  # placeholder so dependents can proceed
 
-            print(f"[DEBUG-WAVES] Execution plan: {len(waves)} wave(s): {[[agent_specs[i].get('name', '') for i in w] for w in waves]}", flush=True)
-
-            # Execute wave by wave
-            for wave_idx, wave in enumerate(waves):
-                print(f"[DEBUG-WAVES] Starting wave {wave_idx+1}/{len(waves)}: {[agent_specs[i].get('name', '') for i in wave]}", flush=True)
-
-                # Send progress: mark agents in this wave as running, previous waves as complete
-                if self._agent_progress_callback and self._main_loop and self._ctx:
-                    progress = self._build_progress({})
-                    for i, spec in enumerate(agent_specs):
-                        if i in wave:
-                            progress[i]["status"] = "running"
-                            progress[i]["progress"] = 10
-                        elif any(i in w for w in waves[:wave_idx]):
-                            progress[i]["status"] = "complete"
-                            progress[i]["progress"] = 100
-                        else:
-                            progress[i]["status"] = "pending"
-                    _ctx = self._ctx
-                    _loop = self._main_loop
-                    _cb = self._agent_progress_callback
-                    _loop.call_soon_threadsafe(lambda p=progress: _loop.create_task(_async_progress_callback(_cb, p), context=_ctx))
-
-                # Inject upstream context into tasks for agents with depends_on
-                for i in wave:
-                    deps = agent_specs[i].get("depends_on", [])
-                    if deps:
-                        context_parts = []
-                        for dep_name in deps:
-                            dep_output = completed_outputs.get(dep_name, "")
-                            if dep_output:
-                                context_parts.append(f"--- Output from {dep_name} ---\n{dep_output}")
-                        if context_parts:
-                            # Rebuild task with upstream context
-                            upstream_context = "\n\n".join(context_parts)
-                            tasks[i] = self.agent_factory.create_task(
-                                agents[i], agent_specs[i], user_input + f"\n\n[UPSTREAM CONTEXT]\n{upstream_context}"
-                            )
-                            _debug(f"[DEBUG-WAVES] Agent {agent_specs[i].get('name', '')} received context from: {deps}", flush=True)
-                        else:
-                            print(f"[WARN-WAVES] Agent {agent_specs[i].get('name', '')} depends on {deps} but no upstream context available", flush=True)
-
-                # Run wave agents in parallel
-                wave_results = await asyncio.gather(
-                    *[
-                        loop.run_in_executor(
-                            None, run_single_agent_sync,
-                            agents[i], tasks[i], agent_specs[i], i
-                        )
-                        for i in wave
-                    ],
-                    return_exceptions=True,
+                review_prompt = (
+                    f"{_manager_persona}\n"
+                    f"Your goal: {_manager_goal}\n\n"
+                    f"You are reviewing the outputs of {len(agents_data)} agent(s) in this wave.\n"
+                    f"User's original request: {user_input}\n\n"
+                    f"Review attempt #{retry_count + 1} for this wave.\n\n"
+                    f"{agents_section}\n\n"
+                    f"Evaluate each agent's output against their task and the user's request.\n"
+                    f"Respond in JSON ONLY — a JSON array with one entry per agent:\n"
+                    f'[{{"name": "agent name", "approved": true/false, "feedback": "specific feedback if not approved, empty if approved", "summary": "1-2 sentence summary in Thai"}}]\n\n'
+                    f"Rules:\n"
+                    f"- If an agent made reasonable progress with only minor issues, approve and note issues in summary\n"
+                    f"- Only reject if there are significant problems that need fixing\n"
+                    f"- summary should be concise: e.g. 'รอบ 1: งานยังไม่ครบ ขาดสรุป — สั่งแก้' or 'รอบ 2: ครบ ตรงโจทย์ — ผ่าน'\n"
                 )
 
-                # Collect wave results and mark agents as completed
-                for j, i in enumerate(wave):
-                    res = wave_results[j]
-                    name = agent_specs[i].get("name", f"Agent {i+1}")
-                    remaining.discard(i)
-                    if isinstance(res, Exception):
-                        role = agent_specs[i].get("role", "")
-                        err_str = str(res)
-                        _debug(f"[DEBUG-WAVES] Agent {name} failed: {_sanitize_error(res)}", flush=True)
-                        agent_outputs[i] = {"name": name, "role": role, "output": f"Error: {err_str}"}
-                        completed_outputs[name] = f"Error: {err_str}"
-                        # Mark agent as error in progress so storyboard shows it immediately
-                        if self._agent_progress_callback and self._main_loop and self._ctx:
-                            err_updates = {i: {"status": "error", "progress": 100, "output": err_str[:8000]}}
-                            with self._state_lock:
-                                for idx, upd in err_updates.items():
-                                    if idx not in self._agent_state:
-                                        self._agent_state[idx] = {
-                                            "name": agent_specs[idx].get("name", "Agent"),
-                                            "role": agent_specs[idx].get("role", ""),
-                                            "status": "pending",
-                                            "progress": 0,
-                                            "model": agent_specs[idx].get("model", ""),
-                                        }
-                                    self._agent_state[idx].update(upd)
-                                progress = self._build_progress({}, self._agent_state)
-                            _ctx2 = self._ctx
-                            _loop2 = self._main_loop
-                            _cb2 = self._agent_progress_callback
-                            _loop2.call_soon_threadsafe(lambda p=progress: _loop2.create_task(_async_progress_callback(_cb2, p), context=_ctx2))
-                    else:
-                        agent_outputs[i] = res
-                        completed_outputs[name] = res.get("output", "")
+                if _manager_model:
+                    manager_llm = self.llm_manager.build_llm_for_model(_manager_model)
+                    raw = await loop.run_in_executor(None, manager_llm.call, review_prompt)
+                else:
+                    raw = await loop.run_in_executor(None, self.llm_manager.call_with_fallback, review_prompt)
 
-                # Send progress: mark agents in this wave as complete (or waiting_approval for media agents)
-                if self._agent_progress_callback and self._main_loop and self._ctx:
-                    wave_updates = {}
-                    for i, spec in enumerate(agent_specs):
-                        if i in wave:
-                            agent_tools = spec.get("tools", [])
-                            has_media_tool = any("image" in str(t).lower() or "video" in str(t).lower() or "generate" in str(t).lower() for t in agent_tools)
-                            status = "waiting_approval" if has_media_tool else "complete"
-                            print(f"[DEBUG-WAVE-STATUS] Agent {i} '{spec.get('name', '')}' tools={agent_tools} has_media={has_media_tool} → status={status}", flush=True)
-                            upd = {"status": status, "progress": 100}
-                            if agent_outputs[i]:
-                                upd["output"] = (agent_outputs[i].get("output", "") or "")[:8000]
-                            wave_updates[i] = upd
-                        elif any(i in w for w in waves[:wave_idx]):
-                            prev_tools = spec.get("tools", [])
-                            prev_has_media = any("image" in str(t).lower() or "video" in str(t).lower() or "generate" in str(t).lower() for t in prev_tools)
-                            wave_updates[i] = {"status": "waiting_approval" if prev_has_media else "complete", "progress": 100}
-                    # Merge into persistent state and send
-                    with self._state_lock:
-                        for idx, upd in wave_updates.items():
-                            if idx not in self._agent_state:
-                                self._agent_state[idx] = {
-                                    "name": agent_specs[idx].get("name", "Agent"),
-                                    "role": agent_specs[idx].get("role", ""),
-                                    "status": "pending",
-                                    "progress": 0,
-                                    "model": agent_specs[idx].get("model", ""),
+                results = {}
+                try:
+                    # Try parsing as JSON array
+                    json_match = re.search(r'\[.*\]', str(raw), re.DOTALL)
+                    if json_match:
+                        parsed = json.loads(json_match.group())
+                        if isinstance(parsed, list):
+                            for item in parsed:
+                                name = item.get("name", "")
+                                results[name] = {
+                                    "approved": item.get("approved", True),
+                                    "feedback": item.get("feedback", ""),
+                                    "summary": item.get("summary", "ผ่าน" if item.get("approved") else "ไม่ผ่าน — สั่งแก้"),
                                 }
-                            self._agent_state[idx].update(upd)
-                        progress = self._build_progress({}, self._agent_state)
-                    _ctx2 = self._ctx
-                    _loop2 = self._main_loop
-                    _cb2 = self._agent_progress_callback
-                    _loop2.call_soon_threadsafe(lambda p=progress: _loop2.create_task(_async_progress_callback(_cb2, p), context=_ctx2))
+                except (json.JSONDecodeError, AttributeError):
+                    pass
+
+                # Fallback: if parsing failed, approve all
+                if not results:
+                    for a in agents_data:
+                        results[a["name"]] = {"approved": True, "feedback": "", "summary": "ตรวจสอบแล้ว — ผ่าน"}
+
+                return results
+
+            async def run_agent_only(idx):
+                """Run a single agent without review. Returns (result, output_text)."""
+                name = agent_specs[idx].get("name", f"Agent {idx+1}")
+                role = agent_specs[idx].get("role", "")
+                deps = agent_specs[idx].get("depends_on", [])
+
+                # Inject upstream context from approved outputs
+                if deps:
+                    context_parts = []
+                    for dep_name in deps:
+                        dep_output = approved_outputs.get(dep_name, "")
+                        if dep_output:
+                            context_parts.append(f"--- Output from {dep_name} ---\n{dep_output}")
+                    if context_parts:
+                        upstream_context = "\n\n".join(context_parts)
+                        tasks[idx] = self.agent_factory.create_task(
+                            agents[idx], agent_specs[idx], user_input + f"\n\n[UPSTREAM CONTEXT]\n{upstream_context}"
+                        )
+                        print(f"[DEBUG-SCHED] Agent {name} received context from: {deps}", flush=True)
+                    else:
+                        print(f"[WARN-SCHED] Agent {name} depends on {deps} but no upstream context available", flush=True)
+
+                _send_progress_for_agent(idx, "running")
+                result = await loop.run_in_executor(
+                    None, run_single_agent_sync,
+                    agents[idx], tasks[idx], agent_specs[idx], idx
+                )
+                if isinstance(result, Exception):
+                    return result, str(result)
+                return result, result.get("output", "")
+
+            async def rerun_agent_with_feedback(idx, feedback, agent_memory=None):
+                """Re-run a single agent with manager feedback and previous attempt memory."""
+                name = agent_specs[idx].get("name", f"Agent {idx+1}")
+                role = agent_specs[idx].get("role", "")
+                deps = agent_specs[idx].get("depends_on", [])
+
+                feedback_prompt = user_input
+                if deps:
+                    context_parts = []
+                    for dep_name in deps:
+                        dep_output = approved_outputs.get(dep_name, "")
+                        if dep_output:
+                            context_parts.append(f"--- Output from {dep_name} ---\n{dep_output}")
+                    if context_parts:
+                        feedback_prompt += f"\n\n[UPSTREAM CONTEXT]\n" + "\n\n".join(context_parts)
+                feedback_prompt += f"\n\n[MANAGER FEEDBACK]\n{feedback}"
+                tasks[idx] = self.agent_factory.create_task(
+                    agents[idx], agent_specs[idx], feedback_prompt,
+                    agent_memory=agent_memory,
+                )
+                result = await loop.run_in_executor(
+                    None, run_single_agent_sync,
+                    agents[idx], tasks[idx], agent_specs[idx], idx
+                )
+                if isinstance(result, Exception):
+                    return result, str(result)
+                return result, result.get("output", "")
+
+            # Per-agent review state tracking
+            agent_review_state = {}  # idx -> {retry_count, review_history, current_output, current_result}
+            # Per-agent experiential memory: tracks previous outputs + feedback for retries
+            agent_memories: dict[str, list[dict]] = {}  # name -> [{output, feedback, round}]
+
+            async def schedule_and_run():
+                """Dynamic scheduler with batch review: launch agents as deps become approved,
+                batch-review all completed agents in a wave, re-run only rejected ones."""
+                done_indices = set()
+
+                while len(done_indices) < len(agents):
+                    # Find agents whose deps are all approved and not yet started/done
+                    launchable = []
+                    for i in range(len(agents)):
+                        if i in done_indices or i in agent_review_state:
+                            continue
+                        deps = agent_specs[i].get("depends_on", [])
+                        all_deps_approved = all(
+                            dep_name in approved_outputs or dep_name not in agent_name_to_idx
+                            for dep_name in deps
+                        )
+                        if all_deps_approved:
+                            launchable.append(i)
+
+                    if not launchable and not agent_review_state:
+                        print(f"[WARN-SCHED] No agents can start and none pending — breaking", flush=True)
+                        break
+
+                    # Launch all eligible agents in parallel
+                    running = {}
+                    for i in launchable:
+                        name = agent_specs[i].get("name", f"Agent {i+1}")
+                        print(f"[DEBUG-SCHED] Launching agent '{name}' — deps satisfied", flush=True)
+                        running[i] = asyncio.create_task(run_agent_only(i))
+
+                    # Wait for ALL running agents to complete (batch)
+                    if running:
+                        await asyncio.wait(running.values(), return_when=asyncio.ALL_COMPLETED)
+
+                    # Collect results
+                    pending_review = []  # agents that completed successfully and need review
+                    for i, t in list(running.items()):
+                        name = agent_specs[i].get("name", f"Agent {i+1}")
+                        role = agent_specs[i].get("role", "")
+                        result, output_text = t.result()
+
+                        if isinstance(result, Exception):
+                            err_str = str(result)
+                            _debug(f"[DEBUG-SCHED] Agent {name} failed: {_sanitize_error(result)}", flush=True)
+                            agent_outputs[i] = {"name": name, "role": role, "output": f"Error: {err_str}"}
+                            _send_progress_for_agent(i, "error", err_str[:8000])
+                            approved_outputs[name] = f"Error: {err_str}"
+                            done_indices.add(i)
+                        else:
+                            print(f"[DEBUG-SCHED] Agent '{name}' completed, output_len={len(output_text)}", flush=True)
+                            agent_review_state[i] = {
+                                "retry_count": 0,
+                                "review_history": [],
+                                "current_output": output_text,
+                                "current_result": result,
+                            }
+                            agent_outputs[i] = result
+                            pending_review.append(i)
+
+                    # Batch review loop for pending agents
+                    while pending_review:
+                        # Check for skip_review requests
+                        still_pending = []
+                        for idx in pending_review:
+                            name = agent_specs[idx].get("name", f"Agent {idx+1}")
+                            state = agent_review_state[idx]
+
+                            if name in self.skip_review_agents:
+                                self.skip_review_agents.discard(name)
+                                state["review_history"].append({
+                                    "round": state["retry_count"] + 1,
+                                    "status": "approved",
+                                    "summary": "User หยุดตรวจ — ใช้ output ปัจจุบัน",
+                                    "feedback": "",
+                                    "output_preview": state["current_output"][:2000],
+                                })
+                                approved_outputs[name] = state["current_output"]
+                                agent_outputs[idx] = state["current_result"]
+                                _send_progress_for_agent(idx, "complete", state["current_output"][:8000],
+                                    review_round=state["retry_count"] + 1,
+                                    review_summary="User หยุดตรวจ — ใช้ output ปัจจุบัน",
+                                    review_history=state["review_history"])
+                                print(f"[DEBUG-SCHED] Agent '{name}' review skipped by user", flush=True)
+                                done_indices.add(idx)
+                                del agent_review_state[idx]
+                            else:
+                                still_pending.append(idx)
+
+                        pending_review = still_pending
+                        if not pending_review:
+                            break
+
+                        # Mark all pending as awaiting_review
+                        agents_data = []
+                        for idx in pending_review:
+                            name = agent_specs[idx].get("name", f"Agent {idx+1}")
+                            role = agent_specs[idx].get("role", "")
+                            goal = agent_specs[idx].get("goal", "")
+                            state = agent_review_state[idx]
+                            _send_progress_for_agent(idx, "awaiting_review", state["current_output"][:8000],
+                                review_round=state["retry_count"] + 1,
+                                review_history=state["review_history"])
+                            agents_data.append({
+                                "idx": idx,
+                                "name": name,
+                                "role": role,
+                                "goal": goal,
+                                "output": state["current_output"],
+                            })
+
+                        # Determine wave retry count (max of all pending)
+                        wave_retry = max(agent_review_state[idx]["retry_count"] for idx in pending_review)
+
+                        # Batch review
+                        print(f"[DEBUG-SCHED] Batch reviewing {len(agents_data)} agents (wave retry {wave_retry})", flush=True)
+                        reviews = await _batch_manager_review(agents_data, wave_retry)
+
+                        # Process results
+                        next_pending = []
+                        for idx in pending_review:
+                            name = agent_specs[idx].get("name", f"Agent {idx+1}")
+                            role = agent_specs[idx].get("role", "")
+                            goal = agent_specs[idx].get("goal", "")
+                            state = agent_review_state[idx]
+                            review = reviews.get(name, {"approved": True, "feedback": "", "summary": "ตรวจสอบแล้ว — ผ่าน"})
+
+                            print(f"[DEBUG-SCHED] Agent '{name}' review round {state['retry_count']+1}: approved={review['approved']}, summary={review['summary']}", flush=True)
+
+                            state["review_history"].append({
+                                "round": state["retry_count"] + 1,
+                                "status": "approved" if review["approved"] else "rejected",
+                                "summary": review["summary"],
+                                "feedback": review["feedback"],
+                                "output_preview": state["current_output"][:2000],
+                            })
+
+                            if review["approved"]:
+                                approved_outputs[name] = state["current_output"]
+                                agent_outputs[idx] = state["current_result"]
+                                _send_progress_for_agent(idx, "complete", state["current_output"][:8000],
+                                    review_round=state["retry_count"] + 1,
+                                    review_summary=review["summary"],
+                                    review_history=state["review_history"])
+                                print(f"[DEBUG-SCHED] Agent '{name}' approved by Manager", flush=True)
+                                done_indices.add(idx)
+                                del agent_review_state[idx]
+                            else:
+                                # Re-run with feedback
+                                _send_progress_for_agent(idx, "running",
+                                    review_round=state["retry_count"] + 1,
+                                    review_summary=review["summary"],
+                                    review_feedback=review["feedback"],
+                                    review_history=state["review_history"])
+                                state["retry_count"] += 1
+                                # Record experiential memory: previous output + feedback
+                                if name not in agent_memories:
+                                    agent_memories[name] = []
+                                agent_memories[name].append({
+                                    "output": state["current_output"][:3000],
+                                    "feedback": review["feedback"],
+                                    "round": state["retry_count"],
+                                })
+                                next_pending.append(idx)
+
+                        # Re-run rejected agents in parallel
+                        if next_pending:
+                            rerun_tasks = {}
+                            for idx in next_pending:
+                                name = agent_specs[idx].get("name", f"Agent {idx+1}")
+                                state = agent_review_state[idx]
+                                feedback = reviews.get(name, {}).get("feedback", "")
+                                mem = agent_memories.get(name, [])
+                                rerun_tasks[idx] = asyncio.create_task(rerun_agent_with_feedback(idx, feedback, agent_memory=mem))
+
+                            await asyncio.wait(rerun_tasks.values(), return_when=asyncio.ALL_COMPLETED)
+
+                            # Collect re-run results
+                            pending_review = []
+                            for idx, t in list(rerun_tasks.items()):
+                                name = agent_specs[idx].get("name", f"Agent {idx+1}")
+                                role = agent_specs[idx].get("role", "")
+                                state = agent_review_state[idx]
+                                result, output_text = t.result()
+
+                                if isinstance(result, Exception):
+                                    err_str = str(result)
+                                    agent_outputs[idx] = {"name": name, "role": role, "output": f"Error: {err_str}"}
+                                    _send_progress_for_agent(idx, "error", err_str[:8000])
+                                    approved_outputs[name] = f"Error: {err_str}"
+                                    done_indices.add(idx)
+                                    del agent_review_state[idx]
+                                else:
+                                    state["current_output"] = output_text
+                                    state["current_result"] = result
+                                    agent_outputs[idx] = result
+                                    print(f"[DEBUG-SCHED] Agent '{name}' re-run (attempt {state['retry_count']+1}), output_len={len(output_text)}", flush=True)
+                                    pending_review.append(idx)
+                        else:
+                            pending_review = []
+
+            await schedule_and_run()
 
             # Filter None (shouldn't happen but safe)
             agent_outputs = [o for o in agent_outputs if o is not None]
+            print(f"[DEBUG-SCHED] All agents completed. {len(agent_outputs)} agent outputs collected.", flush=True)
 
-            # Manager synthesizes all outputs
+            # Manager synthesizes all outputs — pull config from registry
             _debug(f"[DEBUG-PARALLEL] Manager synthesizing {len(agent_outputs)} outputs", flush=True)
+
+            # Get Manager agent from registry for persona/goal
+            registry = cl.user_session.get("registry")
+            manager_persona = "You are an experienced team manager who coordinates teams effectively."
+            manager_goal = "Coordinate the team and synthesize results."
+            if registry:
+                current_team_id = cl.user_session.get("current_team_id")
+                team_agents = registry.list_agents(team_id=current_team_id) if current_team_id else registry.list_agents()
+                manager_agent = next((a for a in team_agents if a.get("is_manager")), None)
+                if manager_agent:
+                    manager_persona = manager_agent.get("persona", manager_persona)
+                    manager_goal = manager_agent.get("goal", manager_goal)
 
             # Send progress: all agents complete, Manager synthesizing
             if self._agent_progress_callback and self._main_loop and self._ctx:
-                progress = self._build_progress({})
+                progress = self._build_progress({}, self._agent_state)
                 for i, spec in enumerate(agent_specs):
                     progress[i]["status"] = "complete"
                     progress[i]["progress"] = 100
@@ -576,10 +824,10 @@ class ExecutionOrchestrator:
                         progress[i]["output"] = (agent_outputs[i].get("output", "") or "")[:8000]
                 progress.append({
                     "name": "Manager",
-                    "role": "Synthesizing all agent outputs",
+                    "role": "Reviewing deliverables",
                     "status": "running",
                     "progress": 50,
-                    "current_task": "Synthesizing all agent outputs into final response",
+                    "current_task": "Reviewing team deliverables for quality",
                 })
                 ctx = self._ctx
                 loop = self._main_loop
@@ -594,23 +842,31 @@ class ExecutionOrchestrator:
 
             synthesis_prompt = (
                 f"User request: {user_input}\n\n"
-                f"You are the Project Manager. Your team has completed their tasks.\n"
+                f"{manager_persona}\n"
+                f"Your goal: {manager_goal}\n"
+                f"Your team has completed their tasks.\n"
                 f"Below are the outputs from each team member:\n\n"
             )
             for ao in agent_outputs:
-                # Strip internal CrewAI markers from outputs before sending to manager
                 clean_output = self._clean_agent_output(ao['output'])
                 synthesis_prompt += f"--- {ao['name']} ({ao['role']}) ---\n{clean_output}\n\n"
             synthesis_prompt += (
-                "\nPlease synthesize all outputs into a clean, user-friendly final response. "
-                "Write it as if you are directly answering the user. "
-                "Use clear headings, bullet points, and natural language. "
-                "Do NOT include internal team member names, raw output markers, or technical metadata. "
-                "Do NOT include phrases like 'Final Answer:', 'Task Completed:', or 'Crew Completion:'. "
-                "Return only the final deliverable the user asked for."
+                "\nReview the team's deliverables and provide a brief quality assessment:\n"
+                "1. Did each agent stay within their assigned scope?\n"
+                "2. Are there any gaps, contradictions, or quality issues?\n"
+                "3. Does the combined result fully address the user's request?\n\n"
+                "If everything is good, say 'All deliverables verified — no issues found.'\n"
+                "If there are problems, list them concisely.\n"
+                "Do NOT copy or rephrase agent outputs — the user already sees them.\n"
+                "Do NOT include phrases like 'Final Answer:', 'Task Completed:', or 'Crew Completion:'.\n"
+                "Keep your review brief and focused on quality, not on repeating content."
             )
 
             manager_model = model_assignment.get("manager", "")
+            # Force manager model = user's top-bar selection (highest priority)
+            _selected = cl.user_session.get("selected_model") or ""
+            if _selected:
+                manager_model = _selected
             if manager_model:
                 manager_llm = self.llm_manager.build_llm_for_model(manager_model)
                 manager_raw = await loop.run_in_executor(
@@ -632,6 +888,7 @@ class ExecutionOrchestrator:
             return {
                 "raw": clean_manager_output,
                 "agent_outputs": agent_outputs,
+                "agent_memories": agent_memories,
             }
         finally:
             _progress_callback = None

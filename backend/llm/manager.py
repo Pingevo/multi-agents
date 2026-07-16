@@ -6,12 +6,13 @@ import re
 import requests
 from crewai import LLM
 from backend.utils import _sanitize_error
+from backend.credit_logger import log_llm_call
 
 class LLMManager:
     """จัดการ LLM แบบ Modular รองรับ Local LLM และ OpenRouter พร้อม auto-fallback
 
     Tier priority (auto-detected from API key):
-    1. paid   — API key มีเครดิต → ใช้ openrouter/auto (OpenRouter เลือก model อัตโนมัติ)
+    1. paid   — API key มีเครดิต → ใช้ openrouter/free (OpenRouter เลือก free model อัตโนมัติ)
     2. free   — API key เป็น free tier → ใช้ openrouter/free (OpenRouter เลือก free model อัตโนมัติ)
     3. local  — ไม่มี key หรือทั้งสองขั้นต้นล้มเหลว → ใช้ Ollama
     4. error  — ใช้ไม่ได้เลย
@@ -88,6 +89,7 @@ class LLMManager:
             }],
             temperature=self.temperature,
         )
+        log_llm_call(model_id, response.usage, caller="call_with_image", prompt_preview=prompt)
         return response.choices[0].message.content or ""
 
     async def call_with_multimodal_async(self, prompt: str, content_blocks: list[dict], plugins: list = None) -> str:
@@ -107,6 +109,7 @@ class LLMManager:
         if plugins:
             kwargs["extra_body"] = {"plugins": plugins}
         response = client.chat.completions.create(**kwargs)
+        log_llm_call(model_id, response.usage, caller="call_with_multimodal", prompt_preview=prompt)
         return response.choices[0].message.content or ""
 
     def call_with_multimodal_streaming(self, prompt: str, content_blocks: list[dict], plugins: list = None):
@@ -117,13 +120,18 @@ class LLMManager:
             raise RuntimeError("No model available for multimodal streaming")
         client = OpenAI(base_url=self.base_url, api_key=self.api_key, max_retries=0, timeout=120)
         messages = [{"role": "user", "content": [{"type": "text", "text": prompt}] + content_blocks}]
-        kwargs = {"model": model_id, "messages": messages, "temperature": self.temperature, "stream": True}
+        kwargs = {"model": model_id, "messages": messages, "temperature": self.temperature, "stream": True, "stream_options": {"include_usage": True}}
         if plugins:
             kwargs["extra_body"] = {"plugins": plugins}
         stream = client.chat.completions.create(**kwargs)
+        usage_data = None
         for chunk in stream:
+            if chunk.usage:
+                usage_data = chunk.usage
             if chunk.choices and chunk.choices[0].delta.content:
                 yield chunk.choices[0].delta.content
+        if usage_data:
+            log_llm_call(model_id, usage_data, caller="call_with_multimodal_streaming", prompt_preview=prompt)
 
     def call_streaming(self, prompt: str):
         """Streaming version of call_with_fallback — yields text chunks."""
@@ -145,10 +153,15 @@ class LLMManager:
                         stream_options={"include_usage": True},
                     )
                     got_content = False
+                    usage_data = None
                     for chunk in stream:
+                        if chunk.usage:
+                            usage_data = chunk.usage
                         if chunk.choices and chunk.choices[0].delta.content:
                             got_content = True
                             yield chunk.choices[0].delta.content
+                    if usage_data:
+                        log_llm_call(model_id, usage_data, caller="call_streaming", prompt_preview=prompt)
                     if got_content:
                         return
                     # Empty stream — return error, don't retry with rotator (saves credits)
@@ -176,6 +189,18 @@ class LLMManager:
                 yield chunk.choices[0].delta.content
 
     def _build_llm(self, provider: str, model: str, base_url: str, api_key: str) -> LLM:
+        # Check if there are attachment plugins (e.g. PDF file-parser) to pass to OpenRouter
+        additional_params = {}
+        try:
+            import chainlit as cl
+            plugins = cl.user_session.get("attachment_plugins")
+            if plugins and provider == "openrouter":
+                # litellm passes extra_body to the underlying HTTP request
+                # 'plugins' is OpenRouter-specific, not part of OpenAI API spec
+                additional_params["extra_body"] = {"plugins": plugins}
+        except Exception:
+            pass
+
         if provider == "openrouter":
             # litellm uses "openrouter/<model_id>" format and strips the first "openrouter/" prefix
             # before sending <model_id> to OpenRouter's API.
@@ -193,6 +218,7 @@ class LLMManager:
                 temperature=self.temperature,
                 max_retries=0,
                 stream=True,
+                additional_params=additional_params,
             )
         if provider == "google":
             os.environ["GEMINI_API_KEY"] = api_key
@@ -255,8 +281,16 @@ class LLMManager:
         if not self._is_in_cooldown():
             if self._is_openrouter():
                 try:
-                    llm = self.get_llm()
-                    return llm.call(prompt)
+                    model_id = self._selected_model or self._default_model
+                    from openai import OpenAI
+                    client = OpenAI(base_url=self.base_url, api_key=self.api_key, max_retries=0, timeout=120)
+                    response = client.chat.completions.create(
+                        model=model_id,
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=self.temperature,
+                    )
+                    log_llm_call(model_id, response.usage, caller="call_with_fallback", prompt_preview=prompt)
+                    return response.choices[0].message.content or ""
                 except Exception as e:
                     err_msg = _sanitize_error(e)
                     print(f"[LLMManager] Primary LLM error: {err_msg}")

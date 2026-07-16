@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { Search, Check, Cpu, Zap, Code, Eye, Brain, Star, Sparkles, ChevronDown, Image as ImageIcon, Video, Volume2, Mic, FileText } from 'lucide-react';
+import { Search, Check, Cpu, Star, Sparkles } from 'lucide-react';
 
 export interface ModelCatalogEntry {
   id: string;
@@ -29,60 +29,6 @@ interface ModelPickerProps {
   showAutoRouter?: boolean;
   pinnedModelId?: string;
 }
-
-const CATEGORY_ICONS: Record<string, React.FC<{ className?: string }>> = {
-  reasoning: Brain,
-  coding: Code,
-  vision: Eye,
-  fast: Zap,
-  chat: Cpu,
-  free: Star,
-  image: ImageIcon,
-  video: Video,
-  search: Search,
-  tts: Volume2,
-  stt: Mic,
-  'vision_analysis': Eye,
-  embeddings: FileText,
-};
-
-const CATEGORY_LABELS: Record<string, string> = {
-  reasoning: 'Reasoning',
-  coding: 'Coding',
-  vision: 'Vision',
-  fast: 'Fast',
-  chat: 'Chat',
-  free: 'Free',
-  image: 'Image Generation',
-  video: 'Video Generation',
-  search: 'Web Search',
-  tts: 'Text-to-Speech',
-  stt: 'Speech-to-Text',
-  'vision_analysis': 'Vision Analysis',
-  embeddings: 'Embeddings',
-};
-
-const CATEGORY_ORDER = ['free', 'reasoning', 'chat', 'coding', 'vision', 'fast', 'image', 'video', 'search', 'tts', 'stt', 'vision_analysis', 'embeddings'];
-
-// Known provider display names — unknown providers fall back to their raw ID
-const PROVIDER_LABELS: Record<string, string> = {
-  'anthropic': 'Anthropic',
-  'openai': 'OpenAI',
-  'google': 'Google',
-  'meta-llama': 'Meta',
-  'deepseek': 'DeepSeek',
-  'qwen': 'Qwen',
-  'mistralai': 'Mistral',
-  'x-ai': 'xAI',
-  'nvidia': 'NVIDIA',
-  'perplexity': 'Perplexity',
-  'cohere': 'Cohere',
-  'microsoft': 'Microsoft',
-  'amazon': 'Amazon',
-  'alibaba': 'Alibaba',
-  '01-ai': '01.AI',
-  'liquid': 'Liquid AI',
-};
 
 export const getProvider = (modelId: string): string => {
   const parts = modelId.split('/');
@@ -123,7 +69,18 @@ const getMaxPrice = (model: ModelCatalogEntry): number => {
   return prices.length > 0 ? Math.max(...prices) : 0;
 };
 
-const ROUTING_MODELS = ['openrouter/auto', 'openrouter/free'];
+const ROUTING_MODELS = ['openrouter/free'];
+
+const WHITELISTED_MODELS = new Set([
+  'openrouter/free',
+  'google/gemini-3.5-flash',
+  'anthropic/claude-sonnet-5',
+  'openai/gpt-5.6-luna',
+]);
+
+const isModelAllowed = (model: ModelCatalogEntry): boolean => {
+  return WHITELISTED_MODELS.has(model.id);
+};
 
 const isRoutingModel = (model: ModelCatalogEntry): boolean =>
   ROUTING_MODELS.includes(model.id);
@@ -186,7 +143,7 @@ export const findModelName = (
   searchResults: ModelCatalogEntry[]
 ): string => {
   if (!modelId) {
-    return 'Auto Router';
+    return 'Free Router';
   }
   const all = Object.values(catalog).flat().concat(searchResults);
   const found = all.find((m) => m.id === modelId);
@@ -236,13 +193,10 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<'recommended' | 'search'>('recommended');
-  const [providerFilter, setProviderFilter] = useState('all');
-  const [providerDropdownOpen, setProviderDropdownOpen] = useState(false);
   const [hoveredModel, setHoveredModel] = useState<ModelCatalogEntry | null>(null);
-  const [position, setPosition] = useState<{ top?: number; bottom?: number; right: number; maxWidth: number }>({ bottom: 80, right: 20, maxWidth: 520 });
+  const [position, setPosition] = useState<{ top?: number; bottom?: number; right: number; maxWidth: number } | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const providerDropdownRef = useRef<HTMLDivElement>(null);
 
   const isAdaptive = selectedModel === '' || selectedModel === 'adaptive';
   const selectedEntry = useMemo(() => {
@@ -258,17 +212,6 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
       searchInputRef.current.focus();
     }
   }, [activeTab]);
-
-  useEffect(() => {
-    if (!providerDropdownOpen) return;
-    const handleClickOutside = (e: MouseEvent) => {
-      if (providerDropdownRef.current && !providerDropdownRef.current.contains(e.target as Node)) {
-        setProviderDropdownOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [providerDropdownOpen]);
 
   useEffect(() => {
     const updatePosition = () => {
@@ -301,6 +244,12 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
             setPosition({ top: padding, right, maxWidth });
           }
         }
+      } else {
+        // No anchor — center in viewport
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+        const maxWidth = Math.min(520, viewportWidth - 16);
+        setPosition({ top: Math.max(8, (viewportHeight - 360) / 2), right: Math.max(8, (viewportWidth - maxWidth) / 2), maxWidth });
       }
     };
     updatePosition();
@@ -337,22 +286,9 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
     onClose();
   };
 
-  const availableProviders = useMemo(() => {
-    const providers = new Set<string>();
-    Object.values(recommended).flat().forEach((m) => {
-      const p = getProvider(m.id);
-      if (p) providers.add(p);
-    });
-    return ['all', ...Array.from(providers).sort()];
-  }, [recommended]);
+  const filteredSearchResults = activeTab === 'search' ? searchResults.filter(isModelAllowed) : [];
 
-  const filterByProvider = (models: ModelCatalogEntry[]) => {
-    if (providerFilter === 'all') return models;
-    return models.filter((m) => getProvider(m.id) === providerFilter);
-  };
-
-  const categories = CATEGORY_ORDER.filter((c) => recommended[c] && recommended[c].length > 0);
-  const filteredSearchResults = activeTab === 'search' ? filterByProvider(searchResults) : [];
+  if (!position) return null;
 
   const dropdown = (
     <div
@@ -374,72 +310,12 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
               className="w-full bg-surface-2 border border-border rounded-md pl-8 pr-2 py-1 text-xs text-text placeholder:text-text-2 focus:outline-none focus:border-accent"
             />
           </div>
-          {/* Provider filter dropdown */}
-          <div className="mt-1.5 relative" ref={providerDropdownRef}>
-            <button
-              onClick={() => setProviderDropdownOpen((v) => !v)}
-              className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-surface-2 border border-border hover:border-accent/50 text-[10px] text-text transition-colors"
-            >
-              {providerFilter !== 'all' && getProviderFavicon(providerFilter) && (
-                <img src={getProviderFavicon(providerFilter)!} alt="" className="w-3.5 h-3.5 rounded object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-              )}
-              <span>Provider: {providerFilter === 'all' ? 'All' : (PROVIDER_LABELS[providerFilter] || providerFilter)}</span>
-              <ChevronDown className={`w-3 h-3 transition-transform ${providerDropdownOpen ? 'rotate-180' : ''}`} />
-            </button>
-            {providerDropdownOpen && (
-              <div className="absolute top-full left-0 mt-1 z-50 max-h-[200px] w-[180px] overflow-y-auto rounded-md border border-border bg-surface shadow-lg">
-                {availableProviders.map((p) => (
-                  <button
-                    key={p}
-                    onClick={() => { setProviderFilter(p); setProviderDropdownOpen(false); }}
-                    className={`flex items-center gap-2 w-full px-2 py-1.5 text-[10px] text-left transition-colors hover:bg-surface-2 ${
-                      providerFilter === p ? 'bg-accent/10 text-accent' : 'text-text'
-                    }`}
-                  >
-                    {p !== 'all' && getProviderFavicon(p) && (
-                      <img src={getProviderFavicon(p)!} alt="" className="w-4 h-4 rounded object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                    )}
-                    {p === 'all' ? 'All providers' : (PROVIDER_LABELS[p] || p)}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
         </div>
 
         {/* Model list */}
         <div className="overflow-y-auto flex-1 min-h-0 p-1">
           {activeTab === 'recommended' && !searchQuery && (
             <div className="p-1">
-              {/* Routing models — pinned at top, text-only (not for media) */}
-              {showAutoRouter && (
-                <>
-                  <button
-                    onClick={() => handleSelect('openrouter/auto')}
-                    onMouseEnter={() => setHoveredModel(null)}
-                    className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left transition-colors mb-1 ${
-                      selectedModel === 'openrouter/auto' ? 'bg-accent/10 text-text' : 'text-text-2 hover:bg-surface-2'
-                    }`}
-                  >
-                    <Sparkles className="w-4 h-4 shrink-0 text-accent" />
-                    <span className="text-xs font-medium flex-1">Auto Router</span>
-                    <span className="text-[9px] text-text-2 shrink-0">OpenRouter picks best model</span>
-                    {selectedModel === 'openrouter/auto' && <Check className="w-3.5 h-3.5 text-accent shrink-0" />}
-                  </button>
-                  <button
-                    onClick={() => handleSelect('openrouter/free')}
-                    onMouseEnter={() => setHoveredModel(null)}
-                    className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left transition-colors mb-2 ${
-                      selectedModel === 'openrouter/free' ? 'bg-accent/10 text-text' : 'text-text-2 hover:bg-surface-2'
-                    }`}
-                  >
-                    <Star className="w-4 h-4 shrink-0 text-accent" />
-                    <span className="text-xs font-medium flex-1">Free Models Router</span>
-                    <span className="text-[9px] text-text-2 shrink-0">Auto-select free model</span>
-                    {selectedModel === 'openrouter/free' && <Check className="w-3.5 h-3.5 text-accent shrink-0" />}
-                  </button>
-                </>
-              )}
               {/* Pinned AI-selected model — always shown at top */}
               {pinnedModelId && (() => {
                 const all = Object.values(recommended).flat().concat(searchResults);
@@ -468,30 +344,20 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
                   </button>
                 );
               })()}
-              {categories.map((cat) => {
-                const Icon = CATEGORY_ICONS[cat] || Cpu;
-                const catModels = filterByProvider(recommended[cat] || []);
-                if (catModels.length === 0) return null;
-                return (
-                  <div key={cat} className="mb-2">
-                    <div className="flex items-center gap-1.5 px-2 py-1">
-                      <Icon className="w-3 h-3 text-text-2" />
-                      <span className="text-[10px] font-semibold text-text-2 uppercase tracking-wide">
-                        {CATEGORY_LABELS[cat] || cat}
-                      </span>
-                    </div>
-                    {catModels.map((model) => (
-                      <ModelRow
-                        key={model.id}
-                        model={model}
-                        isSelected={model.id === selectedModel}
-                        onSelect={handleSelect}
-                        onHover={setHoveredModel}
-                      />
-                    ))}
-                  </div>
-                );
-              })}
+              {/* All whitelisted models — flat list, no categories */}
+              {(() => {
+                const allModels = Object.values(recommended).flat().filter(isModelAllowed);
+                const uniqueModels = Array.from(new Map(allModels.map(m => [m.id, m])).values());
+                return uniqueModels.map((model) => (
+                  <ModelRow
+                    key={model.id}
+                    model={model}
+                    isSelected={model.id === selectedModel}
+                    onSelect={handleSelect}
+                    onHover={setHoveredModel}
+                  />
+                ));
+              })()}
             </div>
           )}
 
@@ -602,9 +468,9 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center gap-3 px-4 text-center">
             <Sparkles className="w-8 h-8 text-accent" />
-            <div className="text-sm font-semibold text-text">Auto Router</div>
+            <div className="text-sm font-semibold text-text">Free Router</div>
             <div className="text-[11px] text-text-2 leading-relaxed">
-              OpenRouter automatically selects the best model for each request based on prompt complexity, task type, and model capabilities.
+              OpenRouter automatically selects a free model for each request based on prompt complexity, task type, and model capabilities.
             </div>
             {isAdaptive && (
               <div className="text-[10px] text-accent font-medium">Currently active</div>

@@ -2,6 +2,10 @@ export interface PlanAgent {
   name: string;
   role: string;
   goal?: string;
+  persona?: string;
+  personality?: { tone?: string; communication_style?: string; language?: string };
+  expertise?: string[];
+  brand_context?: { brand_name?: string; guidelines?: string; target_audience?: string };
   tools?: string[];
   depends_on?: string[];
   is_existing?: boolean;
@@ -14,11 +18,13 @@ export interface ResultAgent {
   output: string;
 }
 
-export type ChatMessageType = 'text' | 'plan' | 'plan_validation_error' | 'progress' | 'result' | 'image_approval' | 'image_result' | 'agent_progress' | 'model_catalog' | 'thinking' | 'thinking_done' | 'audio_result' | 'transcription_result' | 'video_result' | 'file_result' | 'tuning_proposal';
+export type ChatMessageType = 'text' | 'plan' | 'plan_validation_error' | 'progress' | 'result' | 'image_approval' | 'image_result' | 'agent_progress' | 'model_catalog' | 'thinking' | 'thinking_done' | 'audio_result' | 'transcription_result' | 'video_result' | 'file_result' | 'tuning_proposal' | 'agent_review';
 
 export type PlanStatus = 'pending' | 'approved' | 'rejected';
 
 export type ImageApprovalStatus = 'pending' | 'approved' | 'rejected' | 'error';
+
+export type AgentReviewStatus = 'pending' | 'approved' | 'rejected';
 
 export interface ChatMessage {
   id: string;
@@ -67,6 +73,7 @@ export interface ChatMessage {
   hasTtsTool?: boolean;
   hasSttTool?: boolean;
   hasVisionTool?: boolean;
+  hasVisionInput?: boolean;
   managerModel?: string;
   estimatedCost?: string;
   audioUrl?: string;
@@ -82,12 +89,17 @@ export interface ChatMessage {
   attachmentName?: string;
   attachmentMime?: string;
   tuningProposals?: TuningProposal[];
+  // Agent review fields
+  reviewId?: string;
+  reviewTaskId?: string;
+  reviewStatus?: AgentReviewStatus;
+  agentRole?: string;
 }
 
 export interface AgentProgressEntry {
   name: string;
   role: string;
-  status: 'pending' | 'running' | 'complete' | 'error' | 'waiting_approval';
+  status: 'pending' | 'running' | 'complete' | 'error' | 'waiting_approval' | 'awaiting_review';
   progress: number;
   output?: string;
   current_task?: string;
@@ -96,6 +108,16 @@ export interface AgentProgressEntry {
   model?: string;
   thinking?: string;
   delegated_by?: string[];
+  review_round?: number;
+  review_summary?: string;
+  review_feedback?: string;
+  review_history?: Array<{
+    round: number;
+    status: 'approved' | 'rejected';
+    summary: string;
+    feedback: string;
+    output_preview: string;
+  }>;
 }
 
 export interface TuningChange {

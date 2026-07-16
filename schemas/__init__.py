@@ -45,6 +45,10 @@ class PlanAgentItem(BaseModel):
     name: str
     role: str = ""
     goal: str = ""
+    persona: str = ""
+    personality: dict = {}
+    expertise: list[str] = []
+    brand_context: dict = {}
     tools: list[str] = []
     depends_on: list[str] = []
     is_existing: bool = False
@@ -60,7 +64,7 @@ class ResultAgentItem(BaseModel):
 class AgentProgressEntry(BaseModel):
     name: str
     role: str = ""
-    status: Literal["pending", "running", "complete", "error", "waiting_approval"] = "pending"
+    status: Literal["pending", "running", "complete", "error", "waiting_approval", "awaiting_review"] = "pending"
     progress: int = 0
     output: str = ""
     current_task: str = ""
@@ -69,6 +73,10 @@ class AgentProgressEntry(BaseModel):
     model: str = ""
     thinking: str = ""
     delegated_by: list[str] = []
+    review_round: int = 0
+    review_summary: str = ""
+    review_feedback: str = ""
+    review_history: list = []
 
 
 class TaskItem(BaseModel):
@@ -134,6 +142,7 @@ class ChatReplyPlan(BaseModel):
     hasTtsTool: bool = False
     hasSttTool: bool = False
     hasVisionTool: bool = False
+    hasVisionInput: bool = False
     managerModel: str = ""
     estimatedCost: str = ""
 
@@ -236,6 +245,16 @@ class ChatReplyFileResult(BaseModel):
     taskId: str = ""
 
 
+class ChatReplyAgentReview(BaseModel):
+    messageType: Literal["agent_review"] = "agent_review"
+    reviewId: str = ""
+    taskId: str = ""
+    agentName: str = ""
+    agentRole: str = ""
+    output: str = ""
+    reviewStatus: str = "pending"  # "pending", "approved", "rejected"
+
+
 # ============================================================
 # State payload (type: "state")
 # ============================================================
@@ -256,7 +275,7 @@ class StatePayload(BaseModel):
 
 class ChatReplyEnvelope(BaseModel):
     type: Literal["chat_reply"] = "chat_reply"
-    payload: ChatReplyText | ChatReplyPlanValidationError | ChatReplyPlan | ChatReplyProgress | ChatReplyAgentProgress | ChatReplyResult | ChatReplyImageApproval | ChatReplyImageResult | ChatReplyModelCatalog | ChatReplyAudioResult | ChatReplyTranscriptionResult | ChatReplyVideoResult | ChatReplyFileResult = Field(discriminator="messageType")
+    payload: ChatReplyText | ChatReplyPlanValidationError | ChatReplyPlan | ChatReplyProgress | ChatReplyAgentProgress | ChatReplyResult | ChatReplyImageApproval | ChatReplyImageResult | ChatReplyModelCatalog | ChatReplyAudioResult | ChatReplyTranscriptionResult | ChatReplyVideoResult | ChatReplyFileResult | ChatReplyAgentReview = Field(discriminator="messageType")
 
 
 class StateEnvelope(BaseModel):

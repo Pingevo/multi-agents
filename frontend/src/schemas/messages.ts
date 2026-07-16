@@ -5,6 +5,7 @@ export interface PlanAgentItem {
   name: string;
   role: string;
   goal: string;
+  persona?: string;
   tools: string[];
   is_existing: boolean;
   model?: string;
@@ -71,6 +72,7 @@ export type ChatMessageType =
   | 'transcription_result'
   | 'video_result'
   | 'file_result'
+  | 'agent_review'
   | 'tuning_proposal';
 
 export interface ChatReplyText {
@@ -95,6 +97,7 @@ export interface ChatReplyPlan {
   hasTtsTool?: boolean;
   hasSttTool?: boolean;
   hasVisionTool?: boolean;
+  hasVisionInput?: boolean;
   managerModel?: string;
 }
 
@@ -227,6 +230,16 @@ export interface ChatReplyTuningProposal {
   proposals: TuningProposalItem[];
 }
 
+export interface ChatReplyAgentReview {
+  messageType: 'agent_review';
+  reviewId: string;
+  taskId: string;
+  agentName: string;
+  agentRole: string;
+  output: string;
+  reviewStatus: 'pending' | 'approved' | 'rejected';
+}
+
 export type ChatReplyPayload =
   | ChatReplyText
   | ChatReplyPlan
@@ -243,7 +256,8 @@ export type ChatReplyPayload =
   | ChatReplyModelCatalog
   | ChatReplyThinking
   | ChatReplyThinkingDone
-  | ChatReplyTuningProposal;
+  | ChatReplyTuningProposal
+  | ChatReplyAgentReview;
 
 export interface ChatReplyEnvelope {
   type: 'chat_reply';

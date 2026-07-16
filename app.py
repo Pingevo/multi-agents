@@ -48,7 +48,7 @@ from backend.agents.registry import AgentRegistry
 from backend.agents.task_store import TaskStore
 from backend.agents.chat_store import ChatStore
 from backend.agents.factory import AgentFactory
-from backend.core.secretary import CentralSecretary
+from backend.core.secretary import CentralManager
 from backend.core.orchestrator import ExecutionOrchestrator
 from backend.core.messenger import StateMessenger
 from backend.attachment.processor import process_attachment, process_url
