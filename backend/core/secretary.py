@@ -662,6 +662,10 @@ class CentralManager:
         media_catalog: str | None = None,
         stream_callback=None,
         chat_only: bool = False,
+        registry_agents: list[dict] | None = None,
+        team_agents: list[dict] | None = None,
+        team_name: str | None = None,
+        last_task_context: dict | None = None,
     ) -> dict:
         """assess_and_plan with multimodal content blocks (image, PDF, audio, video)."""
         history_text = ""
@@ -681,6 +685,48 @@ class CentralManager:
         ) if catalog else "none"
 
         models_text = "Assign each agent a model from this list: 'google/gemini-3.5-flash', 'anthropic/claude-sonnet-5', 'openai/gpt-5.6-luna'. Choose the most suitable model based on the agent's role and tasks. The Manager uses 'openrouter/free' by default."
+
+        # Build registry agents text
+        registry_text = ""
+        if registry_agents:
+            registry_text = "\nAvailable agents in registry:\n"
+            for a in registry_agents:
+                name = a.get('name', 'Agent')
+                aid = a.get('id', '')
+                role = a.get('role', '')
+                personality = a.get('personality', {})
+                tone = personality.get('tone', '') if isinstance(personality, dict) else ''
+                style = personality.get('communication_style', '') if isinstance(personality, dict) else ''
+                registry_text += f"- {name} (id={aid}) | role={role} | tone={tone} | style={style}\n"
+
+        # Build team context text
+        team_text = ""
+        if team_agents:
+            team_label = f"Team '{team_name}'" if team_name else "Current team"
+            team_text = f"\n{team_label} agents (use these for tasks when possible):\n"
+            for a in team_agents:
+                name = a.get('name', 'Agent')
+                aid = a.get('id', '')
+                role = a.get('role', '')
+                model = a.get('model', 'auto')
+                tools = a.get('tools', [])
+                team_text += f"- {name} (id={aid}) | role={role} | model={model} | tools={tools}\n"
+
+        # Build last task context
+        last_task_text = ""
+        if last_task_context:
+            last_task_text = "\nLast completed task:\n"
+            last_task_text += f"- User request: {last_task_context.get('user_input', '')[:200]}\n"
+            last_task_text += f"- Result summary: {last_task_context.get('result', '')[:1500]}\n"
+            agents_ctx = last_task_context.get('agents', [])
+            for a in agents_ctx:
+                name = a.get('name', 'Agent')
+                role = a.get('role', '')
+                persona = a.get('persona', a.get('backstory', ''))
+                personality = a.get('personality', {})
+                tone = personality.get('tone', '') if isinstance(personality, dict) else ''
+                style = personality.get('communication_style', '') if isinstance(personality, dict) else ''
+                last_task_text += f"- Agent: {name} ({role}) | tone={tone} | style={style} | persona={persona[:100]}\n"
 
         if chat_only:
             prompt = (
@@ -765,6 +811,9 @@ class CentralManager:
             "- backstory should be brief — personality, expertise, and brand_context carry the detail\n\n"
             f"Available capabilities:\n{caps_text}\n\n"
             f"{history_text}"
+            f"{last_task_text}"
+            f"{registry_text}"
+            f"{team_text}"
             f"User message: {user_input}\n\n"
             "Output ONLY the JSON object, no explanation:"
         )

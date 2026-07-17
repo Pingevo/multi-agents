@@ -22,7 +22,7 @@ from backend.media.manager import MediaGenerationManager
 from backend.agents.factory import AgentFactory
 from backend.agents.tool_registry import ToolRegistry
 from backend.agents.registry import AgentRegistry
-from backend.agents.templates import validate_template_output
+from backend.agents.templates import validate_template_output, detect_template_id, get_template_contract
 from backend.core.messenger import StateMessenger
 from backend.credit_logger import log_llm_call
 
@@ -566,12 +566,19 @@ class ExecutionOrchestrator:
                 """
                 # Build combined review prompt
                 agents_section = ""
+                template_contracts = ""
                 for a in agents_data:
                     agents_section += (
                         f"\n--- Agent: {a['name']} (role: {a['role']}) ---\n"
                         f"Task: {a['goal']}\n"
                         f"Output:\n{a['output']}\n"
                     )
+                    # Detect template contract for this agent
+                    a_tmpl_id = detect_template_id(a.get("role", ""), a.get("name", ""))
+                    if a_tmpl_id:
+                        contract = get_template_contract(a_tmpl_id)
+                        if contract:
+                            template_contracts += f"\n=== REQUIRED OUTPUT FORMAT for {a['name']} ===\n{contract}\n"
 
                 review_prompt = (
                     f"{_manager_persona}\n"
@@ -580,6 +587,17 @@ class ExecutionOrchestrator:
                     f"User's original request: {user_input}\n\n"
                     f"Review attempt #{retry_count + 1} for this wave.\n\n"
                     f"{agents_section}\n\n"
+                )
+                if template_contracts:
+                    review_prompt += (
+                        f"{template_contracts}\n\n"
+                        f"CRITICAL — TEMPLATE COMPLIANCE:\n"
+                        f"- Check each required heading/section from the template one by one.\n"
+                        f"- REJECT if ANY required section is missing or empty.\n"
+                        f"- REJECT if the output does not follow the required format/template structure.\n"
+                        f"- In feedback, list exactly which sections are missing or incomplete.\n\n"
+                    )
+                review_prompt += (
                     f"Evaluate each agent's output against their task and the user's request.\n"
                     f"Respond in JSON ONLY — a JSON array with one entry per agent:\n"
                     f'[{{"name": "agent name", "approved": true/false, "feedback": "specific feedback if not approved, empty if approved", "summary": "1-2 sentence summary in Thai"}}]\n\n'
@@ -587,8 +605,9 @@ class ExecutionOrchestrator:
                     f"- REJECT if the output is vague, generic, or lacks specific details (names, numbers, dates, sources) that the task requires\n"
                     f"- REJECT if the output mentions tools but doesn't show actual results from using them\n"
                     f"- REJECT if the output is too brief or doesn't address the user's actual question\n"
-                    f"- APPROVE only if the output contains concrete, specific information that addresses the user's request\n"
-                    f"- feedback must be specific: tell the agent exactly what details to add or fix\n"
+                    f"- REJECT if any specific requirement from the user's original request is not addressed in the output — check each requirement one by one\n"
+                    f"- APPROVE only if the output contains concrete, specific information that fully addresses the user's request and follows the required format\n"
+                    f"- feedback must be specific: tell the agent exactly what details to add or fix, including which sections are missing\n"
                     f"- summary should be concise: e.g. 'รอบ 1: งานยังไม่ครบ ขาดสรุป — สั่งแก้' or 'รอบ 2: ครบ ตรงโจทย์ — ผ่าน'\n"
                 )
 
@@ -766,6 +785,8 @@ class ExecutionOrchestrator:
 
                             # ── Template deterministic validation (before manager review) ──
                             tmpl_id = agent_specs[i].get("template_id", "")
+                            if not tmpl_id:
+                                tmpl_id = detect_template_id(agent_specs[i].get("role", ""), agent_specs[i].get("name", "")) or ""
                             if tmpl_id:
                                 validation = validate_template_output(tmpl_id, output_text)
                                 if validation:

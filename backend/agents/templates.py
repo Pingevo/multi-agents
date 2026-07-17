@@ -92,6 +92,22 @@ def get_template_contract(template_id: str) -> str | None:
     return TEMPLATE_CONTRACTS.get(template_id)
 
 
+# ── Auto-detect template_id from agent role/name ──
+
+TEMPLATE_ROLE_MAP: dict[str, list[str]] = {
+    "product_analysis": ["product analyst", "นักวิเคราะห์ผลิตภัณฑ์", "product analysis"],
+}
+
+
+def detect_template_id(role: str, name: str) -> str | None:
+    """Auto-detect template_id based on agent role or name."""
+    combined = f"{role or ''} {name or ''}".lower()
+    for tmpl_id, keywords in TEMPLATE_ROLE_MAP.items():
+        if any(kw in combined for kw in keywords):
+            return tmpl_id
+    return None
+
+
 # ── Deterministic output validation (code-level, not LLM) ──
 
 PRODUCT_ANALYSIS_REQUIRED_HEADINGS = [

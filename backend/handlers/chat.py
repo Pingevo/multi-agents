@@ -1582,6 +1582,10 @@ async def on_message(message: cl.Message):
                 valid_model_ids=valid_model_ids,
                 media_catalog=media_catalog,
                 chat_only=True,
+                registry_agents=registry_agents,
+                team_agents=team_agents,
+                team_name=team_name,
+                last_task_context=last_task_context,
             )
 
             # Chat mode: only handle chat responses
@@ -1677,6 +1681,10 @@ async def on_message(message: cl.Message):
                 valid_model_ids=valid_model_ids,
                 media_catalog=media_catalog,
                 stream_callback=_stream_cb,
+                registry_agents=registry_agents,
+                team_agents=team_agents,
+                team_name=team_name,
+                last_task_context=last_task_context,
             )
             if messenger:
                 await messenger.reply_thinking_done(thinking_id)

@@ -5,7 +5,7 @@ from crewai import Agent, Task, Crew, Process, LLM
 from backend.llm.manager import LLMManager
 from backend.agents.capability import CapabilityRegistry, CapabilityResolver
 from backend.agents.tool_registry import ToolRegistry
-from backend.agents.templates import get_template_contract
+from backend.agents.templates import get_template_contract, detect_template_id
 from backend.globals import _thread_local
 
 class AgentFactory:
@@ -140,6 +140,8 @@ class AgentFactory:
 
         # Inject template-specific runtime contract if agent has a template_id
         template_id = spec.get("template_id", "")
+        if not template_id:
+            template_id = detect_template_id(spec.get("role", ""), spec.get("name", "")) or ""
         template_contract = ""
         if template_id:
             contract = get_template_contract(template_id)
