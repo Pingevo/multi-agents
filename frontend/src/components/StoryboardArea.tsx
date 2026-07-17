@@ -471,8 +471,8 @@ const AgentCard: React.FC<{
             )}
           </button>
           {showOutput && (
-            <div className="text-[10px] text-text-2 bg-surface/60 rounded-md p-2 border border-border/30 max-h-48 overflow-y-auto whitespace-pre-wrap leading-relaxed">
-              {progress?.output}
+            <div className="text-[10px] text-text-2 bg-surface/60 rounded-md p-2 border border-border/30 max-h-48 overflow-y-auto leading-relaxed">
+              <MarkdownRenderer content={progress?.output || ''} className="text-[10px]" />
             </div>
           )}
         </div>
@@ -776,6 +776,31 @@ const RunTimeline: React.FC<{
             </div>
           </div>
         )}
+
+        {/* Manager Review Output — shown when Manager progress entry is complete */}
+        {(() => {
+          const managerProgress = run.progress?.find((p) => p.name === 'Manager' && p.status === 'complete');
+          if (!managerProgress || !run.result) return null;
+          return (
+            <div className="mb-3">
+              <div className="rounded-[10px] border border-accent/40 bg-accent/5 p-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-[26px] h-[26px] rounded-lg bg-accent/20 flex items-center justify-center shrink-0 text-[13px]">
+                    <Brain className="w-3.5 h-3.5 text-accent" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[11px] font-semibold text-text">Manager</div>
+                    <div className="text-[9px] text-text-3">Project Manager</div>
+                  </div>
+                  <span className="text-[8px] px-1.5 py-0.5 rounded bg-accent/20 text-accent font-semibold">REVIEW</span>
+                </div>
+                <div className="text-[10px] text-text-2 max-h-64 overflow-y-auto leading-relaxed">
+                  <MarkdownRenderer content={managerProgress.output || ''} className="text-[10px]" />
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Final Result */}
         {run.result && (

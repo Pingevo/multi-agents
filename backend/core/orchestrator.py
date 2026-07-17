@@ -580,8 +580,11 @@ class ExecutionOrchestrator:
                     f"Respond in JSON ONLY — a JSON array with one entry per agent:\n"
                     f'[{{"name": "agent name", "approved": true/false, "feedback": "specific feedback if not approved, empty if approved", "summary": "1-2 sentence summary in Thai"}}]\n\n'
                     f"Rules:\n"
-                    f"- If an agent made reasonable progress with only minor issues, approve and note issues in summary\n"
-                    f"- Only reject if there are significant problems that need fixing\n"
+                    f"- REJECT if the output is vague, generic, or lacks specific details (names, numbers, dates, sources) that the task requires\n"
+                    f"- REJECT if the output mentions tools but doesn't show actual results from using them\n"
+                    f"- REJECT if the output is too brief or doesn't address the user's actual question\n"
+                    f"- APPROVE only if the output contains concrete, specific information that addresses the user's request\n"
+                    f"- feedback must be specific: tell the agent exactly what details to add or fix\n"
                     f"- summary should be concise: e.g. 'รอบ 1: งานยังไม่ครบ ขาดสรุป — สั่งแก้' or 'รอบ 2: ครบ ตรงโจทย์ — ผ่าน'\n"
                 )
 
@@ -1088,15 +1091,14 @@ class ExecutionOrchestrator:
                             synthesis_prompt += "\n"
                         break
             synthesis_prompt += (
-                "\nReview the team's deliverables and provide a brief quality assessment:\n"
-                "1. Did each agent stay within their assigned scope?\n"
-                "2. Are there any gaps, contradictions, or quality issues?\n"
-                "3. Does the combined result fully address the user's request?\n\n"
-                "If everything is good, say 'All deliverables verified — no issues found.'\n"
-                "If there are problems, list them concisely.\n"
-                "Do NOT copy or rephrase agent outputs — the user already sees them.\n"
+                "\nSummarize the team's deliverables for the user:\n"
+                "1. Briefly state what each agent found or produced (1-2 sentences each)\n"
+                "2. Note any key insights or important findings\n"
+                "3. If there are gaps or limitations, mention them concisely\n\n"
+                "Do NOT copy or rephrase agent outputs — the user already sees them in full.\n"
                 "Do NOT include phrases like 'Final Answer:', 'Task Completed:', or 'Crew Completion:'.\n"
-                "Keep your review brief and focused on quality, not on repeating content."
+                "Keep your summary brief and focused on synthesis, not on repeating content.\n"
+                "Respond in Thai if the user's request was in Thai."
             )
 
             manager_model = model_assignment.get("manager", "")
@@ -1139,6 +1141,37 @@ class ExecutionOrchestrator:
                 "role": "Project Manager",
                 "output": clean_manager_output,
             })
+
+            # Send final progress: Manager synthesis complete
+            if self._agent_progress_callback and self._main_loop and self._ctx:
+                progress = self._build_progress({}, self._agent_state)
+                for i, spec in enumerate(agent_specs):
+                    progress[i]["status"] = "complete"
+                    progress[i]["progress"] = 100
+                    if i < len(agent_outputs) - 1:  # exclude manager output (last entry)
+                        progress[i]["output"] = (agent_outputs[i].get("output", "") or "")[:8000]
+                    if i in self._agent_state:
+                        progress[i]["review_history"] = self._agent_state[i].get("review_history", [])
+                        progress[i]["review_round"] = self._agent_state[i].get("review_round", 0)
+                        progress[i]["review_summary"] = self._agent_state[i].get("review_summary", "")
+                progress.append({
+                    "name": "Manager",
+                    "role": "Project Manager",
+                    "status": "complete",
+                    "progress": 100,
+                    "output": clean_manager_output[:8000],
+                    "current_task": "Review complete",
+                })
+                ctx = self._ctx
+                loop = self._main_loop
+                callback = self._agent_progress_callback
+
+                def _schedule_manager_done():
+                    loop.create_task(
+                        _async_progress_callback(callback, progress),
+                        context=ctx,
+                    )
+                loop.call_soon_threadsafe(_schedule_manager_done)
 
             return {
                 "raw": clean_manager_output,
