@@ -5,6 +5,7 @@ from crewai import Agent, Task, Crew, Process, LLM
 from backend.llm.manager import LLMManager
 from backend.agents.capability import CapabilityRegistry, CapabilityResolver
 from backend.agents.tool_registry import ToolRegistry
+from backend.agents.templates import get_template_contract
 from backend.globals import _thread_local
 
 class AgentFactory:
@@ -141,6 +142,14 @@ class AgentFactory:
             if attachment_ctx.get("context_text"):
                 attachment_text += f"\nAttachment context: {attachment_ctx['context_text']}"
 
+        # Inject template-specific runtime contract if agent has a template_id
+        template_id = spec.get("template_id", "")
+        template_contract = ""
+        if template_id:
+            contract = get_template_contract(template_id)
+            if contract:
+                template_contract = f"\n\n{contract}"
+
         # Build self-check instruction for quality
         self_check = (
             "\n\nBefore submitting your work, do a self-check: "
@@ -194,6 +203,7 @@ class AgentFactory:
                 f"{tool_instructions}"
                 f"{self_check}"
                 f"{attachment_text}"
+                f"{template_contract}"
             ),
             "agent": agent,
             "expected_output": (

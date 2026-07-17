@@ -1,6 +1,7 @@
 import { LayoutDashboard, Wallet, LogOut } from 'lucide-react';
 import type { CreditsInfo } from '../types/platform';
 import { useAuth } from '../context/AuthContext';
+import { formatResetDate } from '../utils/credits';
 
 interface HeaderProps {
   systemStatus: string;
@@ -27,7 +28,7 @@ export const Header: React.FC<HeaderProps> = ({ systemStatus, credits }) => {
                 return (
                   <span className={isLow ? 'text-warning' : ''}>
                     ${usedThisPeriod.toFixed(2)} / ${credits.limit?.toFixed(2) ?? '—'}
-                    {credits.limit_reset && <span className="text-text-3 ml-1">({credits.limit_reset})</span>}
+                    {credits.limit_reset && <span className="text-text-3 ml-1">(รีเซ็ต {formatResetDate(credits.limit_reset)})</span>}
                   </span>
                 );
               })()

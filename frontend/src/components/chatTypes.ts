@@ -10,6 +10,9 @@ export interface PlanAgent {
   depends_on?: string[];
   is_existing?: boolean;
   model?: string;
+  original_tools?: string[];
+  original_goal?: string;
+  original_persona?: string;
 }
 
 export interface ResultAgent {
@@ -88,7 +91,9 @@ export interface ChatMessage {
   attachmentUrl?: string;
   attachmentName?: string;
   attachmentMime?: string;
+  attachments?: Array<{ url: string; name: string; mime: string }>;
   tuningProposals?: TuningProposal[];
+  tuningStatus?: 'confirmed' | 'rejected';
   // Agent review fields
   reviewId?: string;
   reviewTaskId?: string;
@@ -122,8 +127,8 @@ export interface AgentProgressEntry {
 
 export interface TuningChange {
   field: string;
-  old_value: string;
-  new_value: string;
+  old_value: string | string[];
+  new_value: string | string[];
   reason: string;
 }
 

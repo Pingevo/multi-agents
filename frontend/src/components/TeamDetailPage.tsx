@@ -1,9 +1,11 @@
 import { useState, useCallback } from 'react';
 import { ChevronLeft, ChevronRight, Plus, Settings, Trash2, Cpu } from 'lucide-react';
 import { usePlatform } from '../context/PlatformContext';
+import { formatResetDate } from '../utils/credits';
 import { StoryboardArea } from './StoryboardArea';
 import { ChatPanelRight } from './ChatPanelRight';
 import { AgentConfigModal } from './AgentConfigModal';
+import { AgentFormModal } from './AgentFormModal';
 import type { ChatMessage, ActivityEntry } from './chatTypes';
 import type { ChatSession } from './ChatSidebar';
 import type { Team } from '../types/team';
@@ -79,6 +81,7 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({
   const [configAgentId, setConfigAgentId] = useState<string | null>(null);
   const configAgent = configAgentId ? agents.find(a => a.id === configAgentId) || null : null;
   const [mentionText, setMentionText] = useState('');
+  const [showAddAgentModal, setShowAddAgentModal] = useState(false);
 
   const handleMentionAgent = useCallback((agentName: string) => {
     setMentionText(`@${agentName} `);
@@ -132,7 +135,7 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({
                   return (
                     <span className={isLow ? 'text-warning' : ''}>
                       ${usedThisPeriod.toFixed(2)} / ${credits.limit?.toFixed(2) ?? '—'}
-                      {credits.limit_reset && <span className="text-text-3 ml-1">({credits.limit_reset})</span>}
+                      {credits.limit_reset && <span className="text-text-3 ml-1">(รีเซ็ต {formatResetDate(credits.limit_reset)})</span>}
                     </span>
                   );
                 } else if (credits.is_free_tier) {
@@ -196,7 +199,16 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({
             {/* Agents */}
             <div className="px-4 py-2 border-t border-border flex items-center justify-between">
               <span className="text-xs font-semibold text-text-2">Agents</span>
-              <span className="text-[10px] text-text-3">{teamAgents.length}</span>
+              <div className="flex items-center gap-1">
+                <span className="text-[10px] text-text-3">{teamAgents.length}</span>
+                <button
+                  onClick={() => setShowAddAgentModal(true)}
+                  className="p-1 rounded-md text-text-2 hover:text-accent hover:bg-surface-2 transition-colors"
+                  title="Add Agent"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
             <div className="flex-1 overflow-y-auto px-2 pb-2">
               {managerAgent && (
@@ -372,6 +384,17 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({
         onSearchModels={(query) => onAction('search_models', { query })}
         onFetchModelCatalog={() => onAction('fetch_model_catalog')}
         selectedModel={selectedModel}
+      />
+
+      <AgentFormModal
+        open={showAddAgentModal}
+        mode="add"
+        availableTools={available_tools || []}
+        onSubmit={(data) => {
+          onAction('add_agent_form', { ...data, team_id: team.id });
+          setShowAddAgentModal(false);
+        }}
+        onClose={() => setShowAddAgentModal(false)}
       />
 
     </div>

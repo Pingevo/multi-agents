@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { X, Cpu, ChevronDown, Plus, Trash2, Wrench, User, Users } from 'lucide-react';
+import { X, Cpu, ChevronDown, Plus, Trash2, Wrench, User, Users, LayoutTemplate } from 'lucide-react';
 import { ModelPicker, PROVIDER_FAVICONS, getProvider, findModelName } from './ModelPicker';
 import type { ModelCatalogEntry } from './ModelPicker';
 import type { ToolCatalogEntry } from '../types/platform';
@@ -11,7 +11,38 @@ interface AgentEntry {
   persona: string;
   tools: string[];
   model: string;
+  template_id?: string;
 }
+
+interface AgentTemplate {
+  id: string;
+  label: string;
+  description: string;
+  spec: {
+    name: string;
+    role: string;
+    goal: string;
+    persona: string;
+    tools: string[];
+    model: string;
+  };
+}
+
+const TEMPLATES: AgentTemplate[] = [
+  {
+    id: 'product_analysis',
+    label: 'วิเคราะห์สินค้า',
+    description: 'วิเคราะห์สินค้าที่ user ระบุ พร้อมค้นหาคู่แข่งและข้อมูลจริง',
+    spec: {
+      name: 'Product Analyst',
+      role: 'Product Analyst',
+      goal: 'วิเคราะห์สินค้าตามข้อมูลที่ได้รับ และค้นหาข้อมูลเพิ่มเติมเพื่อเปรียบเทียบกับคู่แข่งในตลาด โดยอ้างอิงแหล่งข้อมูลที่ตรวจสอบได้จริง',
+      persona: 'You are a senior product analyst with deep expertise in competitive analysis, market positioning, and product strategy. You research products thoroughly, verify claims with real sources, and never fabricate data. You communicate findings in structured Thai-language reports. You are rigorous about evidence — if you cannot verify a claim, you say so explicitly.',
+      tools: ['search_web', 'scrape_web', 'analyze_image'],
+      model: '',
+    },
+  },
+];
 
 interface TeamCreateModalProps {
   open: boolean;
@@ -82,6 +113,20 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
 
   const addAgent = () => {
     const newAgent: AgentEntry = { name: '', role: '', goal: '', persona: '', tools: [], model: '' };
+    setAgents([...agents, newAgent]);
+    setExpandedAgent(agents.length);
+  };
+
+  const addAgentFromTemplate = (template: AgentTemplate) => {
+    const newAgent: AgentEntry = {
+      name: template.spec.name,
+      role: template.spec.role,
+      goal: template.spec.goal,
+      persona: template.spec.persona,
+      tools: template.spec.tools,
+      model: template.spec.model,
+      template_id: template.id,
+    };
     setAgents([...agents, newAgent]);
     setExpandedAgent(agents.length);
   };
@@ -270,6 +315,26 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
                   <Plus className="w-3.5 h-3.5" /> เพิ่ม Agent
                 </button>
               </div>
+
+              {/* Template buttons */}
+              {TEMPLATES.length > 0 && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[10px] text-text-3 flex items-center gap-1">
+                    <LayoutTemplate className="w-3 h-3" /> Templates:
+                  </span>
+                  {TEMPLATES.map((tmpl) => (
+                    <button
+                      key={tmpl.id}
+                      type="button"
+                      onClick={() => addAgentFromTemplate(tmpl)}
+                      title={tmpl.description}
+                      className="px-2.5 py-1 rounded-lg text-xs font-medium border border-border text-text-2 hover:bg-accent/10 hover:border-accent/30 hover:text-accent transition-colors"
+                    >
+                      + {tmpl.label}
+                    </button>
+                  ))}
+                </div>
+              )}
 
               {agents.length === 0 && (
                 <div className="text-center py-6 text-text-3 text-xs border border-dashed border-border rounded-lg">

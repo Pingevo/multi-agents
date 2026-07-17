@@ -116,6 +116,42 @@ async def on_action_accept(action: cl.Action):
     cl.user_session.set("team_registry", team_registry)
 
     cl.user_session.set("current_agent_specs", registered_specs)
+
+    # Track overrides for existing agents (tools/goal/persona changed by secretary)
+    agent_overrides = []
+    for spec in registered_specs:
+        reg_id = spec.get("registry_id", "")
+        if not reg_id:
+            continue
+        agent_in_registry = None
+        for a in registry.list_agents():
+            if a.get("id") == reg_id:
+                agent_in_registry = a
+                break
+        if not agent_in_registry:
+            continue
+        orig_tools = list(agent_in_registry.get("tools", []))
+        orig_goal = agent_in_registry.get("goal", "")
+        orig_persona = agent_in_registry.get("persona", "")
+        plan_tools = spec.get("tools", [])
+        plan_goal = spec.get("goal", "")
+        plan_persona = spec.get("persona", "")
+        changes = []
+        if set(orig_tools) != set(plan_tools):
+            changes.append({"field": "tools", "old_value": orig_tools, "new_value": plan_tools, "reason": "Secretary adjusted tools for this task"})
+        if orig_goal != plan_goal:
+            changes.append({"field": "goal", "old_value": orig_goal, "new_value": plan_goal, "reason": "Secretary adjusted goal for this task"})
+        if orig_persona != plan_persona:
+            changes.append({"field": "persona", "old_value": orig_persona, "new_value": plan_persona, "reason": "Secretary adjusted persona for this task"})
+        if changes:
+            agent_overrides.append({
+                "agent_name": spec.get("name", ""),
+                "agent_id": reg_id,
+                "changes": changes,
+            })
+    cl.user_session.set("agent_overrides", agent_overrides)
+    print(f"[DEBUG-ACCEPT] agent_overrides: {len(agent_overrides)} agents with changes", flush=True)
+
     if messenger:
         messenger.update_plan_status("approved")
         await messenger.update_agents(registry)
@@ -141,6 +177,7 @@ async def on_action_accept(action: cl.Action):
 
     cl.user_session.set("attachment_context", None)
     cl.user_session.set("attachment_crewai_files", None)
+    cl.user_session.set("last_attachments", [])
     cl.user_session.set("last_attachment_url", None)
     cl.user_session.set("last_attachment_name", None)
     cl.user_session.set("last_attachment_mime", None)
@@ -207,6 +244,8 @@ async def on_action_add_agent_form(action: cl.Action):
         "persona": payload.get("persona", ""),
         "tools": [t.strip() for t in payload.get("tools", "").split(",") if t.strip()],
         "model": payload.get("model", ""),
+        "template_id": payload.get("template_id", ""),
+        "team_id": payload.get("team_id", None),
     }
 
     try:
@@ -244,6 +283,7 @@ async def on_action_edit_agent_form(action: cl.Action):
         "persona": payload.get("persona", agent.get("persona")),
         "tools": [t.strip() for t in payload.get("tools", "").split(",") if t.strip()],
         "model": payload.get("model", agent.get("model", "")),
+        "template_id": payload.get("template_id", agent.get("template_id", "")),
     }
 
     try:
@@ -350,7 +390,11 @@ async def on_action_agent_feedback(action: cl.Action):
 async def on_action_confirm_tuning(action: cl.Action):
     """Apply tuning proposal to agent registry — no auto re-run."""
     print("[DEBUG-CONFIRM-TUNING] on_action_confirm_tuning called", flush=True)
-    registry = cl.user_session.get("registry") or AgentRegistry()
+    user_id = cl.user_session.get("user_id")
+    registry = cl.user_session.get("registry")
+    if not registry:
+        registry = AgentRegistry(user_id=user_id) if user_id else AgentRegistry()
+        cl.user_session.set("registry", registry)
     messenger = get_messenger()
     proposals = cl.user_session.get("pending_tuning_proposal") or []
     # Fallback: use proposals from payload if session lost (e.g. after restart)
@@ -359,6 +403,7 @@ async def on_action_confirm_tuning(action: cl.Action):
         if proposals:
             print(f"[DEBUG-CONFIRM-TUNING] Using proposals from payload (session was empty)", flush=True)
     print(f"[DEBUG-CONFIRM-TUNING] proposals={proposals}", flush=True)
+    print(f"[DEBUG-CONFIRM-TUNING] registry agents: {[a.get('id') for a in registry.list_agents()]}", flush=True)
 
     if not proposals:
         if messenger:
@@ -370,10 +415,12 @@ async def on_action_confirm_tuning(action: cl.Action):
         agent_id = proposal.get("agent_id", "")
         changes = proposal.get("changes", [])
         if not agent_id or not changes:
+            print(f"[DEBUG-CONFIRM-TUNING] Skipping proposal: agent_id={agent_id!r}, changes={len(changes)}", flush=True)
             continue
 
         agent = registry.get_by_id(agent_id)
         if not agent:
+            print(f"[DEBUG-CONFIRM-TUNING] Agent not found: agent_id={agent_id!r}", flush=True)
             continue
 
         # Build update fields from changes
@@ -411,11 +458,14 @@ async def on_action_confirm_tuning(action: cl.Action):
         if update_fields:
             registry.update_agent(agent_id, update_fields)
             applied_count += 1
+            print(f"[DEBUG-CONFIRM-TUNING] Updated agent {agent_id}: fields={list(update_fields.keys())}", flush=True)
 
+    print(f"[DEBUG-CONFIRM-TUNING] Applied {applied_count}/{len(proposals)} proposals", flush=True)
     cl.user_session.set("pending_tuning_proposal", None)
 
     if messenger:
         await messenger.update_agents(registry)
+        messenger.update_persisted_message("tuning_proposal", {"tuningStatus": "confirmed"})
         if applied_count > 0:
             await messenger.notify(f"✅ ปรับแต่ง agent แล้ว ({applied_count} agent) — พร้อมใช้งานในครั้งถัดไป")
         else:
@@ -428,6 +478,7 @@ async def on_action_reject_tuning(action: cl.Action):
     messenger = get_messenger()
     cl.user_session.set("pending_tuning_proposal", None)
     if messenger:
+        messenger.update_persisted_message("tuning_proposal", {"tuningStatus": "rejected"})
         await messenger.notify("❌ ยกเลิกการปรับแต่ง agent")
 
 
@@ -491,6 +542,7 @@ async def on_action_create_team(action: cl.Action):
             "tools": agent_entry.get("tools", []),
             "model": agent_entry.get("model", "").strip(),
             "team_id": team["id"],
+            "template_id": agent_entry.get("template_id", ""),
         }
         new_agent = registry.add_agent(agent_spec)
         team_registry.add_agent(team["id"], new_agent["id"])

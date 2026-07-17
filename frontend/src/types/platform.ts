@@ -9,6 +9,7 @@ export interface Agent {
   depends_on?: string[];
   status: 'Idle' | 'Busy' | string;
   is_manager?: boolean;
+  template_id?: string;
 }
 
 export interface AgentOutput {
@@ -88,6 +89,7 @@ export interface AgentFormData {
   persona: string;
   tools: string;
   model?: string;
+  template_id?: string;
 }
 
 export interface AssignFormData {

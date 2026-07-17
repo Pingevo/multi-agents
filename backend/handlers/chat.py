@@ -312,6 +312,15 @@ async def execute_multi_agent_task(
             # Now send approval cards after AI response
             for media_result, idx in pending_approval_cards:
                 await _send_approval_card(media_result, idx)
+
+            # Post-task: ask user if they want to save agent overrides from the plan
+            agent_overrides = cl.user_session.get("agent_overrides") or []
+            if agent_overrides:
+                print(f"[DEBUG-POST-TASK] Sending tuning card for {len(agent_overrides)} agent overrides", flush=True)
+                cl.user_session.set("pending_tuning_proposal", agent_overrides)
+                await messenger.reply_tuning_proposal(agent_overrides)
+            else:
+                cl.user_session.set("agent_overrides", None)
     except Exception as e:
         tb = traceback.format_exc()
         print(f"[CREW ERROR] {_sanitize_error(e)}")
@@ -731,8 +740,6 @@ def _parse_json_command(text: str) -> dict | None:
 @cl.on_message
 async def on_message(message: cl.Message):
     print(f"[DEBUG-MSG] on_message called, content[:100]={message.content[:100]}", flush=True)
-    # Reset cancel flag for new message
-    cl.user_session.set("cancel_generation", False)
     state = cl.user_session.get("state") or STATE_IDLE
     user_input = message.content
     registry = cl.user_session.get("registry") or AgentRegistry()
@@ -745,19 +752,21 @@ async def on_message(message: cl.Message):
         input_mode = mode_match.group(1)
         user_input = user_input[mode_match.end():]
 
-    # Extract attachment data from message
-    attachment = None
-    attachment_match = re.search(r'\[ATTACHMENT\|([^\|]+)\|([^\|]+)\|([^\]]+)\]', user_input)
-    if attachment_match:
-        file_url, file_name, file_mime = attachment_match.groups()
-        attachment = {"file_url": file_url, "file_name": file_name, "file_mime": file_mime}
-        # Remove attachment marker from user_input before processing
+    # Extract attachment data from message (support multiple attachments)
+    attachments = []
+    attachment_matches = re.findall(r'\[ATTACHMENT\|([^\|]+)\|([^\|]+)\|([^\]]+)\]', user_input)
+    if attachment_matches:
+        for file_url, file_name, file_mime in attachment_matches:
+            attachments.append({"file_url": file_url, "file_name": file_name, "file_mime": file_mime})
+        # Remove all attachment markers from user_input before processing
         user_input = re.sub(r'\n\n\[ATTACHMENT\|[^\]]+\]', '', user_input).strip()
-        # Store attachment URL in session for later use
-        cl.user_session.set("last_attachment_url", file_url)
-        cl.user_session.set("last_attachment_name", file_name)
-        cl.user_session.set("last_attachment_mime", file_mime)
-        print(f"[ATTACHMENT] {file_name} → {file_url}", flush=True)
+        # Store attachments list in session for later use
+        cl.user_session.set("last_attachments", attachments)
+        # Also set single-attachment vars for backward compat (first file)
+        cl.user_session.set("last_attachment_url", attachments[0]["file_url"])
+        cl.user_session.set("last_attachment_name", attachments[0]["file_name"])
+        cl.user_session.set("last_attachment_mime", attachments[0]["file_mime"])
+        print(f"[ATTACHMENT] {len(attachments)} files: {[a['file_name'] for a in attachments]}", flush=True)
 
     # Handle JSON action commands from custom frontend
     command = _parse_json_command(user_input)
@@ -788,6 +797,9 @@ async def on_message(message: cl.Message):
             task_id = payload.get("task_id", "")
             if messenger and task_id:
                 await messenger.delete_task(task_id)
+        elif action_name == "refresh_credits":
+            if messenger:
+                await messenger._send(trigger="refresh")
         elif action_name == "approve_image":
             approval_id = payload.get("approval_id", "")
             model_override = payload.get("model", "")
@@ -1248,7 +1260,7 @@ async def on_message(message: cl.Message):
                 else:
                     pre_assigned.setdefault("workers", {})[agent_name] = model_id
                 cl.user_session.set("pre_assigned_models", pre_assigned)
-                print(f"[DEBUG-MODEL-CHANGE] {agent_name} → {model_id}", flush=True)
+                print(f"[DEBUG-MODEL-CHANGE] {agent_name} → {model_id}, pre_assigned={pre_assigned}", flush=True)
         elif action_name == "change_manager_model":
             model_id = payload.get("model_id", "")
             if model_id:
@@ -1361,37 +1373,47 @@ async def on_message(message: cl.Message):
                     team_agents = registry.list_agents(team_id=team_id)
                     if messenger:
                         await messenger.update_agents(registry)
+            else:
+                # Going back to team list — show all sessions
+                if messenger:
+                    await messenger.reply_chat_sessions()
         elif action_name == "list_teams":
             team_registry = cl.user_session.get("team_registry") or TeamRegistry()
             if messenger:
                 await messenger.reply_team_list(team_registry)
         return
 
+    # Reset cancel flag for new real user message (not action commands)
+    cl.user_session.set("cancel_generation", False)
+
     # Persist user message to chat session
     if messenger:
         msg_data = {"role": "user", "content": user_input, "messageType": "text"}
-        last_attach_url = cl.user_session.get("last_attachment_url") or ""
-        if last_attach_url:
-            msg_data["attachmentUrl"] = last_attach_url
-            msg_data["attachmentName"] = cl.user_session.get("last_attachment_name") or ""
-            msg_data["attachmentMime"] = cl.user_session.get("last_attachment_mime") or ""
+        last_attachments = cl.user_session.get("last_attachments") or []
+        if last_attachments:
+            # Store full array for multi-attachment display
+            msg_data["attachments"] = [{"url": a["file_url"], "name": a["file_name"], "mime": a["file_mime"]} for a in last_attachments]
+            # Also store single-attachment fields for backward compat (first file)
+            msg_data["attachmentUrl"] = last_attachments[0]["file_url"]
+            msg_data["attachmentName"] = last_attachments[0]["file_name"]
+            msg_data["attachmentMime"] = last_attachments[0]["file_mime"]
         messenger.persist_message(msg_data)
 
-    # Process attachment via unified pipeline
-    attachment_ctx = None
-    last_attach_url = cl.user_session.get("last_attachment_url") or ""
-    last_attach_name = cl.user_session.get("last_attachment_name") or ""
-    last_attach_mime = cl.user_session.get("last_attachment_mime") or ""
-    if last_attach_url:
-        attachment_ctx = await process_attachment(last_attach_url, last_attach_name, last_attach_mime)
-        print(f"[ATTACHMENT] Processed {last_attach_name} → type={attachment_ctx['type']}", flush=True)
+    # Process all attachments via unified pipeline
+    all_contexts = []
+    last_attachments = cl.user_session.get("last_attachments") or []
+    attachment_urls = set(a["file_url"] for a in last_attachments)
+    for att in last_attachments:
+        att_ctx = await process_attachment(att["file_url"], att["file_name"], att["file_mime"])
+        print(f"[ATTACHMENT] Processed {att['file_name']} → type={att_ctx['type']}", flush=True)
+        all_contexts.append(att_ctx)
 
     # Detect and process URLs in user message
     urls_in_message = re.findall(URL_REGEX, user_input)
     print(f"[DEBUG-URL] Found {len(urls_in_message)} URLs in message: {urls_in_message}", flush=True)
     url_contexts = []
     for found_url in urls_in_message:
-        if last_attach_url and found_url == last_attach_url:
+        if found_url in attachment_urls:
             continue
         print(f"[DEBUG-URL] Processing URL: {found_url[:80]}...", flush=True)
         url_ctx = await process_url(found_url)
@@ -1399,9 +1421,6 @@ async def on_message(message: cl.Message):
         print(f"[URL] Processed {found_url} → type={url_ctx['type']}", flush=True)
 
     # Merge attachment + URL contexts
-    all_contexts = []
-    if attachment_ctx:
-        all_contexts.append(attachment_ctx)
     all_contexts.extend(url_contexts)
 
     # Build unified context for AI
@@ -1541,6 +1560,7 @@ async def on_message(message: cl.Message):
             if messenger:
                 await messenger.reply(f"⚠️ เกิดข้อผิดพลาด: {_sanitize_error(e)}")
         finally:
+            cl.user_session.set("last_attachments", [])
             cl.user_session.set("last_attachment_url", None)
             cl.user_session.set("last_attachment_name", None)
             cl.user_session.set("last_attachment_mime", None)
@@ -1884,21 +1904,43 @@ async def on_message(message: cl.Message):
                         merged["task_description"] = spec.get("task_description", user_input)
                         merged["depends_on"] = spec.get("depends_on", [])
                         merged["registry_id"] = existing_agent.get("id")
+                        # Capture original values before secretary overrides
+                        orig_tools = list(existing_agent.get("tools", []))
+                        orig_goal = existing_agent.get("goal", "")
+                        orig_persona = existing_agent.get("persona", "")
+                        # Merge tools: preserve original tools, add new ones from secretary
+                        # Never remove existing tools — secretary can only ADD capabilities
+                        secretary_tools = spec.get("tools", [])
+                        secretary_goal = spec.get("goal", "")
+                        secretary_persona = spec.get("persona", spec.get("backstory", ""))
+                        if secretary_tools:
+                            merged_tools = list(orig_tools)
+                            for t in secretary_tools:
+                                if t not in merged_tools:
+                                    merged_tools.append(t)
+                            merged["tools"] = merged_tools
+                        if secretary_goal:
+                            merged["goal"] = secretary_goal
+                        if secretary_persona:
+                            merged["persona"] = secretary_persona
                         resolved_specs.append(merged)
                         agents_for_plan.append({
                             "id": existing_agent.get("id"),
                             "name": existing_agent.get("name", "Unnamed"),
                             "role": existing_agent.get("role", ""),
-                            "goal": existing_agent.get("goal", ""),
-                            "persona": existing_agent.get("persona", ""),
+                            "goal": merged.get("goal", ""),
+                            "persona": merged.get("persona", ""),
                             "personality": existing_agent.get("personality", {}),
                             "expertise": existing_agent.get("expertise", []),
                             "brand_context": existing_agent.get("brand_context", {}),
-                            "tools": existing_agent.get("tools", []),
+                            "tools": merged.get("tools", []),
                             "depends_on": spec.get("depends_on", []),
                             "status": existing_agent.get("status", "Idle"),
                             "is_existing": True,
                             "model": model_assignment.get("workers", {}).get(existing_agent.get("name", ""), model_assignment.get("manager", "")),
+                            "original_tools": orig_tools,
+                            "original_goal": orig_goal,
+                            "original_persona": orig_persona,
                         })
                         has_existing = True
                     else:

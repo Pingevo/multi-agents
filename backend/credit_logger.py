@@ -21,17 +21,42 @@ def _load_last_usage() -> float | None:
 
 
 _last_usage = _load_last_usage()
+_last_limit_remaining: float | None = None
+_last_log_time: float | None = None
+_pending_cost = 0.0
+
+
+def get_pending_cost() -> float:
+    """Return accumulated cost since last credit snapshot."""
+    return _pending_cost
+
+
+def reset_pending_cost():
+    """Reset pending cost after OpenRouter has updated (credit snapshot written)."""
+    global _pending_cost
+    _pending_cost = 0.0
 
 
 def log_credit_snapshot(credits: dict | None, trigger: str = "poll"):
-    """Append a credit snapshot to the JSONL log file — only when usage changes."""
-    global _last_usage
+    """Append a credit snapshot to the JSONL log file — only when usage meaningfully changes."""
+    global _last_usage, _last_limit_remaining, _last_log_time
     if not credits:
         return
     current_usage = credits.get("usage", 0)
-    if _last_usage is not None and current_usage == _last_usage:
+    current_remaining = credits.get("limit_remaining")
+    now = datetime.now().timestamp()
+    # Dedup: round usage to 2 decimal places to ignore minor oscillations
+    usage_rounded = round(current_usage, 2)
+    last_rounded = round(_last_usage, 2) if _last_usage is not None else None
+    if last_rounded is not None and usage_rounded == last_rounded:
+        return
+    # Cooldown: at least 30 seconds between log entries
+    if _last_log_time is not None and (now - _last_log_time) < 30:
         return
     _last_usage = current_usage
+    _last_limit_remaining = current_remaining
+    _last_log_time = now
+    reset_pending_cost()
     entry = {
         "timestamp": datetime.now().isoformat(),
         "trigger": trigger,
@@ -66,6 +91,19 @@ def log_llm_call(
     """
     if not usage:
         return
+    # Convert Pydantic object (e.g. CompletionUsage) to dict if needed
+    if hasattr(usage, "model_dump"):
+        usage = usage.model_dump()
+    elif not isinstance(usage, dict):
+        usage = {
+            "prompt_tokens": getattr(usage, "prompt_tokens", 0),
+            "completion_tokens": getattr(usage, "completion_tokens", 0),
+            "total_tokens": getattr(usage, "total_tokens", 0),
+            "cost": getattr(usage, "cost", 0),
+        }
+    cost = usage.get("cost", 0)
+    global _pending_cost
+    _pending_cost += cost
     entry = {
         "timestamp": datetime.now().isoformat(),
         "model": model,
@@ -73,7 +111,7 @@ def log_llm_call(
         "prompt_tokens": usage.get("prompt_tokens", 0),
         "completion_tokens": usage.get("completion_tokens", 0),
         "total_tokens": usage.get("total_tokens", 0),
-        "cost": usage.get("cost", 0),
+        "cost": cost,
         "prompt_preview": prompt_preview[:200] if prompt_preview else "",
     }
     try:

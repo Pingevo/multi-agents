@@ -215,11 +215,17 @@ const PlanCard: React.FC<{
               {agent.goal && (
                 <div className="text-[11px] text-text-2 mt-1 ml-4">
                   <span className="text-text-3">Goal:</span> {agent.goal}
+                  {agent.is_existing && agent.original_goal && agent.goal !== agent.original_goal && (
+                    <span className="text-[9px] text-warning ml-1">(เดิม: {agent.original_goal.slice(0, 60)}{agent.original_goal.length > 60 ? '...' : ''})</span>
+                  )}
                 </div>
               )}
               {agent.persona && (
                 <div className="text-[11px] text-text-2 mt-1 ml-4">
                   <span className="text-text-3">Persona:</span> {agent.persona}
+                  {agent.is_existing && agent.original_persona && agent.persona !== agent.original_persona && (
+                    <span className="text-[9px] text-warning ml-1">(เดิม: {agent.original_persona.slice(0, 60)}{agent.original_persona.length > 60 ? '...' : ''})</span>
+                  )}
                 </div>
               )}
               {agent.personality && (agent.personality.tone || agent.personality.communication_style || agent.personality.language) && (
@@ -249,15 +255,34 @@ const PlanCard: React.FC<{
                   {agent.brand_context.target_audience && <span className="text-text-3">Audience:</span>} {agent.brand_context.target_audience}
                 </div>
               )}
-              {agent.tools && agent.tools.length > 0 && (
-                <div className="flex flex-wrap gap-1 mt-1 ml-4">
-                  {agent.tools.map((tool, i) => (
-                    <span key={i} className="text-[9px] px-1.5 py-0.5 rounded-full bg-accent/10 text-accent flex items-center gap-0.5">
-                      <Wrench className="w-2 h-2" />{tool}
-                    </span>
-                  ))}
-                </div>
-              )}
+              {(() => {
+                const tools = agent.tools || [];
+                const origTools = agent.original_tools || [];
+                const hasDiff = agent.is_existing && origTools.length > 0;
+                const added = tools.filter(t => !origTools.includes(t));
+                const removed = origTools.filter(t => !tools.includes(t));
+                const kept = tools.filter(t => origTools.includes(t));
+                if (tools.length === 0 && removed.length === 0) return null;
+                return (
+                  <div className="flex flex-wrap gap-1 mt-1 ml-4">
+                    {kept.map((tool, i) => (
+                      <span key={`k-${i}`} className="text-[9px] px-1.5 py-0.5 rounded-full bg-accent/10 text-accent flex items-center gap-0.5">
+                        <Wrench className="w-2 h-2" />{tool}
+                      </span>
+                    ))}
+                    {added.map((tool, i) => (
+                      <span key={`a-${i}`} className="text-[9px] px-1.5 py-0.5 rounded-full border border-dashed border-accent/40 text-accent flex items-center gap-0.5 bg-accent/5">
+                        <Wrench className="w-2 h-2" />+{tool}
+                      </span>
+                    ))}
+                    {hasDiff && removed.map((tool, i) => (
+                      <span key={`r-${i}`} className="text-[9px] px-1.5 py-0.5 rounded-full bg-red-500/5 text-red-400/60 flex items-center gap-0.5 line-through">
+                        <Wrench className="w-2 h-2" />{tool}
+                      </span>
+                    ))}
+                  </div>
+                );
+              })()}
               {agent.depends_on && agent.depends_on.length > 0 && (
                 <div className="text-[10px] text-text-3 mt-1 ml-4">
                   Depends on: {agent.depends_on.join(', ')}
@@ -1588,11 +1613,11 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
                                         <div className="text-[10px] text-text-2 font-medium">{change.field}</div>
                                         <div className="flex items-center gap-2 text-[11px]">
                                           <span className="px-2 py-0.5 rounded bg-surface-2 text-text-2 line-through opacity-60">
-                                            {change.old_value || '(empty)'}
+                                            {Array.isArray(change.old_value) ? change.old_value.join(', ') || '(empty)' : change.old_value || '(empty)'}
                                           </span>
                                           <span className="text-text-2">→</span>
                                           <span className="px-2 py-0.5 rounded bg-accent/10 text-accent font-medium">
-                                            {change.new_value}
+                                            {Array.isArray(change.new_value) ? change.new_value.join(', ') : change.new_value}
                                           </span>
                                         </div>
                                         <div className="text-[10px] text-text-2 italic">{change.reason}</div>
@@ -1600,20 +1625,26 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
                                     ))}
                                   </div>
                                 ))}
-                                <div className="flex gap-2 pt-1">
-                                  <button
-                                    onClick={() => onConfirmTuning?.(msg.tuningProposals)}
-                                    className="px-3 py-1.5 rounded-lg bg-success/10 text-success text-xs font-medium hover:bg-success/20 transition-colors"
-                                  >
-                                    ยืนยัน
-                                  </button>
-                                  <button
-                                    onClick={() => onRejectTuning?.()}
-                                    className="px-3 py-1.5 rounded-lg bg-danger/10 text-danger text-xs font-medium hover:bg-danger/20 transition-colors"
-                                  >
-                                    ปฏิเสธ
-                                  </button>
-                                </div>
+                                {msg.tuningStatus ? (
+                                  <div className={`px-3 py-1.5 rounded-lg text-xs font-medium ${msg.tuningStatus === 'confirmed' ? 'bg-success/10 text-success' : 'bg-danger/10 text-danger'}`}>
+                                    {msg.tuningStatus === 'confirmed' ? '✅ ยืนยันแล้ว' : '❌ ปฏิเสธแล้ว'}
+                                  </div>
+                                ) : (
+                                  <div className="flex gap-2 pt-1">
+                                    <button
+                                      onClick={() => onConfirmTuning?.(msg.tuningProposals)}
+                                      className="px-3 py-1.5 rounded-lg bg-success/10 text-success text-xs font-medium hover:bg-success/20 transition-colors"
+                                    >
+                                      ยืนยัน
+                                    </button>
+                                    <button
+                                      onClick={() => onRejectTuning?.()}
+                                      className="px-3 py-1.5 rounded-lg bg-danger/10 text-danger text-xs font-medium hover:bg-danger/20 transition-colors"
+                                    >
+                                      ปฏิเสธ
+                                    </button>
+                                  </div>
+                                )}
                               </div>
                             </div>
                           </div>
@@ -1710,29 +1741,39 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
                         <div className={`rounded-xl px-3.5 py-2.5 text-sm whitespace-pre-wrap leading-relaxed ${
                           msg.role === 'user' ? 'bg-accent text-white rounded-tr-sm' : 'bg-surface border border-border text-text rounded-tl-sm'}`}>
                           {msg.content}
-                          {msg.attachmentUrl && (
-                            <div className="mt-2 pt-2 border-t border-white/20">
-                              {msg.attachmentMime?.startsWith('audio/') ? (
-                                <audio src={msg.attachmentUrl} controls className="max-w-full mt-2" />
-                              ) : msg.attachmentMime?.startsWith('video/') ? (
-                                <video src={msg.attachmentUrl} controls className="max-w-full max-h-48 rounded mt-2" />
-                              ) : msg.attachmentMime?.startsWith('image/') ? (
-                                <img src={msg.attachmentUrl} alt={msg.attachmentName} className="max-w-full rounded max-h-48 object-cover" />
-                              ) : (
-                                <div className="flex items-center gap-2.5 bg-white/10 rounded-lg px-3 py-2.5">
-                                  <div className="w-9 h-9 rounded-lg bg-white/15 flex items-center justify-center shrink-0">
-                                    <FileText className="w-4.5 h-4.5 text-white" />
-                                  </div>
-                                  <div className="flex-1 min-w-0">
-                                    <div className="text-xs font-medium truncate">{msg.attachmentName || 'Attachment'}</div>
-                                    <div className="text-[10px] text-white/60 mt-0.5">
-                                      {(msg.attachmentMime?.split('/')[1] || 'file').toUpperCase()}
+                          {(() => {
+                            const atts = msg.attachments || (msg.attachmentUrl ? [{ url: msg.attachmentUrl, name: msg.attachmentName || '', mime: msg.attachmentMime || '' }] : []);
+                            if (atts.length === 0) return null;
+                            return (
+                              <div className={`mt-2 pt-2 border-t ${msg.role === 'user' ? 'border-white/20' : 'border-border'}`}>
+                                <div className="flex flex-wrap gap-2">
+                                  {atts.map((att, i) => (
+                                    <div key={i} className={att.mime?.startsWith('image/') ? 'w-full' : 'w-full'}>
+                                      {att.mime?.startsWith('audio/') ? (
+                                        <audio src={att.url} controls className="max-w-full" />
+                                      ) : att.mime?.startsWith('video/') ? (
+                                        <video src={att.url} controls className="max-w-full max-h-48 rounded" />
+                                      ) : att.mime?.startsWith('image/') ? (
+                                        <img src={att.url} alt={att.name} className="max-w-full rounded max-h-48 object-cover" />
+                                      ) : (
+                                        <div className={`flex items-center gap-2.5 rounded-lg px-3 py-2.5 ${msg.role === 'user' ? 'bg-white/10' : 'bg-surface-2 border border-border'}`}>
+                                          <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${msg.role === 'user' ? 'bg-white/15' : 'bg-accent/10'}`}>
+                                            <FileText className={`w-4.5 h-4.5 ${msg.role === 'user' ? 'text-white' : 'text-accent'}`} />
+                                          </div>
+                                          <div className="flex-1 min-w-0">
+                                            <div className={`text-xs font-medium truncate ${msg.role === 'user' ? 'text-white' : 'text-text'}`}>{att.name || 'Attachment'}</div>
+                                            <div className={`text-[10px] mt-0.5 ${msg.role === 'user' ? 'text-white/60' : 'text-text-3'}`}>
+                                              {(att.mime?.split('/')[1] || 'file').toUpperCase()}
+                                            </div>
+                                          </div>
+                                        </div>
+                                      )}
                                     </div>
-                                  </div>
+                                  ))}
                                 </div>
-                              )}
-                            </div>
-                          )}
+                              </div>
+                            );
+                          })()}
                         </div>
                       </div>
                     );

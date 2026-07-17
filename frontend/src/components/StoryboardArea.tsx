@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import {
   Loader2, CheckCircle, XCircle, Bot, Zap, Image as ImageIcon,
   Video, PenTool, ChevronDown, ChevronUp, Pencil, Brain,
-  GitBranch, Cpu, Download, RotateCw, Copy, Eye,
+  GitBranch, Cpu, Download, RotateCw, Copy, Eye, ChevronRight,
 } from 'lucide-react';
 import type { Agent, PendingApproval, ImageResult } from '../types/platform';
 import type { ChatMessage, AgentProgressEntry, PlanAgent, ResultAgent, PlanStatus } from './chatTypes';
@@ -444,13 +444,36 @@ const AgentCard: React.FC<{
               {progress?.output}
             </div>
           )}
-          {onSkipReview && (
-            <button
-              onClick={() => onSkipReview(agent.name)}
-              className="mt-1.5 text-[9px] px-2 py-1 rounded bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 border border-amber-400/30 transition-colors font-medium"
-            >
-              หยุดตรวจ — ใช้ output นี้
-            </button>
+        </div>
+      )}
+
+      {/* Skip review button — visible whenever agent has output and is not yet complete */}
+      {onSkipReview && hasOutput && !isComplete && !isError && (
+        <button
+          onClick={() => onSkipReview(agent.name)}
+          className="mb-2 text-[9px] px-2 py-1 rounded bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 border border-amber-400/30 transition-colors font-medium"
+        >
+          หยุดตรวจ — ใช้ output นี้
+        </button>
+      )}
+
+      {/* Completed output — collapsible, visible after agent is done */}
+      {isComplete && hasOutput && (
+        <div className="mb-2">
+          <button
+            onClick={() => setShowOutput(!showOutput)}
+            className="flex items-center gap-1 text-[9px] text-text-3 hover:text-text-2 transition-colors mb-1"
+          >
+            {showOutput ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+            <span>{showOutput ? 'ซ่อน output' : 'ดู output'}</span>
+            {progress?.review_summary && (
+              <span className="ml-1 text-success/70">— {progress.review_summary}</span>
+            )}
+          </button>
+          {showOutput && (
+            <div className="text-[10px] text-text-2 bg-surface/60 rounded-md p-2 border border-border/30 max-h-48 overflow-y-auto whitespace-pre-wrap leading-relaxed">
+              {progress?.output}
+            </div>
           )}
         </div>
       )}

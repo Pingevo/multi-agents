@@ -66,6 +66,7 @@ class AgentRegistry:
             "model": spec.get("model", ""),
             "team_id": spec.get("team_id", None),
             "is_manager": spec.get("is_manager", False),
+            "template_id": spec.get("template_id", ""),
             "status": "Idle",
             "created_at": datetime.now().isoformat(),
             "last_used_at": None,
@@ -129,7 +130,7 @@ class AgentRegistry:
             if agent.get("id") == agent_id:
                 for key in ("name", "role", "goal", "persona", "personality",
                             "expertise", "brand_context", "learnings",
-                            "tools", "model", "team_id"):
+                            "tools", "model", "team_id", "template_id"):
                     if key in fields:
                         agent[key] = fields[key]
                 self._save()
@@ -166,6 +167,7 @@ class AgentRegistry:
             "task_description": agent.get("last_task", ""),
             "depends_on": agent.get("depends_on", []),
             "team_id": agent.get("team_id"),
+            "template_id": agent.get("template_id", ""),
         }
 
     def add_learning(self, agent_id: str, learning: dict) -> bool:

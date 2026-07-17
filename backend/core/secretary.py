@@ -321,6 +321,8 @@ class CentralManager:
             "- Do NOT include a Manager agent in your response — the system has a Manager already. Only include worker agents.\n"
             "- REUSE existing team agents when possible — if a team agent already has the right role/tools, include it by name instead of creating a new one\n"
             "- Only create NEW agents when the team lacks the required capability\n"
+            "- CRITICAL: When reusing an existing agent, you MUST keep ALL of its original tools. Do NOT remove or replace existing tools (search_web, scrape_web, analyze_image, etc.). You may ADD model_traits like 'reasoning' or 'long_context' but you must NEVER remove existing tools. Tools give agents external abilities — removing them cripples the agent.\n"
+            "- Model_traits (reasoning, creative_writing, write_code, long_context) are NOT tools — they guide model selection only. Never use them to replace actual tools.\n"
             "- If the user mentions @AgentName, that agent MUST be included in the plan — use the exact name from the team agents list\n"
             "- Each agent has a 'reuse_existing' field: set true to use an existing agent as-is, false to create new or modify. You decide based on context.\n"
             "- Create as many agents as needed (1, 2, 3, or more)\n"
@@ -749,6 +751,8 @@ class CentralManager:
             "- Do NOT include a Manager agent in your response — the system has a Manager already. Only include worker agents.\n"
             "- REUSE existing team agents when possible — if a team agent already has the right role/tools, include it by name instead of creating a new one\n"
             "- Only create NEW agents when the team lacks the required capability\n"
+            "- CRITICAL: When reusing an existing agent, you MUST keep ALL of its original tools. Do NOT remove or replace existing tools (search_web, scrape_web, analyze_image, etc.). You may ADD model_traits like 'reasoning' or 'long_context' but you must NEVER remove existing tools. Tools give agents external abilities — removing them cripples the agent.\n"
+            "- Model_traits (reasoning, creative_writing, write_code, long_context) are NOT tools — they guide model selection only. Never use them to replace actual tools.\n"
             "- If the user mentions @AgentName, that agent MUST be included in the plan — use the exact name from the team agents list\n"
             "- Each agent has a 'reuse_existing' field: set true to use an existing agent as-is, false to create new or modify. You decide based on context.\n"
             "- Create as many agents as needed (1, 2, 3, or more)\n"
@@ -899,19 +903,21 @@ class CentralManager:
         spec_name = agent_spec.get("name", "").strip()
         reuse_existing = agent_spec.get("reuse_existing", False)
 
-        # 1) If LLM says reuse_existing, try name match first
+        # 1) If LLM says reuse_existing, try name match only — no fallback
         if reuse_existing and spec_name:
             existing = registry.find_by_name(spec_name)
             if existing and not existing.get("is_manager"):
                 return {"type": "existing", "agent": existing}
+            # Not found by name — don't fallback to role/tools, create new
+            return {"type": "create", "spec": agent_spec}
 
-        # 2) If name matches an existing agent (even without reuse_existing), use it
-        if spec_name:
+        # 2) If name matches an existing agent — only when reuse_existing is not explicitly False
+        if spec_name and reuse_existing is not False:
             existing = registry.find_by_name(spec_name)
             if existing and not existing.get("is_manager"):
                 return {"type": "existing", "agent": existing}
 
-        # 3) Fallback: role/tools match (original behavior)
+        # 3) Fallback: role/tools match (only when reuse_existing is False)
         existing = registry.find_idle_agent(
             agent_spec.get("role", ""), agent_spec.get("tools", [])
         )

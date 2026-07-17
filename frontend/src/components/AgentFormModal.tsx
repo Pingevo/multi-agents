@@ -1,6 +1,36 @@
 import { useState, useEffect } from 'react';
-import { X, Wrench } from 'lucide-react';
+import { X, Wrench, LayoutTemplate } from 'lucide-react';
 import type { Agent, AgentFormData, ToolCatalogEntry } from '../types/platform';
+
+interface AgentTemplate {
+  id: string;
+  label: string;
+  description: string;
+  spec: {
+    name: string;
+    role: string;
+    goal: string;
+    persona: string;
+    tools: string[];
+    model: string;
+  };
+}
+
+const TEMPLATES: AgentTemplate[] = [
+  {
+    id: 'product_analysis',
+    label: 'วิเคราะห์สินค้า',
+    description: 'วิเคราะห์สินค้าที่ user ระบุ พร้อมค้นหาคู่แข่งและข้อมูลจริง',
+    spec: {
+      name: 'Product Analyst',
+      role: 'Product Analyst',
+      goal: 'วิเคราะห์สินค้าตามข้อมูลที่ได้รับ และค้นหาข้อมูลเพิ่มเติมเพื่อเปรียบเทียบกับคู่แข่งในตลาด โดยอ้างอิงแหล่งข้อมูลที่ตรวจสอบได้จริง',
+      persona: 'You are a senior product analyst with deep expertise in competitive analysis, market positioning, and product strategy. You research products thoroughly, verify claims with real sources, and never fabricate data. You communicate findings in structured Thai-language reports. You are rigorous about evidence — if you cannot verify a claim, you say so explicitly.',
+      tools: ['search_web', 'scrape_web', 'analyze_image'],
+      model: '',
+    },
+  },
+];
 
 interface AgentFormModalProps {
   open: boolean;
@@ -26,10 +56,13 @@ export const AgentFormModal: React.FC<AgentFormModalProps> = ({
     persona: '',
     tools: '',
     model: '',
+    template_id: '',
   });
+  const [selectedTemplate, setSelectedTemplate] = useState<string>('');
 
   useEffect(() => {
     if (open) {
+      setSelectedTemplate('');
       if (mode === 'edit' && agent) {
         setForm({
           agent_id: agent.id,
@@ -39,12 +72,33 @@ export const AgentFormModal: React.FC<AgentFormModalProps> = ({
           persona: agent.persona || '',
           tools: agent.tools.join(', '),
           model: agent.model || '',
+          template_id: agent.template_id || '',
         });
       } else {
-        setForm({ name: '', role: '', goal: '', persona: '', tools: '', model: '' });
+        setForm({ name: '', role: '', goal: '', persona: '', tools: '', model: '', template_id: '' });
       }
     }
   }, [open, mode, agent]);
+
+  const applyTemplate = (templateId: string) => {
+    if (!templateId) {
+      setSelectedTemplate('');
+      return;
+    }
+    const tmpl = TEMPLATES.find((t) => t.id === templateId);
+    if (!tmpl) return;
+    setSelectedTemplate(templateId);
+    setForm({
+      ...form,
+      name: tmpl.spec.name,
+      role: tmpl.spec.role,
+      goal: tmpl.spec.goal,
+      persona: tmpl.spec.persona,
+      tools: tmpl.spec.tools.join(', '),
+      model: tmpl.spec.model,
+      template_id: templateId,
+    });
+  };
 
   const selectedTools = form.tools ? form.tools.split(',').map((t) => t.trim()).filter(Boolean) : [];
 
@@ -79,6 +133,42 @@ export const AgentFormModal: React.FC<AgentFormModalProps> = ({
           </button>
         </div>
         <form onSubmit={handleSubmit} className="p-4 space-y-3">
+          {mode === 'add' && TEMPLATES.length > 0 && (
+            <div>
+              <label className="block text-xs text-text-2 mb-1.5 flex items-center gap-1">
+                <LayoutTemplate className="w-3.5 h-3.5" />
+                Templates
+              </label>
+              <div className="flex gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => applyTemplate('')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                    !selectedTemplate
+                      ? 'bg-accent/10 border-accent/30 text-accent'
+                      : 'border-border text-text-2 hover:bg-surface-2'
+                  }`}
+                >
+                  Blank
+                </button>
+                {TEMPLATES.map((tmpl) => (
+                  <button
+                    key={tmpl.id}
+                    type="button"
+                    onClick={() => applyTemplate(tmpl.id)}
+                    title={tmpl.description}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                      selectedTemplate === tmpl.id
+                        ? 'bg-accent/10 border-accent/30 text-accent'
+                        : 'border-border text-text-2 hover:bg-surface-2'
+                    }`}
+                  >
+                    {tmpl.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <div>
             <label className="block text-xs text-text-2 mb-1">Name *</label>
             <input

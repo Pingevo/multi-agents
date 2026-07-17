@@ -3,6 +3,7 @@
 import asyncio
 import contextvars
 import json
+import os
 import re
 import traceback
 import chainlit as cl
@@ -11,6 +12,7 @@ from crewai.events import crewai_event_bus
 from crewai.events.types.agent_events import AgentExecutionStartedEvent, AgentExecutionCompletedEvent
 from crewai.events.types.tool_usage_events import ToolUsageStartedEvent, ToolUsageFinishedEvent
 from crewai.events.types.task_events import TaskStartedEvent, TaskCompletedEvent
+from crewai.events.types.llm_events import LLMCallCompletedEvent
 from crewai.events import event_types
 from backend.globals import _progress_callback, _media_tool_results, _thread_local, _search_model
 from backend.utils import _sanitize_error, _debug
@@ -20,7 +22,43 @@ from backend.media.manager import MediaGenerationManager
 from backend.agents.factory import AgentFactory
 from backend.agents.tool_registry import ToolRegistry
 from backend.agents.registry import AgentRegistry
+from backend.agents.templates import validate_template_output
 from backend.core.messenger import StateMessenger
+from backend.credit_logger import log_llm_call
+
+MAX_REVIEW_RETRIES = int(os.environ.get("MAX_REVIEW_RETRIES", "3"))
+
+
+# --- CrewAI LLM call logging via event bus ---
+_llm_call_context: dict[str, str] = {}
+
+def set_llm_call_context(caller: str):
+    """Set context for the next LLM call (e.g. 'manager_review:round2', 'agent:Writer#1')."""
+    import threading
+    _llm_call_context[threading.get_ident()] = caller
+
+def clear_llm_call_context():
+    import threading
+    _llm_call_context.pop(threading.get_ident(), None)
+
+def _on_llm_call_completed(event: LLMCallCompletedEvent):
+    """Log every CrewAI LLM call with usage + context."""
+    usage = event.usage or {}
+    model = event.model or "unknown"
+    agent_role = getattr(event, "agent_role", None) or ""
+    task_name = getattr(event, "task_name", None) or ""
+    import threading
+    ctx = _llm_call_context.get(threading.get_ident(), "")
+    caller = ctx or (f"agent:{agent_role}" if agent_role else "crewai")
+    if task_name:
+        caller += f":{task_name[:50]}"
+    if not usage:
+        print(f"[LLM-EVENT] No usage data for model={model}, caller={caller}", flush=True)
+    else:
+        print(f"[LLM-EVENT] model={model}, caller={caller}, usage={usage}", flush=True)
+    log_llm_call(model, usage, caller=caller, prompt_preview="")
+
+crewai_event_bus.on(LLMCallCompletedEvent)(_on_llm_call_completed)
 
 async def _async_progress_callback(sync_callback, progress_data):
     """Bridge: run progress callback in async context for run_coroutine_threadsafe."""
@@ -195,7 +233,7 @@ class ExecutionOrchestrator:
             idx = self._match_agent_index(event.agent_role)
             if idx >= 0:
                 output_preview = str(event.output)[:5000] if event.output else ""
-                _merge_and_send({idx: {"status": "running", "progress": 70, "current_tool": "", "tool_description": "", "output": output_preview}})
+                _merge_and_send({idx: {"status": "running", "progress": 70, "current_tool": "", "tool_description": "", "tool_output": output_preview}})
 
         def on_task_completed(source, event: TaskCompletedEvent):
             idx = self._match_agent_index(event.agent_role)
@@ -203,14 +241,18 @@ class ExecutionOrchestrator:
                 output_raw = ""
                 if hasattr(event, "output") and event.output:
                     output_raw = getattr(event.output, "raw", str(event.output))[:8000]
-                status = "waiting_approval" if _has_media_tool(idx) else "complete"
-                _merge_and_send({idx: {"status": status, "progress": 100, "current_task": "", "current_tool": "", "tool_description": "", "output": output_raw}})
+                if _has_media_tool(idx):
+                    _merge_and_send({idx: {"status": "waiting_approval", "progress": 100, "current_task": "", "current_tool": "", "tool_description": "", "output": output_raw}})
+                else:
+                    _merge_and_send({idx: {"status": "running", "progress": 90, "current_task": "Preparing for review", "current_tool": "", "tool_description": "", "output": output_raw}})
 
         def on_agent_completed(source, event: AgentExecutionCompletedEvent):
             idx = self._match_agent_index(event.agent_role)
             if idx >= 0:
-                status = "waiting_approval" if _has_media_tool(idx) else "complete"
-                upd = {"status": status, "progress": 100, "current_task": "", "current_tool": "", "tool_description": ""}
+                if _has_media_tool(idx):
+                    upd = {"status": "waiting_approval", "progress": 100, "current_task": "", "current_tool": "", "tool_description": ""}
+                else:
+                    upd = {"status": "running", "progress": 90, "current_task": "Preparing for review", "current_tool": "", "tool_description": ""}
                 _merge_and_send({idx: upd})
 
         def on_llm_stream_chunk(source, event):
@@ -316,6 +358,7 @@ class ExecutionOrchestrator:
         for i, spec in enumerate(agent_specs):
             agent_name = spec.get("name", "")
             worker_model = model_assignment["workers"].get(agent_name, "")
+            print(f"[DEBUG-MODEL-RESOLVE] agent={agent_name}, worker_model={worker_model!r}, pre_assigned={model_assignment}", flush=True)
             if not worker_model:
                 # Auto-routing — find what the routing/user-selected model actually is
                 resolved = self.llm_manager.get_selected_model_name()
@@ -367,6 +410,7 @@ class ExecutionOrchestrator:
                 """Run one agent on its task as a standalone Crew (sync, for thread pool).
                 Falls back to local LLM on rate limit errors."""
                 _thread_local.agent_name = spec.get("name", f"Agent {idx+1}")
+                set_llm_call_context(f"agent:{spec.get('name', f'Agent {idx+1}')}")
                 import time as _time
                 print(f"[DEBUG-PARALLEL-START] Agent {idx} '{spec.get('name', '')}' starting at {_time.time():.3f}", flush=True)
                 single_crew = Crew(
@@ -380,30 +424,77 @@ class ExecutionOrchestrator:
                 except Exception as e:
                     err_msg = _sanitize_error(e)
                     _debug(f"[DEBUG-PARALLEL] Agent {spec.get('name', '')} error: {err_msg}", flush=True)
-                    if ("429" in err_msg or "rate limit" in err_msg.lower()) and self.llm_manager.local_fallback_enabled:
-                        # Trigger cooldown and retry with local fallback LLM (dev-only)
-                        self.llm_manager.report_rate_limit()
-                        fallback_llm = self.llm_manager._build_llm(
-                            self.llm_manager.fallback_provider,
-                            self.llm_manager.fallback_model,
-                            self.llm_manager.fallback_base_url,
-                            self.llm_manager.fallback_api_key,
-                        )
-                        agent.llm = fallback_llm
-                        _debug(f"[DEBUG-PARALLEL] Retrying {spec.get('name', '')} with local LLM (dev fallback)", flush=True)
-                        single_crew = Crew(
-                            agents=[agent],
-                            tasks=[task],
-                            process=Process.sequential,
-                            verbose=True,
-                        )
-                        single_result = single_crew.kickoff()
+                    if ("429" in err_msg or "rate limit" in err_msg.lower() or "402" in err_msg or "credit" in err_msg.lower()):
+                        # If using openrouter/free, try free model rotator first
+                        if self.llm_manager._is_free_routing():
+                            rotator = self.llm_manager._get_rotator()
+                            for free_model in rotator.get_ranking():
+                                try:
+                                    _debug(f"[DEBUG-PARALLEL] Retrying {spec.get('name', '')} with free model: {free_model}", flush=True)
+                                    agent.llm = rotator.build_crewai_llm(free_model)
+                                    single_crew = Crew(
+                                        agents=[agent],
+                                        tasks=[task],
+                                        process=Process.sequential,
+                                        verbose=True,
+                                    )
+                                    single_result = single_crew.kickoff()
+                                    break
+                                except Exception as rotator_err:
+                                    _debug(f"[DEBUG-PARALLEL] Free model {free_model} failed: {_sanitize_error(rotator_err)}", flush=True)
+                                    continue
+                            else:
+                                # All free models failed — fall through to local fallback
+                                pass
+                            if 'single_result' in locals():
+                                pass  # got a result from rotator
+                            else:
+                                if self.llm_manager.local_fallback_enabled:
+                                    self.llm_manager.report_rate_limit()
+                                    fallback_llm = self.llm_manager._build_llm(
+                                        self.llm_manager.fallback_provider,
+                                        self.llm_manager.fallback_model,
+                                        self.llm_manager.fallback_base_url,
+                                        self.llm_manager.fallback_api_key,
+                                    )
+                                    agent.llm = fallback_llm
+                                    _debug(f"[DEBUG-PARALLEL] Retrying {spec.get('name', '')} with local LLM (dev fallback)", flush=True)
+                                    single_crew = Crew(
+                                        agents=[agent],
+                                        tasks=[task],
+                                        process=Process.sequential,
+                                        verbose=True,
+                                    )
+                                    single_result = single_crew.kickoff()
+                                else:
+                                    raise
+                        elif self.llm_manager.local_fallback_enabled:
+                            # Non-free model — only local fallback
+                            self.llm_manager.report_rate_limit()
+                            fallback_llm = self.llm_manager._build_llm(
+                                self.llm_manager.fallback_provider,
+                                self.llm_manager.fallback_model,
+                                self.llm_manager.fallback_base_url,
+                                self.llm_manager.fallback_api_key,
+                            )
+                            agent.llm = fallback_llm
+                            _debug(f"[DEBUG-PARALLEL] Retrying {spec.get('name', '')} with local LLM (dev fallback)", flush=True)
+                            single_crew = Crew(
+                                agents=[agent],
+                                tasks=[task],
+                                process=Process.sequential,
+                                verbose=True,
+                            )
+                            single_result = single_crew.kickoff()
+                        else:
+                            raise
                     else:
                         raise
                 raw = getattr(single_result, "raw", str(single_result))
                 name = spec.get("name", f"Agent {idx+1}")
                 role = spec.get("role", "")
                 _debug(f"[DEBUG-PARALLEL] Agent {name} completed, output_len={len(str(raw))}", flush=True)
+                clear_llm_call_context()
                 return {"name": name, "role": role, "output": str(raw)}
 
             # === Dependency-driven scheduler with Manager auto-review ===
@@ -480,7 +571,7 @@ class ExecutionOrchestrator:
                     agents_section += (
                         f"\n--- Agent: {a['name']} (role: {a['role']}) ---\n"
                         f"Task: {a['goal']}\n"
-                        f"Output:\n{a['output'][:6000]}\n"
+                        f"Output:\n{a['output']}\n"
                     )
 
                 review_prompt = (
@@ -501,7 +592,27 @@ class ExecutionOrchestrator:
 
                 if _manager_model:
                     manager_llm = self.llm_manager.build_llm_for_model(_manager_model)
-                    raw = await loop.run_in_executor(None, manager_llm.call, review_prompt)
+                    def _review_call():
+                        set_llm_call_context(f"manager_review:round{retry_count + 1}")
+                        try:
+                            return manager_llm.call(review_prompt)
+                        except Exception as review_err:
+                            err_msg = _sanitize_error(review_err)
+                            if self.llm_manager._is_free_routing() and ("429" in err_msg or "rate limit" in err_msg.lower() or "402" in err_msg or "credit" in err_msg.lower()):
+                                _debug(f"[DEBUG-REVIEW] manager review failed, trying free model rotator", flush=True)
+                                rotator = self.llm_manager._get_rotator()
+                                for free_model in rotator.get_ranking():
+                                    try:
+                                        _debug(f"[DEBUG-REVIEW] Trying free model: {free_model}", flush=True)
+                                        free_llm = rotator.build_crewai_llm(free_model)
+                                        return free_llm.call(review_prompt)
+                                    except Exception as fm_err:
+                                        _debug(f"[DEBUG-REVIEW] Free model {free_model} failed: {_sanitize_error(fm_err)}", flush=True)
+                                        continue
+                            raise
+                        finally:
+                            clear_llm_call_context()
+                    raw = await loop.run_in_executor(None, _review_call)
                 else:
                     raw = await loop.run_in_executor(None, self.llm_manager.call_with_fallback, review_prompt)
 
@@ -650,10 +761,92 @@ class ExecutionOrchestrator:
                                 "current_result": result,
                             }
                             agent_outputs[i] = result
-                            pending_review.append(i)
+
+                            # ── Template deterministic validation (before manager review) ──
+                            tmpl_id = agent_specs[i].get("template_id", "")
+                            if tmpl_id:
+                                validation = validate_template_output(tmpl_id, output_text)
+                                if validation:
+                                    state_ph = agent_review_state.get(i)
+                                    if state_ph:
+                                        tmpl_feedback = validation["feedback"]
+                                        tmpl_summary = validation["summary"]
+                                        print(f"[DEBUG-SCHED] Agent '{name}' failed template validation: {tmpl_summary}", flush=True)
+                                        state_ph["review_history"].append({
+                                            "round": state_ph["retry_count"] + 1,
+                                            "status": "rejected",
+                                            "summary": f"Template check: {tmpl_summary}",
+                                            "feedback": tmpl_feedback,
+                                            "output_preview": output_text[:2000],
+                                        })
+                                        if state_ph["retry_count"] >= MAX_REVIEW_RETRIES:
+                                            print(f"[DEBUG-SCHED] Agent '{name}' hit max retries on template validation — force approving", flush=True)
+                                            approved_outputs[name] = output_text
+                                            _send_progress_for_agent(i, "complete", output_text[:8000],
+                                                review_round=state_ph["retry_count"] + 1,
+                                                review_summary="ครบ retry สูงสุด — ใช้ output ปัจจุบัน (template check ไม่ผ่าน)",
+                                                review_history=state_ph["review_history"])
+                                            done_indices.add(i)
+                                            del agent_review_state[i]
+                                        else:
+                                            state_ph["retry_count"] += 1
+                                            if name not in agent_memories:
+                                                agent_memories[name] = []
+                                            agent_memories[name].append({
+                                                "output": output_text[:3000],
+                                                "feedback": tmpl_feedback,
+                                                "round": state_ph["retry_count"],
+                                            })
+                                            _send_progress_for_agent(i, "running",
+                                                review_round=state_ph["retry_count"],
+                                                review_summary=tmpl_summary,
+                                                review_feedback=tmpl_feedback,
+                                                review_history=state_ph["review_history"])
+                                            rerun_result, rerun_output = await rerun_agent_with_feedback(
+                                                i, tmpl_feedback, agent_memory=agent_memories.get(name)
+                                            )
+                                            if isinstance(rerun_result, Exception):
+                                                approved_outputs[name] = f"Error: {rerun_output}"
+                                                _send_progress_for_agent(i, "error", rerun_output[:8000])
+                                                done_indices.add(i)
+                                                del agent_review_state[i]
+                                            else:
+                                                state_ph["current_output"] = rerun_output
+                                                state_ph["current_result"] = rerun_result
+                                                agent_outputs[i] = rerun_result
+                                                reval = validate_template_output(tmpl_id, rerun_output)
+                                                if reval is None:
+                                                    pending_review.append(i)
+                                                    print(f"[DEBUG-SCHED] Agent '{name}' passed template validation on retry", flush=True)
+                                                else:
+                                                    pending_review.append(i)
+                                                    print(f"[DEBUG-SCHED] Agent '{name}' still failing template validation after retry — sending to manager", flush=True)
+                                    else:
+                                        pending_review.append(i)
+                                else:
+                                    pending_review.append(i)
+                            else:
+                                pending_review.append(i)
 
                     # Batch review loop for pending agents
                     while pending_review:
+                        # Check if user requested to stop generation
+                        if cl.user_session.get("cancel_generation"):
+                            print(f"[DEBUG-SCHED] Cancel requested — approving all pending with current output", flush=True)
+                            for idx in pending_review:
+                                name = agent_specs[idx].get("name", f"Agent {idx+1}")
+                                state = agent_review_state[idx]
+                                approved_outputs[name] = state["current_output"]
+                                agent_outputs[idx] = state["current_result"]
+                                _send_progress_for_agent(idx, "complete", state["current_output"][:8000],
+                                    review_round=state["retry_count"] + 1,
+                                    review_summary="หยุดโดยผู้ใช้ — ใช้ output ปัจจุบัน",
+                                    review_history=state["review_history"])
+                                done_indices.add(idx)
+                                del agent_review_state[idx]
+                            pending_review = []
+                            break
+
                         # Check for skip_review requests
                         still_pending = []
                         for idx in pending_review:
@@ -740,25 +933,53 @@ class ExecutionOrchestrator:
                                 done_indices.add(idx)
                                 del agent_review_state[idx]
                             else:
-                                # Re-run with feedback
-                                _send_progress_for_agent(idx, "running",
-                                    review_round=state["retry_count"] + 1,
-                                    review_summary=review["summary"],
-                                    review_feedback=review["feedback"],
-                                    review_history=state["review_history"])
-                                state["retry_count"] += 1
-                                # Record experiential memory: previous output + feedback
-                                if name not in agent_memories:
-                                    agent_memories[name] = []
-                                agent_memories[name].append({
-                                    "output": state["current_output"][:3000],
-                                    "feedback": review["feedback"],
-                                    "round": state["retry_count"],
-                                })
-                                next_pending.append(idx)
+                                # Check max retry limit before re-running
+                                if state["retry_count"] >= MAX_REVIEW_RETRIES:
+                                    print(f"[DEBUG-SCHED] Agent '{name}' hit max retries ({MAX_REVIEW_RETRIES}) — force approving", flush=True)
+                                    approved_outputs[name] = state["current_output"]
+                                    agent_outputs[idx] = state["current_result"]
+                                    _send_progress_for_agent(idx, "complete", state["current_output"][:8000],
+                                        review_round=state["retry_count"] + 1,
+                                        review_summary=f"ครบจำนวน retry สูงสุด ({MAX_REVIEW_RETRIES}) — ใช้ output ปัจจุบัน",
+                                        review_history=state["review_history"])
+                                    done_indices.add(idx)
+                                    del agent_review_state[idx]
+                                else:
+                                    # Re-run with feedback
+                                    _send_progress_for_agent(idx, "running",
+                                        review_round=state["retry_count"] + 1,
+                                        review_summary=review["summary"],
+                                        review_feedback=review["feedback"],
+                                        review_history=state["review_history"])
+                                    state["retry_count"] += 1
+                                    # Record experiential memory: previous output + feedback
+                                    if name not in agent_memories:
+                                        agent_memories[name] = []
+                                    agent_memories[name].append({
+                                        "output": state["current_output"][:3000],
+                                        "feedback": review["feedback"],
+                                        "round": state["retry_count"],
+                                    })
+                                    next_pending.append(idx)
 
                         # Re-run rejected agents in parallel
                         if next_pending:
+                            # Check cancel before re-running
+                            if cl.user_session.get("cancel_generation"):
+                                print(f"[DEBUG-SCHED] Cancel requested before re-run — approving all", flush=True)
+                                for idx in next_pending:
+                                    name = agent_specs[idx].get("name", f"Agent {idx+1}")
+                                    state = agent_review_state[idx]
+                                    approved_outputs[name] = state["current_output"]
+                                    agent_outputs[idx] = state["current_result"]
+                                    _send_progress_for_agent(idx, "complete", state["current_output"][:8000],
+                                        review_round=state["retry_count"] + 1,
+                                        review_summary="หยุดโดยผู้ใช้ — ใช้ output ปัจจุบัน",
+                                        review_history=state["review_history"])
+                                    done_indices.add(idx)
+                                    del agent_review_state[idx]
+                                pending_review = []
+                                break
                             rerun_tasks = {}
                             for idx in next_pending:
                                 name = agent_specs[idx].get("name", f"Agent {idx+1}")
@@ -793,7 +1014,11 @@ class ExecutionOrchestrator:
                         else:
                             pending_review = []
 
-            await schedule_and_run()
+            # Check cancel before scheduling next wave
+            if cl.user_session.get("cancel_generation"):
+                print(f"[DEBUG-SCHED] Cancel requested — skipping schedule_and_run", flush=True)
+            else:
+                await schedule_and_run()
 
             # Filter None (shouldn't happen but safe)
             agent_outputs = [o for o in agent_outputs if o is not None]
@@ -822,6 +1047,11 @@ class ExecutionOrchestrator:
                     progress[i]["progress"] = 100
                     if i < len(agent_outputs):
                         progress[i]["output"] = (agent_outputs[i].get("output", "") or "")[:8000]
+                    # Preserve review_history from agent_state
+                    if i in self._agent_state:
+                        progress[i]["review_history"] = self._agent_state[i].get("review_history", [])
+                        progress[i]["review_round"] = self._agent_state[i].get("review_round", 0)
+                        progress[i]["review_summary"] = self._agent_state[i].get("review_summary", "")
                 progress.append({
                     "name": "Manager",
                     "role": "Reviewing deliverables",
@@ -845,11 +1075,23 @@ class ExecutionOrchestrator:
                 f"{manager_persona}\n"
                 f"Your goal: {manager_goal}\n"
                 f"Your team has completed their tasks.\n"
-                f"Below are the outputs from each team member:\n\n"
+                f"Below are the outputs from each team member, along with their review history:\n\n"
             )
             for ao in agent_outputs:
                 clean_output = self._clean_agent_output(ao['output'])
                 synthesis_prompt += f"--- {ao['name']} ({ao['role']}) ---\n{clean_output}\n\n"
+                # Include review history if available
+                agent_name = ao.get("name", "")
+                for i, spec in enumerate(agent_specs):
+                    if spec.get("name", "") == agent_name and i in self._agent_state:
+                        state = self._agent_state[i]
+                        review_history = state.get("review_history", [])
+                        if review_history:
+                            synthesis_prompt += f"Review history ({len(review_history)} rounds):\n"
+                            for rh in review_history:
+                                synthesis_prompt += f"  Round {rh.get('round', '?')}: {rh.get('status', '?')} — {rh.get('summary', '')}\n"
+                            synthesis_prompt += "\n"
+                        break
             synthesis_prompt += (
                 "\nReview the team's deliverables and provide a brief quality assessment:\n"
                 "1. Did each agent stay within their assigned scope?\n"
@@ -869,9 +1111,27 @@ class ExecutionOrchestrator:
                 manager_model = _selected
             if manager_model:
                 manager_llm = self.llm_manager.build_llm_for_model(manager_model)
-                manager_raw = await loop.run_in_executor(
-                    None, manager_llm.call, synthesis_prompt
-                )
+                def _synthesis_call():
+                    set_llm_call_context("manager_synthesis")
+                    try:
+                        return manager_llm.call(synthesis_prompt)
+                    except Exception as syn_err:
+                        err_msg = _sanitize_error(syn_err)
+                        if self.llm_manager._is_free_routing() and ("429" in err_msg or "rate limit" in err_msg.lower() or "402" in err_msg or "credit" in err_msg.lower()):
+                            _debug(f"[DEBUG-SYNTH] manager synthesis failed, trying free model rotator", flush=True)
+                            rotator = self.llm_manager._get_rotator()
+                            for free_model in rotator.get_ranking():
+                                try:
+                                    _debug(f"[DEBUG-SYNTH] Trying free model: {free_model}", flush=True)
+                                    free_llm = rotator.build_crewai_llm(free_model)
+                                    return free_llm.call(synthesis_prompt)
+                                except Exception as fm_err:
+                                    _debug(f"[DEBUG-SYNTH] Free model {free_model} failed: {_sanitize_error(fm_err)}", flush=True)
+                                    continue
+                        raise
+                    finally:
+                        clear_llm_call_context()
+                manager_raw = await loop.run_in_executor(None, _synthesis_call)
             else:
                 manager_raw = await loop.run_in_executor(
                     None, self.llm_manager.call_with_fallback, synthesis_prompt

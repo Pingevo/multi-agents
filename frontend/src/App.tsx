@@ -242,6 +242,7 @@ const parseChatReply = (message: any): Omit<ChatMessage, 'id' | 'timestamp'> | n
           content: '',
           messageType: 'tuning_proposal',
           tuningProposals: (p as any).proposals || [],
+          tuningStatus: (p as any).tuningStatus,
         };
       }
 
@@ -349,9 +350,11 @@ const parseChatSessionMessage = (message: any): { sessions: ChatSession[]; curre
           visionModel: m.visionModel,
           managerModel: m.managerModel,
           tuningProposals: m.proposals,
+          tuningStatus: m.tuningStatus,
           attachmentUrl: m.attachmentUrl,
           attachmentName: m.attachmentName,
           attachmentMime: m.attachmentMime,
+          attachments: m.attachments || (m.attachmentUrl ? [{ url: m.attachmentUrl, name: m.attachmentName || '', mime: m.attachmentMime || '' }] : undefined),
         }));
         return { messages, canvasState: p.canvasState || null, selectedModel: p.selectedModel || '' };
       }
@@ -531,9 +534,14 @@ function AppContent() {
       // Check for chat reply
       const reply = parseChatReply(message);
       if (reply) {
-        // Ignore in-flight progress messages after user clicked stop
+        // Ignore in-flight processing messages after user clicked stop
+        // But allow text, result, and tuning_proposal through so UI updates
         if (stoppedRef.current && (reply.messageType === 'progress' || reply.messageType === 'agent_progress' || reply.messageType === 'thinking' || reply.messageType === 'thinking_done')) {
           return;
+        }
+        // Reset stoppedRef when receiving terminal messages (text with stop confirmation, or result)
+        if (stoppedRef.current && (reply.messageType === 'text' || reply.messageType === 'result')) {
+          stoppedRef.current = false;
         }
         // Intercept template/scheduled data messages
         if (reply.messageType === 'text' && reply.content) {
@@ -812,6 +820,7 @@ function AppContent() {
         attachmentUrl: uploadedAttachments[0]?.url,
         attachmentName: uploadedAttachments[0]?.name,
         attachmentMime: uploadedAttachments[0]?.mime,
+        attachments: uploadedAttachments.map(a => ({ url: a.url, name: a.name, mime: a.mime })),
       });
       clearActivity();
       setIsProcessing(true);

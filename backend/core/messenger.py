@@ -13,7 +13,7 @@ from backend.agents.registry import AgentRegistry
 from backend.agents.tool_registry import ToolRegistry
 from backend.agents.team_registry import TeamRegistry
 from backend.llm.manager import LLMManager
-from backend.credit_logger import log_credit_snapshot
+from backend.credit_logger import log_credit_snapshot, get_pending_cost
 from schemas import (
     PlanAgentItem, ResultAgentItem, AgentProgressEntry,
     ChatReplyText, ChatReplyPlanValidationError, ChatReplyPlan, ChatReplyProgress,
@@ -94,8 +94,15 @@ class StateMessenger:
 
     async def _send(self, trigger: str = "update"):
         self.state["credits"] = self._fetch_credits()
-        if self.state["credits"] and trigger in ("poll", "refresh"):
-            log_credit_snapshot(self.state["credits"], trigger)
+        if self.state["credits"]:
+            pending = get_pending_cost()
+            if pending > 0:
+                orig_remaining = self.state["credits"].get("limit_remaining")
+                if orig_remaining is not None:
+                    self.state["credits"]["limit_remaining"] = orig_remaining - pending
+                self.state["credits"]["_is_estimated"] = True
+            if trigger in ("poll", "refresh"):
+                log_credit_snapshot(self.state["credits"], trigger)
         payload = {
             "type": "platform_state",
             "payload": self.state,
@@ -181,6 +188,9 @@ class StateMessenger:
                 depends_on=a.get("depends_on", []),
                 is_existing=a.get("is_existing", False),
                 model=a.get("model", ""),
+                original_tools=a.get("original_tools", []),
+                original_goal=a.get("original_goal", ""),
+                original_persona=a.get("original_persona", ""),
             )
             for a in agents
         ]
@@ -543,6 +553,21 @@ class StateMessenger:
         """Persist a message to the current chat session"""
         if self.current_session_id:
             self.chat_store.add_message(self.current_session_id, message)
+
+    def update_persisted_message(self, message_type: str, updates: dict):
+        """Update the last persisted message of a given type with new fields."""
+        if not self.current_session_id:
+            return
+        session = self.chat_store.get_session(self.current_session_id)
+        if not session:
+            return
+        msgs = session["messages"]
+        for m in reversed(msgs):
+            if m.get("messageType") == message_type:
+                m.update(updates)
+                session["updated_at"] = datetime.now().isoformat()
+                self.chat_store._save()
+                return
 
     def update_plan_status(self, status: str):
         """Update the planStatus of the most recent plan message in the current session"""

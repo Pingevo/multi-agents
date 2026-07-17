@@ -7,6 +7,7 @@ import requests
 from crewai import LLM
 from backend.utils import _sanitize_error
 from backend.credit_logger import log_llm_call
+from backend.llm.rotator import FreeModelRotator
 
 class LLMManager:
     """จัดการ LLM แบบ Modular รองรับ Local LLM และ OpenRouter พร้อม auto-fallback
@@ -43,6 +44,24 @@ class LLMManager:
         # User-selected model (session-level override)
         self._selected_model: str = ""
 
+        # Free model rotator (used only when model is openrouter/free)
+        self._rotator: FreeModelRotator | None = None
+
+    def _get_rotator(self) -> FreeModelRotator:
+        """Get or create the FreeModelRotator instance."""
+        if self._rotator is None:
+            self._rotator = FreeModelRotator(
+                api_key=self.api_key,
+                base_url=self.base_url,
+                temperature=self.temperature,
+            )
+        return self._rotator
+
+    def _is_free_routing(self) -> bool:
+        """Check if current model is openrouter/free (the only case where rotator applies)."""
+        model_id = self._selected_model or self._default_model
+        return model_id == "openrouter/free"
+
     def _is_openrouter(self) -> bool:
         """Check if OpenRouter API is configured."""
         return self.provider == "openrouter" and self.api_key and self.api_key != "ollama"
@@ -51,6 +70,52 @@ class LLMManager:
         """Set user-selected model to override default routing."""
         self._selected_model = model_id
         print(f"[LLMManager] User selected model: {model_id}")
+
+    _model_context_cache: dict[str, int] = {}
+
+    def _get_max_tokens(self, model_id: str) -> int:
+        """Get max_tokens for a model — adaptive based on context_length.
+
+        1. Check cached context_length for the model
+        2. Return 75% of context_length as max_tokens (25% reserved for prompt)
+        3. Fall back to LLM_MAX_TOKENS env var (default 8192)
+        """
+        if not model_id:
+            return int(os.getenv("LLM_MAX_TOKENS", "8192"))
+
+        # Check cache first
+        if model_id in self._model_context_cache:
+            ctx = self._model_context_cache[model_id]
+            if ctx > 0:
+                return int(ctx * 0.75)
+            return int(os.getenv("LLM_MAX_TOKENS", "8192"))
+
+        # Try fetching from OpenRouter API
+        if self._is_openrouter():
+            try:
+                resp = requests.get(
+                    f"{self.base_url}/models",
+                    headers={"Authorization": f"Bearer {self.api_key}"},
+                    timeout=10,
+                )
+                if resp.status_code == 200:
+                    models = resp.json().get("data", [])
+                    for m in models:
+                        mid = m.get("id", "")
+                        ctx = m.get("context_length", 0) or 0
+                        self._model_context_cache[mid] = ctx
+                    # Now check cache again
+                    if model_id in self._model_context_cache:
+                        ctx = self._model_context_cache[model_id]
+                        if ctx > 0:
+                            max_tok = int(ctx * 0.75)
+                            print(f"[LLMManager] max_tokens for {model_id}: {max_tok} (context={ctx})", flush=True)
+                            return max_tok
+            except Exception as e:
+                print(f"[LLMManager] Failed to fetch model context: {_sanitize_error(e)}", flush=True)
+
+        # Fallback
+        return int(os.getenv("LLM_MAX_TOKENS", "8192"))
 
     def _is_in_cooldown(self) -> bool:
         import time
@@ -88,6 +153,7 @@ class LLMManager:
                 ],
             }],
             temperature=self.temperature,
+            max_tokens=self._get_max_tokens(model_id),
         )
         log_llm_call(model_id, response.usage, caller="call_with_image", prompt_preview=prompt)
         return response.choices[0].message.content or ""
@@ -105,7 +171,7 @@ class LLMManager:
             raise RuntimeError("No model available for multimodal call")
         client = OpenAI(base_url=self.base_url, api_key=self.api_key, max_retries=0, timeout=120)
         messages = [{"role": "user", "content": [{"type": "text", "text": prompt}] + content_blocks}]
-        kwargs = {"model": model_id, "messages": messages, "temperature": self.temperature}
+        kwargs = {"model": model_id, "messages": messages, "temperature": self.temperature, "max_tokens": self._get_max_tokens(model_id)}
         if plugins:
             kwargs["extra_body"] = {"plugins": plugins}
         response = client.chat.completions.create(**kwargs)
@@ -120,7 +186,7 @@ class LLMManager:
             raise RuntimeError("No model available for multimodal streaming")
         client = OpenAI(base_url=self.base_url, api_key=self.api_key, max_retries=0, timeout=120)
         messages = [{"role": "user", "content": [{"type": "text", "text": prompt}] + content_blocks}]
-        kwargs = {"model": model_id, "messages": messages, "temperature": self.temperature, "stream": True, "stream_options": {"include_usage": True}}
+        kwargs = {"model": model_id, "messages": messages, "temperature": self.temperature, "max_tokens": self._get_max_tokens(model_id), "stream": True, "stream_options": {"include_usage": True}}
         if plugins:
             kwargs["extra_body"] = {"plugins": plugins}
         stream = client.chat.completions.create(**kwargs)
@@ -149,6 +215,7 @@ class LLMManager:
                         model=model_id,
                         messages=[{"role": "user", "content": prompt}],
                         temperature=self.temperature,
+                        max_tokens=self._get_max_tokens(model_id),
                         stream=True,
                         stream_options={"include_usage": True},
                     )
@@ -170,6 +237,14 @@ class LLMManager:
                 except Exception as e:
                     err_msg = _sanitize_error(e)
                     print(f"[LLMManager] Primary LLM streaming error: {err_msg}")
+                    # Only try free model rotator if using openrouter/free
+                    if self._is_free_routing():
+                        print(f"[LLMManager] openrouter/free stream failed — trying free model rotator", flush=True)
+                        try:
+                            yield from self._get_rotator().call_streaming(prompt, caller="call_streaming")
+                            return
+                        except Exception as rotator_err:
+                            print(f"[LLMManager] Free model rotator stream also failed: {_sanitize_error(rotator_err)}", flush=True)
                     self._trigger_cooldown(err_msg)
 
         # Local fallback streaming
@@ -218,6 +293,7 @@ class LLMManager:
                 temperature=self.temperature,
                 max_retries=0,
                 stream=True,
+                max_tokens=self._get_max_tokens(model),
                 additional_params=additional_params,
             )
         if provider == "google":
@@ -265,6 +341,13 @@ class LLMManager:
         if not model_id:
             return self.get_llm()
         if self._is_in_cooldown():
+            # If openrouter/free is in cooldown, try rotator's best free model first
+            if model_id == "openrouter/free":
+                ranking = self._get_rotator().get_ranking()
+                if ranking:
+                    best = ranking[0]
+                    print(f"[LLMManager] openrouter/free in cooldown — using rotator best: {best}", flush=True)
+                    return self._get_rotator().build_crewai_llm(best)
             return self._build_llm(
                 self.fallback_provider,
                 self.fallback_model,
@@ -277,7 +360,7 @@ class LLMManager:
         return self._build_llm(self.provider, model_id, self.base_url, self.api_key)
 
     def call_with_fallback(self, prompt: str) -> str:
-        """Call LLM with automatic fallback: routing model → local → error."""
+        """Call LLM with automatic fallback: routing model → free rotator → local → error."""
         if not self._is_in_cooldown():
             if self._is_openrouter():
                 try:
@@ -288,12 +371,20 @@ class LLMManager:
                         model=model_id,
                         messages=[{"role": "user", "content": prompt}],
                         temperature=self.temperature,
+                        max_tokens=self._get_max_tokens(model_id),
                     )
                     log_llm_call(model_id, response.usage, caller="call_with_fallback", prompt_preview=prompt)
                     return response.choices[0].message.content or ""
                 except Exception as e:
                     err_msg = _sanitize_error(e)
                     print(f"[LLMManager] Primary LLM error: {err_msg}")
+                    # Only try free model rotator if using openrouter/free
+                    if self._is_free_routing():
+                        print(f"[LLMManager] openrouter/free failed — trying free model rotator", flush=True)
+                        try:
+                            return self._get_rotator().call(prompt, caller="call_with_fallback")
+                        except Exception as rotator_err:
+                            print(f"[LLMManager] Free model rotator also failed: {_sanitize_error(rotator_err)}", flush=True)
                     self._trigger_cooldown(err_msg)
                     if not self.local_fallback_enabled:
                         raise RuntimeError(self._format_user_error(err_msg))

@@ -53,6 +53,9 @@ class PlanAgentItem(BaseModel):
     depends_on: list[str] = []
     is_existing: bool = False
     model: str = ""
+    original_tools: list[str] = []
+    original_goal: str = ""
+    original_persona: str = ""
 
 
 class ResultAgentItem(BaseModel):
