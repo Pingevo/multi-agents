@@ -77,17 +77,38 @@ async def scrape_with_playwright(url: str, timeout: int = 30) -> str:
         raise ValueError(f"SSRF blocked: {url}")
 
     from playwright.async_api import async_playwright
+    try:
+        from playwright_stealth import stealth_async
+    except ImportError:
+        stealth_async = None
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
+        browser = None
+        for channel in ["chrome", None]:
+            try:
+                launch_kwargs = {"headless": True}
+                if channel:
+                    launch_kwargs["channel"] = channel
+                browser = await p.chromium.launch(**launch_kwargs)
+                break
+            except Exception:
+                continue
+        if browser is None:
+            raise RuntimeError("Could not launch any browser (Chrome or Chromium)")
         try:
             context = await browser.new_context(
-                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                viewport={"width": 1280, "height": 720},
+                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+                viewport={"width": 1920, "height": 1080},
+                locale="en-US",
             )
             page = await context.new_page()
-            await page.goto(url, wait_until="networkidle", timeout=timeout * 1000)
-            await page.wait_for_selector("body", timeout=10000)
+            if stealth_async:
+                await stealth_async(page)
+            await page.goto(url, wait_until="domcontentloaded", timeout=timeout * 1000)
+            try:
+                await page.wait_for_load_state("networkidle", timeout=10000)
+            except Exception:
+                pass
             await page.evaluate("""() => {
                 document.querySelectorAll('script, style, nav, footer, header, noscript').forEach(el => el.remove());
             }""")
