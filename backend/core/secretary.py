@@ -1,6 +1,7 @@
 """CentralManager — the heart of the system: assess + plan in 1 LLM call."""
 
 import asyncio
+import contextvars
 import json
 import os
 import re
@@ -383,7 +384,8 @@ class CentralManager:
                     chunk_queue.put(e)
                 chunk_queue.put(None)  # sentinel
 
-            thread = threading.Thread(target=_stream_in_thread, daemon=True)
+            _ctx = contextvars.copy_context()
+            thread = threading.Thread(target=lambda: _ctx.run(_stream_in_thread), daemon=True)
             thread.start()
 
             # Poll queue without blocking — no artificial timeout, HTTP client handles it
@@ -781,7 +783,8 @@ class CentralManager:
                     chunk_queue.put(e)
                 chunk_queue.put(None)
 
-            thread = threading.Thread(target=_stream_in_thread, daemon=True)
+            _ctx = contextvars.copy_context()
+            thread = threading.Thread(target=lambda: _ctx.run(_stream_in_thread), daemon=True)
             thread.start()
 
             while True:

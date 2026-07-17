@@ -44,7 +44,7 @@ def log_llm_call(
         user_prompt: The original user message that triggered this call (auto-filled from _thread_local)
     """
     if not usage:
-        return
+        usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "cost": 0}
     # Convert Pydantic object (e.g. CompletionUsage) to dict if needed
     if hasattr(usage, "model_dump"):
         usage = usage.model_dump()
