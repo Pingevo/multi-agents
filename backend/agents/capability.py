@@ -41,6 +41,12 @@ class CapabilityRegistry:
             "tool_name": "generate_document",
         },
         {
+            "name": "browse_web",
+            "description": "Open a URL with a headless browser (Chrome) to render JavaScript and extract full page content — use for SPA sites, e-commerce, dynamic content where web_fetch returns incomplete results",
+            "type": "tool",
+            "tool_name": "browse_web",
+        },
+        {
             "name": "reasoning",
             "description": "Strong analytical and reasoning capability for coordination and planning",
             "type": "model_trait",

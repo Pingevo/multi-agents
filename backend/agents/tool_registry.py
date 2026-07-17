@@ -3,6 +3,7 @@
 from backend.tools.media import generate_image, generate_video
 from backend.tools.audio import text_to_speech, transcribe_audio, analyze_image
 from backend.tools.document import generate_document
+from backend.tools.browser import browse_web
 from backend.agents.capability import CapabilityRegistry
 
 class ToolRegistry:
@@ -16,6 +17,7 @@ class ToolRegistry:
         self.register("transcribe_audio", transcribe_audio)
         self.register("analyze_image", analyze_image)
         self.register("generate_document", generate_document)
+        self.register("browse_web", browse_web)
         self._cap_registry = CapabilityRegistry()
 
     def register(self, name: str, tool):
