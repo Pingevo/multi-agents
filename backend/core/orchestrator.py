@@ -5,8 +5,11 @@ import contextvars
 import json
 import os
 import re
+import threading
 import traceback
 import chainlit as cl
+import litellm
+from litellm.integrations.custom_logger import CustomLogger
 from crewai import Agent, Task, Crew, Process, LLM
 from crewai.events import crewai_event_bus
 from crewai.events.types.agent_events import AgentExecutionStartedEvent, AgentExecutionCompletedEvent
@@ -29,25 +32,46 @@ from backend.credit_logger import log_llm_call
 MAX_REVIEW_RETRIES = int(os.environ.get("MAX_REVIEW_RETRIES", "3"))
 
 
-# --- CrewAI LLM call logging via event bus ---
+# --- LLM call logging context (shared between CrewAI events and litellm callback) ---
 _llm_call_context: dict[str, str] = {}
 
 def set_llm_call_context(caller: str):
     """Set context for the next LLM call (e.g. 'manager_review:round2', 'agent:Writer#1')."""
-    import threading
     _llm_call_context[threading.get_ident()] = caller
 
 def clear_llm_call_context():
-    import threading
     _llm_call_context.pop(threading.get_ident(), None)
 
+
+# --- LiteLLM global success callback (captures ALL LLM calls including CrewAI internals) ---
+class LiteLLMCallLogger(CustomLogger):
+    def log_success_event(self, kwargs, response_obj, start_time, end_time):
+        try:
+            model = getattr(response_obj, "model", "") or kwargs.get("model", "unknown")
+            usage = getattr(response_obj, "usage", None)
+            if not usage:
+                usage = kwargs.get("usage", {})
+            ctx = _llm_call_context.get(threading.get_ident(), "")
+            caller = ctx or "litellm"
+            user_prompt = user_prompt_ctx.get("") or getattr(_thread_local, "user_prompt", "")
+            if usage:
+                print(f"[LITELLM-EVENT] model={model}, caller={caller}, usage={usage}", flush=True)
+            log_llm_call(model, usage, caller=caller, prompt_preview="", user_prompt=user_prompt)
+        except Exception as e:
+            print(f"[LITELLM-EVENT] Callback error: {e}", flush=True)
+
+_litellm_logger = LiteLLMCallLogger()
+if _litellm_logger not in litellm.success_callback:
+    litellm.success_callback.append(_litellm_logger)
+
+
+# --- CrewAI event bus logging (kept as backup) ---
 def _on_llm_call_completed(event: LLMCallCompletedEvent):
-    """Log every CrewAI LLM call with usage + context."""
+    """Log CrewAI LLM calls via event bus (backup for litellm callback)."""
     usage = event.usage or {}
     model = event.model or "unknown"
     agent_role = getattr(event, "agent_role", None) or ""
     task_name = getattr(event, "task_name", None) or ""
-    import threading
     ctx = _llm_call_context.get(threading.get_ident(), "")
     caller = ctx or (f"agent:{agent_role}" if agent_role else "crewai")
     if task_name:

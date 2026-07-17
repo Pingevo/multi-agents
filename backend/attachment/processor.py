@@ -158,12 +158,18 @@ async def process_attachment(file_url: str, file_name: str, file_mime: str) -> d
                 file_bytes = f.read()
             b64 = base64.b64encode(file_bytes).decode("utf-8")
             data_url = f"data:{file_mime};base64,{b64}"
+            crewai_files = {}
+            try:
+                from crewai_files import ImageFile
+                crewai_files = {"image": ImageFile(source=file_path)}
+            except ImportError:
+                pass
             return {
                 "type": "multimodal",
                 "content_blocks": [{"type": "image_url", "image_url": {"url": data_url}}],
                 "plugins": None,
-                "crewai_files": None,  # Don't use CrewAI input_files — bypass to OpenRouter format
-                "text_content": f"[Image for multimodal processing: {data_url}]",
+                "crewai_files": crewai_files or None,
+                "text_content": "",
                 "context_text": f"[Image: {file_name}]",
                 "required_modality": "image",
                 "file_name": file_name,

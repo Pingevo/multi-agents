@@ -132,11 +132,15 @@ class AgentFactory:
 
         attachment_ctx = cl.user_session.get("attachment_context")
         attachment_text = ""
+        input_files = None
         if attachment_ctx:
             if attachment_ctx.get("text_content"):
                 attachment_text = f"\n\nAttached file content:\n{attachment_ctx['text_content'][:50000]}\n"
             if attachment_ctx.get("context_text"):
                 attachment_text += f"\nAttachment context: {attachment_ctx['context_text']}"
+            crewai_files = cl.user_session.get("attachment_crewai_files")
+            if crewai_files:
+                input_files = crewai_files
 
         # Inject template-specific runtime contract if agent has a template_id
         template_id = spec.get("template_id", "")
@@ -210,6 +214,8 @@ class AgentFactory:
                 "This is a report to the manager agent, not a message to the user."
             ),
         }
+        if input_files:
+            task_kwargs["input_files"] = input_files
         return Task(**task_kwargs)
 
 
