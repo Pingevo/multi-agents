@@ -5,6 +5,7 @@ import time
 import uuid
 import requests
 from backend.utils import _sanitize_error
+from backend.credit_logger import log_llm_call
 
 class MediaGenerationManager:
     """จัดการ media generation ผ่าน OpenRouter API เท่านั้น
@@ -162,6 +163,11 @@ class MediaGenerationManager:
         if resp.status_code != 200:
             raise RuntimeError(f"OpenRouter image API returned {resp.status_code}: {resp.text[:200]}")
         data = resp.json()
+        # Log image generation cost
+        _cost = data.get("cost", 0)
+        _usage = {"cost": _cost} if _cost else None
+        if _usage:
+            log_llm_call(self.image_model or "unknown", _usage, caller="generate_image", prompt_preview=prompt)
         items = data.get("data", [])
         if not items:
             raise RuntimeError("OpenRouter image API returned empty data")
@@ -201,6 +207,11 @@ class MediaGenerationManager:
         if resp.status_code not in (200, 201, 202):
             raise RuntimeError(f"OpenRouter video API returned {resp.status_code}: {resp.text[:200]}")
         data = resp.json()
+        # Log video generation cost
+        _cost = data.get("cost", 0)
+        _usage = {"cost": _cost} if _cost else None
+        if _usage:
+            log_llm_call(self.video_model or "unknown", _usage, caller="generate_video", prompt_preview=prompt)
         job_id = data.get("id", "")
         polling_url = data.get("polling_url", f"{self.openrouter_base}/videos/{job_id}")
         if not job_id:

@@ -78,6 +78,8 @@ async def execute_multi_agent_task(
     cl.user_session.set("state", STATE_EXECUTING)
     messenger = get_messenger()
     task_id = str(uuid.uuid4())[:8]
+    from backend.globals import _thread_local
+    _thread_local.user_prompt = user_input[:200]
 
     if messenger:
         agent_names = ", ".join(s.get("name", "Agent") for s in agent_specs)
@@ -161,6 +163,17 @@ async def execute_multi_agent_task(
                     "output": (out.get("output", "") or "")[:6000],
                     "model": spec.get("model", ""),
                 })
+            # Add Manager as complete in final progress so frontend stops showing "Synthesizing"
+            manager_output = next((a for a in agent_outputs if a.get("name") == "Manager"), None)
+            if manager_output:
+                final_agents.append({
+                    "name": "Manager",
+                    "role": "Project Manager",
+                    "status": "complete",
+                    "progress": 100,
+                    "output": (manager_output.get("output", "") or "")[:8000],
+                    "model": "",
+                })
             await messenger.reply_agent_progress(task_id, final_agents)
 
             cl.run_sync(
@@ -204,7 +217,7 @@ async def execute_multi_agent_task(
                         f"Return ONLY the refined prompts, one per line, prefixed with the index number and type.\n"
                         f"Format: N. [type] refined prompt here"
                     )
-                    refined = llm_manager.call_with_fallback(review_prompt)
+                    refined = llm_manager.call_with_fallback(review_prompt, caller="prompt_refinement")
                     for line in refined.strip().split("\n"):
                         line = line.strip()
                         m = re.match(r'^(\d+)\.\s*\[?(\w+)\]?\s*(.+)', line)
@@ -294,6 +307,7 @@ async def execute_multi_agent_task(
 
             has_pending_approvals = len(_g._media_tool_results) > 0
             print(f"[DEBUG-RESULT] media_tool_results={len(_g._media_tool_results)}, has_pending={has_pending_approvals}", flush=True)
+            print(f"[DEBUG-synth] chat.py: about to call reply_result, agent_outputs={len(agent_outputs)}", flush=True)
             if has_pending_approvals:
                 await messenger.reply_result(
                     f"⏳ งานเสร็จแล้ว — รออนุมัติสร้างสื่อ ({len(_g._media_tool_results)} รายการ) — ดูผลลัพธ์ใน Storyboard",
@@ -404,6 +418,8 @@ async def execute_task_with_agent(
     messenger = get_messenger()
     task_id = str(uuid.uuid4())[:8]
     agent_name = agent_spec.get("name", "Agent")
+    from backend.globals import _thread_local
+    _thread_local.user_prompt = user_input[:200]
 
     if messenger:
         await messenger.add_task(task_id, user_input, agent_name)
@@ -770,6 +786,10 @@ async def on_message(message: cl.Message):
         cl.user_session.set("last_attachment_name", attachments[0]["file_name"])
         cl.user_session.set("last_attachment_mime", attachments[0]["file_mime"])
         print(f"[ATTACHMENT] {len(attachments)} files: {[a['file_name'] for a in attachments]}", flush=True)
+
+    # Set user_prompt for LLM call logging (covers all entry paths: chat, plan, feedback)
+    from backend.globals import _thread_local
+    _thread_local.user_prompt = user_input[:200]
 
     # Handle JSON action commands from custom frontend
     command = _parse_json_command(user_input)

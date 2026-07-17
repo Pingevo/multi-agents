@@ -13,7 +13,6 @@ from backend.agents.registry import AgentRegistry
 from backend.agents.tool_registry import ToolRegistry
 from backend.agents.team_registry import TeamRegistry
 from backend.llm.manager import LLMManager
-from backend.credit_logger import log_credit_snapshot, get_pending_cost
 from schemas import (
     PlanAgentItem, ResultAgentItem, AgentProgressEntry,
     ChatReplyText, ChatReplyPlanValidationError, ChatReplyPlan, ChatReplyProgress,
@@ -94,15 +93,6 @@ class StateMessenger:
 
     async def _send(self, trigger: str = "update"):
         self.state["credits"] = self._fetch_credits()
-        if self.state["credits"]:
-            pending = get_pending_cost()
-            if pending > 0:
-                orig_remaining = self.state["credits"].get("limit_remaining")
-                if orig_remaining is not None:
-                    self.state["credits"]["limit_remaining"] = orig_remaining - pending
-                self.state["credits"]["_is_estimated"] = True
-            if trigger in ("poll", "refresh"):
-                log_credit_snapshot(self.state["credits"], trigger)
         payload = {
             "type": "platform_state",
             "payload": self.state,
@@ -340,7 +330,9 @@ class StateMessenger:
             resultError=is_error,
             resultAgents=result_agents,
         ))
+        print(f"[DEBUG-synth] reply_result: sending result message, agents={len(result_agents)}, summary={summary[:60]}", flush=True)
         await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
+        print(f"[DEBUG-synth] reply_result: message sent successfully", flush=True)
         self.persist_message({"role": "assistant", "messageType": "result", "resultSummary": summary, "resultError": is_error, "resultAgents": [a.model_dump() for a in result_agents]})
 
     async def reply_image_approval(self, prompt: str, approval_id: str, agent_name: str = "", media_type: str = "image", duration: int = 0, model: str = "", approval_status: str = "pending", image_error: str = ""):

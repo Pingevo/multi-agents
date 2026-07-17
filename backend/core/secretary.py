@@ -49,7 +49,7 @@ class CentralManager:
             f"User message: {user_input}\n"
             "Response JSON:"
         )
-        response = (await self.llm_manager.call_async(prompt)).strip()
+        response = (await self.llm_manager.call_async(prompt, caller="assess")).strip()
         return self._parse_assessment(response)
 
     def _parse_assessment(self, text: str) -> dict:
@@ -376,7 +376,7 @@ class CentralManager:
 
             def _stream_in_thread():
                 try:
-                    for chunk in self.llm_manager.call_streaming(prompt):
+                    for chunk in self.llm_manager.call_streaming(prompt, caller="assess_and_plan"):
                         full_response.append(chunk)
                         chunk_queue.put(chunk)
                 except Exception as e:
@@ -404,9 +404,7 @@ class CentralManager:
             thread.join(timeout=1)
             response = "".join(full_response).strip()
         else:
-            response = (await self.llm_manager.call_async(prompt)).strip()
-
-        print(f"[DEBUG-STREAM] Response length: {len(response)}, full response: {response[:3000]}", flush=True)
+            response = (await self.llm_manager.call_async(prompt, caller="assess_and_plan")).strip()
         if not response:
             selected = self.llm_manager._selected_model or self.llm_manager._default_model or "auto"
             return {
@@ -602,7 +600,7 @@ class CentralManager:
             "- If no tuning is needed, return empty tuning_proposals array\n"
         )
 
-        response = (await self.llm_manager.call_async(prompt)).strip()
+        response = (await self.llm_manager.call_async(prompt, caller="analyze_feedback")).strip()
         try:
             json_match = re.search(r'\{.*\}', response, re.DOTALL)
             if json_match:
@@ -623,7 +621,7 @@ class CentralManager:
             f"User message: {user_input}\n\n"
             "Answer:"
         )
-        return (await self.llm_manager.call_async(prompt)).strip()
+        return (await self.llm_manager.call_async(prompt, caller="chat_response")).strip()
 
     async def chat_response_with_image(self, user_input: str, image_data_url: str) -> str:
         """ตอบกลับพร้อมวิเคราะห์รูปภาพ (vision/multimodal)"""
@@ -635,7 +633,7 @@ class CentralManager:
             f"User message: {user_input}\n\n"
             "Answer:"
         )
-        return (await self.llm_manager.call_with_image_async(prompt, image_data_url)).strip()
+        return (await self.llm_manager.call_with_image_async(prompt, image_data_url, caller="chat_response_with_image")).strip()
 
     async def chat_response_multimodal(
         self, user_input: str, content_blocks: list[dict], plugins: list = None
@@ -649,7 +647,7 @@ class CentralManager:
             f"User message: {user_input}\n\n"
             "Answer:"
         )
-        return (await self.llm_manager.call_with_multimodal_async(prompt, content_blocks, plugins)).strip()
+        return (await self.llm_manager.call_with_multimodal_async(prompt, content_blocks, plugins, caller="chat_response_multimodal")).strip()
 
     async def assess_and_plan_multimodal(
         self,
@@ -776,7 +774,7 @@ class CentralManager:
 
             def _stream_in_thread():
                 try:
-                    for chunk in self.llm_manager.call_with_multimodal_streaming(prompt, content_blocks, plugins):
+                    for chunk in self.llm_manager.call_with_multimodal_streaming(prompt, content_blocks, plugins, caller="assess_and_plan_multimodal"):
                         full_response.append(chunk)
                         chunk_queue.put(chunk)
                 except Exception as e:
@@ -803,7 +801,7 @@ class CentralManager:
             thread.join(timeout=1)
             response = "".join(full_response).strip()
         else:
-            response = (await self.llm_manager.call_with_multimodal_async(prompt, content_blocks, plugins)).strip()
+            response = (await self.llm_manager.call_with_multimodal_async(prompt, content_blocks, plugins, caller="assess_and_plan_multimodal")).strip()
 
         if not response:
             selected = self.llm_manager._selected_model or self.llm_manager._default_model or "auto"
@@ -832,7 +830,7 @@ class CentralManager:
             f"User question: {user_input}\n\n"
             "Answer:"
         )
-        return (await self.llm_manager.call_async(prompt)).strip()
+        return (await self.llm_manager.call_async(prompt, caller="info_response")).strip()
 
     async def analyze(self, user_input: str, available_tools: list[str], conversation_history: list[dict] | None = None) -> list[dict]:
         """วิเคราะห์และออกแบบ multi-agent plan — ไม่จำกัดจำนวน agent หรือ capabilities"""
@@ -885,7 +883,7 @@ class CentralManager:
             "]\n\n"
             "Output ONLY the JSON array, no explanation:"
         )
-        response = await self.llm_manager.call_async(prompt)
+        response = await self.llm_manager.call_async(prompt, caller="analyze")
         return self._parse_agent_specs(response, user_input)
 
     def check_resources(

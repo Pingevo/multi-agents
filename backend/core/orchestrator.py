@@ -52,11 +52,12 @@ def _on_llm_call_completed(event: LLMCallCompletedEvent):
     caller = ctx or (f"agent:{agent_role}" if agent_role else "crewai")
     if task_name:
         caller += f":{task_name[:50]}"
+    user_prompt = getattr(_thread_local, "user_prompt", "")
     if not usage:
         print(f"[LLM-EVENT] No usage data for model={model}, caller={caller}", flush=True)
     else:
         print(f"[LLM-EVENT] model={model}, caller={caller}, usage={usage}", flush=True)
-    log_llm_call(model, usage, caller=caller, prompt_preview="")
+    log_llm_call(model, usage, caller=caller, prompt_preview="", user_prompt=user_prompt)
 
 crewai_event_bus.on(LLMCallCompletedEvent)(_on_llm_call_completed)
 
@@ -306,6 +307,8 @@ class ExecutionOrchestrator:
         _media_tool_results = []  # Reset for this run
         total = len(agent_specs)
         self._agent_specs = agent_specs
+        # Store task context for LLM call logging
+        _thread_local.user_prompt = user_input[:200]
 
         # Set AI-selected media/search models for this run
         ai_image_model = cl.user_session.get("ai_image_model") or ""
@@ -612,7 +615,7 @@ class ExecutionOrchestrator:
                             clear_llm_call_context()
                     raw = await loop.run_in_executor(None, _review_call)
                 else:
-                    raw = await loop.run_in_executor(None, self.llm_manager.call_with_fallback, review_prompt)
+                    raw = await loop.run_in_executor(None, lambda: self.llm_manager.call_with_fallback(review_prompt, caller=f"manager_review:round{retry_count + 1}"))
 
                 results = {}
                 try:
@@ -1062,6 +1065,7 @@ class ExecutionOrchestrator:
                 callback = self._agent_progress_callback
 
                 def _schedule_manager_progress():
+                    print(f"[DEBUG-synth] Sending Manager 'running' progress to frontend", flush=True)
                     loop.create_task(
                         _async_progress_callback(callback, progress),
                         context=ctx,
@@ -1131,7 +1135,7 @@ class ExecutionOrchestrator:
                 manager_raw = await loop.run_in_executor(None, _synthesis_call)
             else:
                 manager_raw = await loop.run_in_executor(
-                    None, self.llm_manager.call_with_fallback, synthesis_prompt
+                    None, lambda: self.llm_manager.call_with_fallback(synthesis_prompt, caller="manager_synthesis")
                 )
 
             # Clean manager output and add it to agent_outputs so it appears in result card
@@ -1167,6 +1171,7 @@ class ExecutionOrchestrator:
                 callback = self._agent_progress_callback
 
                 def _schedule_manager_done():
+                    print(f"[DEBUG-synth] Sending Manager 'complete' progress to frontend", flush=True)
                     loop.create_task(
                         _async_progress_callback(callback, progress),
                         context=ctx,

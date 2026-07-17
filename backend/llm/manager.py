@@ -126,17 +126,17 @@ class LLMManager:
         self._fallback_until = time.time() + self._fallback_cooldown
         print(f"[LLMManager] Cooldown triggered ({reason or 'unknown'}). Falling back to {self.fallback_provider} for {self._fallback_cooldown}s")
 
-    async def call_async(self, prompt: str) -> str:
+    async def call_async(self, prompt: str, caller: str = "call_with_fallback") -> str:
         """Call LLM in a thread pool so the event loop stays free for websocket pings."""
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self.call_with_fallback, prompt)
+        return await loop.run_in_executor(None, lambda: self.call_with_fallback(prompt, caller=caller))
 
-    async def call_with_image_async(self, prompt: str, image_data_url: str) -> str:
+    async def call_with_image_async(self, prompt: str, image_data_url: str, caller: str = "call_with_image") -> str:
         """Call LLM with text + image (multimodal/vision) in a thread pool."""
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._call_with_image, prompt, image_data_url)
+        return await loop.run_in_executor(None, self._call_with_image, prompt, image_data_url, caller)
 
-    def _call_with_image(self, prompt: str, image_data_url: str) -> str:
+    def _call_with_image(self, prompt: str, image_data_url: str, caller: str = "call_with_image") -> str:
         """Call OpenRouter with multimodal content (text + image_url)."""
         from openai import OpenAI
         model_id = self._selected_model or self._default_model
@@ -155,15 +155,15 @@ class LLMManager:
             temperature=self.temperature,
             max_tokens=self._get_max_tokens(model_id),
         )
-        log_llm_call(model_id, response.usage, caller="call_with_image", prompt_preview=prompt)
+        log_llm_call(model_id, response.usage, caller=caller, prompt_preview=prompt)
         return response.choices[0].message.content or ""
 
-    async def call_with_multimodal_async(self, prompt: str, content_blocks: list[dict], plugins: list = None) -> str:
+    async def call_with_multimodal_async(self, prompt: str, content_blocks: list[dict], plugins: list = None, caller: str = "call_with_multimodal") -> str:
         """Call LLM with text + multimodal content blocks (image, PDF, audio, video)."""
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._call_with_multimodal, prompt, content_blocks, plugins)
+        return await loop.run_in_executor(None, self._call_with_multimodal, prompt, content_blocks, plugins, caller)
 
-    def _call_with_multimodal(self, prompt: str, content_blocks: list[dict], plugins: list = None) -> str:
+    def _call_with_multimodal(self, prompt: str, content_blocks: list[dict], plugins: list = None, caller: str = "call_with_multimodal") -> str:
         """Call OpenRouter with multimodal content blocks."""
         from openai import OpenAI
         model_id = self._selected_model or self._default_model
@@ -175,10 +175,10 @@ class LLMManager:
         if plugins:
             kwargs["extra_body"] = {"plugins": plugins}
         response = client.chat.completions.create(**kwargs)
-        log_llm_call(model_id, response.usage, caller="call_with_multimodal", prompt_preview=prompt)
+        log_llm_call(model_id, response.usage, caller=caller, prompt_preview=prompt)
         return response.choices[0].message.content or ""
 
-    def call_with_multimodal_streaming(self, prompt: str, content_blocks: list[dict], plugins: list = None):
+    def call_with_multimodal_streaming(self, prompt: str, content_blocks: list[dict], plugins: list = None, caller: str = "call_with_multimodal_streaming"):
         """Streaming version of multimodal call — yields text chunks."""
         from openai import OpenAI
         model_id = self._selected_model or self._default_model
@@ -197,9 +197,9 @@ class LLMManager:
             if chunk.choices and chunk.choices[0].delta.content:
                 yield chunk.choices[0].delta.content
         if usage_data:
-            log_llm_call(model_id, usage_data, caller="call_with_multimodal_streaming", prompt_preview=prompt)
+            log_llm_call(model_id, usage_data, caller=caller, prompt_preview=prompt)
 
-    def call_streaming(self, prompt: str):
+    def call_streaming(self, prompt: str, caller: str = "call_streaming"):
         """Streaming version of call_with_fallback — yields text chunks."""
         if not self._is_in_cooldown():
             if self._is_openrouter():
@@ -228,7 +228,7 @@ class LLMManager:
                             got_content = True
                             yield chunk.choices[0].delta.content
                     if usage_data:
-                        log_llm_call(model_id, usage_data, caller="call_streaming", prompt_preview=prompt)
+                        log_llm_call(model_id, usage_data, caller=caller, prompt_preview=prompt)
                     if got_content:
                         return
                     # Empty stream — return error, don't retry with rotator (saves credits)
@@ -241,7 +241,7 @@ class LLMManager:
                     if self._is_free_routing():
                         print(f"[LLMManager] openrouter/free stream failed — trying free model rotator", flush=True)
                         try:
-                            yield from self._get_rotator().call_streaming(prompt, caller="call_streaming")
+                            yield from self._get_rotator().call_streaming(prompt, caller=caller)
                             return
                         except Exception as rotator_err:
                             print(f"[LLMManager] Free model rotator stream also failed: {_sanitize_error(rotator_err)}", flush=True)
@@ -282,7 +282,7 @@ class LLMManager:
             extra_body = additional_params.get("extra_body", {})
             server_tools = extra_body.get("tools", [])
             server_tools.append({"type": "openrouter:web_search"})
-            server_tools.append({"type": "openrouter:web_fetch", "parameters": {"engine": "openrouter"}})
+            server_tools.append({"type": "openrouter:web_fetch", "parameters": {"engine": "auto"}})
             extra_body["tools"] = server_tools
             additional_params["extra_body"] = extra_body
 
@@ -369,7 +369,7 @@ class LLMManager:
             print(f"[LLMManager] WARNING: build_llm_for_model using PAID model: {model_id!r}", flush=True)
         return self._build_llm(self.provider, model_id, self.base_url, self.api_key)
 
-    def call_with_fallback(self, prompt: str) -> str:
+    def call_with_fallback(self, prompt: str, caller: str = "call_with_fallback") -> str:
         """Call LLM with automatic fallback: routing model → free rotator → local → error."""
         if not self._is_in_cooldown():
             if self._is_openrouter():
@@ -383,7 +383,7 @@ class LLMManager:
                         temperature=self.temperature,
                         max_tokens=self._get_max_tokens(model_id),
                     )
-                    log_llm_call(model_id, response.usage, caller="call_with_fallback", prompt_preview=prompt)
+                    log_llm_call(model_id, response.usage, caller=caller, prompt_preview=prompt)
                     return response.choices[0].message.content or ""
                 except Exception as e:
                     err_msg = _sanitize_error(e)
@@ -392,7 +392,7 @@ class LLMManager:
                     if self._is_free_routing():
                         print(f"[LLMManager] openrouter/free failed — trying free model rotator", flush=True)
                         try:
-                            return self._get_rotator().call(prompt, caller="call_with_fallback")
+                            return self._get_rotator().call(prompt, caller=caller)
                         except Exception as rotator_err:
                             print(f"[LLMManager] Free model rotator also failed: {_sanitize_error(rotator_err)}", flush=True)
                     self._trigger_cooldown(err_msg)

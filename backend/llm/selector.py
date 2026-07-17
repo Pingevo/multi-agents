@@ -4,6 +4,7 @@ import re
 import requests
 from crewai import LLM
 from backend.utils import _sanitize_error
+from backend.credit_logger import log_llm_call
 
 class ModelSelector:
     """LLM-driven model assignment: analyzes live model metadata and assigns best model per agent."""
@@ -194,7 +195,17 @@ class ModelSelector:
                 temperature=0.3,
                 max_retries=0,
             )
+            # Set caller context for CrewAI event bus logging
+            try:
+                from backend.core.orchestrator import set_llm_call_context, clear_llm_call_context
+                set_llm_call_context("model_selector")
+            except ImportError:
+                pass
             response = llm.call(prompt).strip()
+            try:
+                clear_llm_call_context()
+            except Exception:
+                pass
             import json as _json
             match = re.search(r'\{.*\}', response, re.DOTALL)
             if match:
