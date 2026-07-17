@@ -66,8 +66,8 @@ def _extract_text_content(file_path: str, file_mime: str) -> str:
         return ""
 
 
-def scrape_with_playwright(url: str, timeout: int = 30) -> str:
-    """Scrape a URL using headless Chromium (Playwright).
+async def scrape_with_playwright(url: str, timeout: int = 30) -> str:
+    """Scrape a URL using headless Chromium (Playwright async API).
 
     Used as fallback for JS-heavy sites that block requests.get().
     Returns extracted text (max MAX_TEXT_LENGTH chars).
@@ -76,26 +76,26 @@ def scrape_with_playwright(url: str, timeout: int = 30) -> str:
     if _is_localhost_url(url):
         raise ValueError(f"SSRF blocked: {url}")
 
-    from playwright.sync_api import sync_playwright
+    from playwright.async_api import async_playwright
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
         try:
-            context = browser.new_context(
+            context = await browser.new_context(
                 user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                 viewport={"width": 1280, "height": 720},
             )
-            page = context.new_page()
-            page.goto(url, wait_until="networkidle", timeout=timeout * 1000)
-            page.wait_for_selector("body", timeout=10000)
-            page.evaluate("""() => {
+            page = await context.new_page()
+            await page.goto(url, wait_until="networkidle", timeout=timeout * 1000)
+            await page.wait_for_selector("body", timeout=10000)
+            await page.evaluate("""() => {
                 document.querySelectorAll('script, style, nav, footer, header, noscript').forEach(el => el.remove());
             }""")
-            text = page.inner_text("body")
+            text = await page.inner_text("body")
             text = text[:MAX_TEXT_LENGTH] + ("[...truncated]" if len(text) > MAX_TEXT_LENGTH else "")
             return text
         finally:
-            browser.close()
+            await browser.close()
 
 
 async def process_attachment(file_url: str, file_name: str, file_mime: str) -> dict:
@@ -302,20 +302,33 @@ async def process_url(url: str) -> dict:
         }
 
     if url_type == "youtube":
-        crewai_files = {}
+        # Use Playwright to extract page content (title, description, comments)
+        # instead of sending as video_url which most LLMs don't support
         try:
-            from crewai_files import VideoFile
-            crewai_files = {"video": VideoFile(source=url)}
-        except ImportError:
-            pass
+            text = await scrape_with_playwright(url)
+            if text and len(text) > 50:
+                return {
+                    "type": "text",
+                    "content_blocks": [],
+                    "plugins": None,
+                    "crewai_files": None,
+                    "text_content": text,
+                    "context_text": f"[YouTube page content from {url}]",
+                    "required_modality": None,
+                    "file_name": url,
+                    "file_mime": "",
+                }
+        except Exception as e:
+            print(f"[ATTACHMENT] YouTube Playwright scrape failed: {_sanitize_error(e)}", flush=True)
+        # Fallback: return as metadata
         return {
-            "type": "multimodal",
-            "content_blocks": [{"type": "video_url", "video_url": {"url": url}}],
+            "type": "metadata",
+            "content_blocks": [],
             "plugins": None,
-            "crewai_files": crewai_files or None,
+            "crewai_files": None,
             "text_content": "",
-            "context_text": f"[YouTube video: {url}]",
-            "required_modality": "video",
+            "context_text": f"[YouTube video URL: {url} — could not extract page content]",
+            "required_modality": None,
             "file_name": url,
             "file_mime": "",
         }
@@ -473,7 +486,7 @@ async def process_url(url: str) -> dict:
         if len(text) < 500:
             try:
                 print(f"[ATTACHMENT] Trying Playwright for {url}", flush=True)
-                text = scrape_with_playwright(url)
+                text = await scrape_with_playwright(url)
                 print(f"[ATTACHMENT] Playwright scrape success: {len(text)} chars", flush=True)
             except Exception as e:
                 pw_error = _sanitize_error(e)

@@ -1438,6 +1438,7 @@ async def on_message(message: cl.Message):
     urls_in_message = re.findall(URL_REGEX, user_input)
     print(f"[DEBUG-URL] Found {len(urls_in_message)} URLs in message: {urls_in_message}", flush=True)
     url_contexts = []
+    extracted_urls = set()
     for found_url in urls_in_message:
         if found_url in attachment_urls:
             continue
@@ -1445,6 +1446,8 @@ async def on_message(message: cl.Message):
         url_ctx = await process_url(found_url)
         url_contexts.append(url_ctx)
         print(f"[URL] Processed {found_url} → type={url_ctx['type']}", flush=True)
+        if url_ctx["type"] in ("text", "multimodal") and (url_ctx.get("text_content") or url_ctx.get("content_blocks")):
+            extracted_urls.add(found_url)
 
     # Merge attachment + URL contexts
     all_contexts.extend(url_contexts)
@@ -1490,12 +1493,16 @@ async def on_message(message: cl.Message):
 
     # Build user_input_for_ai
     context_summary = " ".join(context_texts)
+    # Remove URLs that were successfully extracted from the user-facing text
+    user_input_clean = user_input
+    for extracted_url in extracted_urls:
+        user_input_clean = user_input_clean.replace(extracted_url, "[content extracted below]")
     if text_context_parts:
-        user_input_for_ai = f"{user_input}\n\n[Attached content:\n" + "\n---\n".join(text_context_parts) + "\n]"
+        user_input_for_ai = f"{user_input_clean}\n\n[Attached content:\n" + "\n---\n".join(text_context_parts) + "\n]"
     elif context_summary:
-        user_input_for_ai = f"{user_input}\n\n{context_summary}"
+        user_input_for_ai = f"{user_input_clean}\n\n{context_summary}"
     else:
-        user_input_for_ai = user_input
+        user_input_for_ai = user_input_clean
 
     # Store for CrewAI worker agents
     cl.user_session.set("attachment_context", {
