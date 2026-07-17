@@ -1,8 +1,31 @@
 """URL classification, download, and SSRF utilities."""
 
 import requests
+from urlextract import URLExtract
 
 URL_REGEX = r'https?://[^\s<>"{}|\\^`]+'
+
+_extractor = URLExtract()
+
+
+def find_urls_in_text(text: str) -> list[str]:
+    """Extract URLs from text using urlextract — handles typos and missing protocols."""
+    from urllib.parse import urlparse
+    urls = _extractor.find_urls(text)
+    normalized = []
+    for url in urls:
+        parsed = urlparse(url)
+        if parsed.scheme in ('http', 'https'):
+            normalized.append(url)
+        elif parsed.scheme and parsed.netloc:
+            # Has a scheme but not http/https (e.g. ttps, htps, ftp) — replace with https
+            normalized.append('https://' + parsed.netloc + parsed.path + ('?' + parsed.query if parsed.query else '') + ('#' + parsed.fragment if parsed.fragment else ''))
+        elif parsed.netloc:
+            # No scheme — prepend https://
+            normalized.append('https://' + url)
+        else:
+            normalized.append('https://' + url)
+    return normalized
 
 MAX_TEXT_LENGTH = 50000
 MAX_URL_DOWNLOAD_SIZE = 50 * 1024 * 1024  # 50MB

@@ -37,7 +37,7 @@ from backend.core.orchestrator import ExecutionOrchestrator
 from backend.core.messenger import StateMessenger
 from backend.attachment.processor import process_attachment, process_url
 from backend.attachment.security import check_model_modality_support, llm_manager_tier_check
-from backend.attachment.url import classify_url, URL_REGEX
+from backend.attachment.url import classify_url, find_urls_in_text
 from backend.handlers.actions import (
     on_action_create_agent,
     on_action_accept,
@@ -1435,7 +1435,7 @@ async def on_message(message: cl.Message):
         all_contexts.append(att_ctx)
 
     # Detect and process URLs in user message
-    urls_in_message = re.findall(URL_REGEX, user_input)
+    urls_in_message = find_urls_in_text(user_input)
     print(f"[DEBUG-URL] Found {len(urls_in_message)} URLs in message: {urls_in_message}", flush=True)
     url_contexts = []
     extracted_urls = set()

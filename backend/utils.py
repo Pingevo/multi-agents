@@ -24,7 +24,8 @@ _URL_REGEX = re.compile(r'https://[^\s<>"\')\]]+')
 
 
 def extract_urls(text: str) -> list[str]:
-    """Extract all https:// URLs from text."""
+    """Extract all URLs from text using urlextract."""
     if not text:
         return []
-    return _URL_REGEX.findall(text)
+    from backend.attachment.url import find_urls_in_text
+    return find_urls_in_text(text)
