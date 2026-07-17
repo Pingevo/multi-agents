@@ -98,7 +98,6 @@ class ExecutionOrchestrator:
             )
 
     _TOOL_DESCRIPTIONS = {
-        "search_web": "🔍 Searching the web...",
         "generate_image": "🎨 Preparing image generation...",
     }
 
@@ -130,11 +129,7 @@ class ExecutionOrchestrator:
 
     def _tool_description(self, tool_name: str, tool_args: dict | str) -> str:
         desc = self._TOOL_DESCRIPTIONS.get(tool_name, f"⚙️ Using {tool_name}...")
-        if tool_name == "search_web" and isinstance(tool_args, dict):
-            query = tool_args.get("query", "")
-            if query:
-                return f"🔍 Searching: {query[:60]}"
-        elif tool_name == "generate_image" and isinstance(tool_args, dict):
+        if tool_name == "generate_image" and isinstance(tool_args, dict):
             prompt = tool_args.get("prompt", "")
             if prompt:
                 return f"🎨 Image prompt: {prompt[:60]}"

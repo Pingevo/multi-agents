@@ -18,3 +18,13 @@ def _debug(*args, **kwargs):
     """Print only when DEBUG_MODE=true."""
     if os.getenv("DEBUG_MODE", "false").lower() == "true":
         print(*args, **kwargs)
+
+
+_URL_REGEX = re.compile(r'https://[^\s<>"\')\]]+')
+
+
+def extract_urls(text: str) -> list[str]:
+    """Extract all https:// URLs from text."""
+    if not text:
+        return []
+    return _URL_REGEX.findall(text)

@@ -276,6 +276,16 @@ class LLMManager:
         except Exception:
             pass
 
+        # Add OpenRouter server tools for web search and URL fetching
+        # These give the model real-time web access without needing CrewAI tools
+        if provider == "openrouter":
+            extra_body = additional_params.get("extra_body", {})
+            server_tools = extra_body.get("tools", [])
+            server_tools.append({"type": "openrouter:web_search"})
+            server_tools.append({"type": "openrouter:web_fetch", "parameters": {"engine": "openrouter"}})
+            extra_body["tools"] = server_tools
+            additional_params["extra_body"] = extra_body
+
         if provider == "openrouter":
             # litellm uses "openrouter/<model_id>" format and strips the first "openrouter/" prefix
             # before sending <model_id> to OpenRouter's API.

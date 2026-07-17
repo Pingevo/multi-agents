@@ -26,7 +26,7 @@ const TEMPLATES: AgentTemplate[] = [
       role: 'Product Analyst',
       goal: 'วิเคราะห์สินค้าตามข้อมูลที่ได้รับ และค้นหาข้อมูลเพิ่มเติมเพื่อเปรียบเทียบกับคู่แข่งในตลาด โดยอ้างอิงแหล่งข้อมูลที่ตรวจสอบได้จริง',
       persona: 'You are a senior product analyst with deep expertise in competitive analysis, market positioning, and product strategy. You research products thoroughly, verify claims with real sources, and never fabricate data. You communicate findings in structured Thai-language reports. You are rigorous about evidence — if you cannot verify a claim, you say so explicitly.',
-      tools: ['search_web', 'scrape_web', 'analyze_image'],
+      tools: ['analyze_image'],
       model: '',
     },
   },

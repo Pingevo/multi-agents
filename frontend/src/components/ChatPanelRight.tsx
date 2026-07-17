@@ -653,9 +653,7 @@ const ProgressCard: React.FC<{ percent: number; label: string }> = ({ percent, l
 };
 
 const toolIcon = (toolName: string) => {
-  if (toolName === 'search_web') return <Search className="w-3 h-3 text-accent shrink-0" />;
   if (toolName === 'generate_image') return <Image className="w-3 h-3 text-purple-400 shrink-0" />;
-  if (toolName === 'scrape_web') return <Search className="w-3 h-3 text-green-400 shrink-0" />;
   if (toolName === 'generate_document') return <PenTool className="w-3 h-3 text-orange-400 shrink-0" />;
   if (toolName === 'write_code') return <PenTool className="w-3 h-3 text-blue-400 shrink-0" />;
   return <Wrench className="w-3 h-3 text-text-2 shrink-0" />;

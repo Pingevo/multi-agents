@@ -37,7 +37,10 @@ async def on_action_create_agent(action: cl.Action):
 
     agent_specs = cl.user_session.get("current_agent_specs")
     user_input = cl.user_session.get("current_input")
-    registry = cl.user_session.get("registry") or AgentRegistry()
+    registry = cl.user_session.get("registry")
+    if not registry:
+        registry = AgentRegistry(user_id=cl.user_session.get("user_id"))
+        cl.user_session.set("registry", registry)
 
     primary_spec = agent_specs[0] if agent_specs else None
     if not primary_spec:
@@ -76,7 +79,10 @@ async def on_action_accept(action: cl.Action):
 
     user_input = cl.user_session.get("current_input")
     agent_specs = cl.user_session.get("current_agent_specs")
-    registry = cl.user_session.get("registry") or AgentRegistry()
+    registry = cl.user_session.get("registry")
+    if not registry:
+        registry = AgentRegistry(user_id=cl.user_session.get("user_id"))
+        cl.user_session.set("registry", registry)
 
     if not agent_specs:
         if messenger:
@@ -232,7 +238,10 @@ async def on_action_cancel(action: cl.Action):
 
 @cl.action_callback("add_agent_form")
 async def on_action_add_agent_form(action: cl.Action):
-    registry = cl.user_session.get("registry") or AgentRegistry()
+    registry = cl.user_session.get("registry")
+    if not registry:
+        registry = AgentRegistry(user_id=cl.user_session.get("user_id"))
+        cl.user_session.set("registry", registry)
     messenger = get_messenger()
     payload = action.payload or {}
 
@@ -250,6 +259,17 @@ async def on_action_add_agent_form(action: cl.Action):
 
     try:
         new_agent = registry.add_agent(spec)
+
+        # Register agent in team if team_id is provided
+        team_id = spec.get("team_id")
+        if team_id:
+            team_registry = cl.user_session.get("team_registry")
+            if team_registry:
+                team_registry.add_agent(team_id, new_agent["id"])
+                cl.user_session.set("team_registry", team_registry)
+                if messenger:
+                    await messenger.reply_team_list(team_registry)
+
         if messenger:
             await messenger.update_agents(registry)
             await messenger.notify(f"✅ สร้าง Agent {new_agent['name']} สำเร็จ")
@@ -260,7 +280,10 @@ async def on_action_add_agent_form(action: cl.Action):
 
 @cl.action_callback("edit_agent_form")
 async def on_action_edit_agent_form(action: cl.Action):
-    registry = cl.user_session.get("registry") or AgentRegistry()
+    registry = cl.user_session.get("registry")
+    if not registry:
+        registry = AgentRegistry(user_id=cl.user_session.get("user_id"))
+        cl.user_session.set("registry", registry)
     messenger = get_messenger()
     payload = action.payload or {}
     agent_id = payload.get("agent_id")
@@ -298,7 +321,10 @@ async def on_action_edit_agent_form(action: cl.Action):
 
 @cl.action_callback("delete_agent")
 async def on_action_delete_agent(action: cl.Action):
-    registry = cl.user_session.get("registry") or AgentRegistry()
+    registry = cl.user_session.get("registry")
+    if not registry:
+        registry = AgentRegistry(user_id=cl.user_session.get("user_id"))
+        cl.user_session.set("registry", registry)
     messenger = get_messenger()
     agent_id = action.payload.get("agent_id")
     agent = registry.get_by_id(agent_id)
@@ -319,7 +345,10 @@ async def on_action_delete_agent(action: cl.Action):
 
 @cl.action_callback("assign_task_form")
 async def on_action_assign_task_form(action: cl.Action):
-    registry = cl.user_session.get("registry") or AgentRegistry()
+    registry = cl.user_session.get("registry")
+    if not registry:
+        registry = AgentRegistry(user_id=cl.user_session.get("user_id"))
+        cl.user_session.set("registry", registry)
     messenger = get_messenger()
     payload = action.payload or {}
     agent_id = payload.get("agent_id")
@@ -355,7 +384,10 @@ async def on_action_assign_task_form(action: cl.Action):
 @cl.action_callback("agent_feedback")
 async def on_action_agent_feedback(action: cl.Action):
     """User gives feedback on agent's work — stored as learning."""
-    registry = cl.user_session.get("registry") or AgentRegistry()
+    registry = cl.user_session.get("registry")
+    if not registry:
+        registry = AgentRegistry(user_id=cl.user_session.get("user_id"))
+        cl.user_session.set("registry", registry)
     messenger = get_messenger()
     payload = action.payload or {}
     agent_id = payload.get("agent_id")
@@ -513,7 +545,10 @@ async def on_action_create_team(action: cl.Action):
     cl.user_session.set("team_registry", team_registry)
 
     # Create manager agent for this team
-    registry = cl.user_session.get("registry") or AgentRegistry()
+    registry = cl.user_session.get("registry")
+    if not registry:
+        registry = AgentRegistry(user_id=cl.user_session.get("user_id"))
+        cl.user_session.set("registry", registry)
     default_goal = f"Coordinate the team '{name}' to accomplish user tasks efficiently. Plan work, delegate tasks, run independent tasks in parallel, and synthesize results."
     default_persona = "You are an experienced team manager who coordinates teams effectively. You know when tasks can run in parallel and when one must wait for another. You plan work, delegate tasks, and synthesize results to ensure quality."
     manager_agent = registry.add_agent({
@@ -596,7 +631,10 @@ async def on_action_delete_team(action: cl.Action):
         return
 
     team_registry = cl.user_session.get("team_registry") or TeamRegistry()
-    registry = cl.user_session.get("registry") or AgentRegistry()
+    registry = cl.user_session.get("registry")
+    if not registry:
+        registry = AgentRegistry(user_id=cl.user_session.get("user_id"))
+        cl.user_session.set("registry", registry)
 
     team = team_registry.get_team(team_id)
     if not team:
@@ -604,9 +642,11 @@ async def on_action_delete_team(action: cl.Action):
             await messenger.notify("❌ ไม่พบทีมที่ต้องการลบ")
         return
 
-    # Delete all agents belonging to this team
-    for agent_id in team.get("agent_ids", []):
-        registry.delete_agent(agent_id)
+    # Delete all agents belonging to this team (by team_id field as safety net)
+    all_agents = registry.list_agents()
+    for agent in all_agents:
+        if agent.get("team_id") == team_id:
+            registry.delete_agent(agent["id"])
 
     # Delete all chat sessions belonging to this team
     chat_store = cl.user_session.get("chat_store") or ChatStore(user_id=cl.user_session.get("user_id", "default"))
@@ -651,7 +691,10 @@ async def on_action_config_agent(action: cl.Action):
             await messenger.notify("❌ ไม่พบ Agent ID")
         return
 
-    registry = cl.user_session.get("registry") or AgentRegistry()
+    registry = cl.user_session.get("registry")
+    if not registry:
+        registry = AgentRegistry(user_id=cl.user_session.get("user_id"))
+        cl.user_session.set("registry", registry)
     agent = registry.get_by_id(agent_id)
     if not agent:
         if messenger:

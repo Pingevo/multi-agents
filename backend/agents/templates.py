@@ -16,7 +16,7 @@ AGENT_TEMPLATES: list[dict] = [
                 "You communicate findings in structured Thai-language reports. "
                 "You are rigorous about evidence — if you cannot verify a claim, you say so explicitly."
             ),
-            "tools": ["search_web", "scrape_web", "analyze_image"],
+            "tools": ["analyze_image"],
             "model": "",
         },
     },
@@ -46,7 +46,7 @@ PRODUCT_ANALYSIS_CONTRACT = """\
 === PRODUCT ANALYSIS CONTRACT — FOLLOW EXACTLY ===
 
 You are performing a product analysis. The user's prompt and any attached files contain the product information.
-If the user provided only a product name, you MUST research it using search_web and scrape_web before analyzing.
+If the user provided only a product name, you MUST research it using your built-in web search capability before analyzing.
 If the user provided files (datasheets, images, descriptions), use that information as your primary source
 and supplement with web research for competitor/market context.
 
@@ -54,7 +54,7 @@ and supplement with web research for competitor/market context.
 - You MUST NOT invent product names, brand names, prices, specifications, or competitor claims.
 - Every named competitor or material claim MUST include a source URL.
 - If you cannot find a reliable source for a claim, write **"ตรวจสอบไม่ได้จากแหล่งข้อมูลที่พบ"** instead of guessing.
-- Use search_web to find information, then use scrape_web to read and verify the sources you cite.
+- Use your built-in web search to find information, then use web fetch to read and verify the sources you cite.
 - Distinguish between information from the user's files and information from web research.
 
 ## OUTPUT FORMAT (MANDATORY — use exactly these 4 numbered headings in Thai)

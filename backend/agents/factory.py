@@ -129,10 +129,6 @@ class AgentFactory:
                         "Call the tool once per video you need to create — do not repeat the same call. "
                         "The user will review your prompt before generation happens — this is by design to control API costs."
                     )
-                elif cap_name == "search_web":
-                    tool_instructions += (
-                        "\n\nUse the search_web tool when you need current information or facts."
-                    )
 
         attachment_ctx = cl.user_session.get("attachment_context")
         attachment_text = ""

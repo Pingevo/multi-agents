@@ -312,7 +312,7 @@ class CentralManager:
             "  ],\n"
             '  "image_model": "model_id from specialized catalog (REQUIRED if plan uses generate_image)",\n'
             '  "video_model": "model_id from specialized catalog (REQUIRED if plan uses generate_video)",\n'
-            '  "search_model": "model_id from specialized catalog (REQUIRED if plan uses search_web)",\n'
+            '  "search_model": "(deprecated — web search is now built-in via OpenRouter server tools)",\n'
             '  "tts_model": "model_id from specialized catalog (REQUIRED if plan uses text_to_speech)",\n'
             '  "stt_model": "model_id from specialized catalog (REQUIRED if plan uses transcribe_audio)",\n'
             '  "vision_model": "model_id from specialized catalog (REQUIRED if plan uses analyze_image)"\n'
@@ -321,14 +321,14 @@ class CentralManager:
             "- Do NOT include a Manager agent in your response — the system has a Manager already. Only include worker agents.\n"
             "- REUSE existing team agents when possible — if a team agent already has the right role/tools, include it by name instead of creating a new one\n"
             "- Only create NEW agents when the team lacks the required capability\n"
-            "- CRITICAL: When reusing an existing agent, you MUST keep ALL of its original tools. Do NOT remove or replace existing tools (search_web, scrape_web, analyze_image, etc.). You may ADD model_traits like 'reasoning' or 'long_context' but you must NEVER remove existing tools. Tools give agents external abilities — removing them cripples the agent.\n"
+            "- CRITICAL: When reusing an existing agent, you MUST keep ALL of its original tools. Do NOT remove or replace existing tools (analyze_image, generate_image, etc.). You may ADD model_traits like 'reasoning' or 'long_context' but you must NEVER remove existing tools. Tools give agents external abilities — removing them cripples the agent.\n"
             "- Model_traits (reasoning, creative_writing, write_code, long_context) are NOT tools — they guide model selection only. Never use them to replace actual tools.\n"
             "- If the user mentions @AgentName, that agent MUST be included in the plan — use the exact name from the team agents list\n"
             "- Each agent has a 'reuse_existing' field: set true to use an existing agent as-is, false to create new or modify. You decide based on context.\n"
             "- Create as many agents as needed (1, 2, 3, or more)\n"
             "- Each agent should have a clear, distinct responsibility\n"
             "- Assign capabilities based on the descriptions below\n"
-            "- Capabilities of type 'tool' (search_web, generate_image, generate_video, text_to_speech, transcribe_audio, analyze_image, scrape_web, generate_document) give external abilities\n"
+            "- Capabilities of type 'tool' (generate_image, generate_video, text_to_speech, transcribe_audio, analyze_image, generate_document) give external abilities\n"
             "- Capabilities of type 'model_trait' (reasoning, creative_writing, write_code, long_context) guide model selection\n"
             "- Assign each agent the most suitable model from: 'google/gemini-3.5-flash', 'anthropic/claude-sonnet-5', 'openai/gpt-5.6-luna'. Consider the agent's role and tasks when choosing.\n"
             "- Leave image_model/video_model/search_model/tts_model/stt_model/vision_model empty — the user will select models in the plan card\n"
@@ -580,7 +580,7 @@ class CentralManager:
             "- brand_context.brand_name (the brand the agent works for)\n"
             "- brand_context.guidelines (tone/style rules)\n"
             "- brand_context.target_audience (who the agent's output is for)\n"
-            "- tools (list of capability names — e.g. search_web, generate_image, generate_video, text_to_speech, transcribe_audio, analyze_image, scrape_web, generate_document)\n"
+            "- tools (list of capability names — e.g. generate_image, generate_video, text_to_speech, transcribe_audio, analyze_image, generate_document)\n"
             "- model (LLM model ID — choose from: google/gemini-3.5-flash, anthropic/claude-sonnet-5, openai/gpt-5.6-luna)\n\n"
             "Respond with ONLY this JSON (no other text):\n"
             "{\n"
@@ -742,7 +742,7 @@ class CentralManager:
             "  ],\n"
             '  "image_model": "model_id from specialized catalog (REQUIRED if plan uses generate_image)",\n'
             '  "video_model": "model_id from specialized catalog (REQUIRED if plan uses generate_video)",\n'
-            '  "search_model": "model_id from specialized catalog (REQUIRED if plan uses search_web)",\n'
+            '  "search_model": "(deprecated — web search is now built-in via OpenRouter server tools)",\n'
             '  "tts_model": "model_id from specialized catalog (REQUIRED if plan uses text_to_speech)",\n'
             '  "stt_model": "model_id from specialized catalog (REQUIRED if plan uses transcribe_audio)",\n'
             '  "vision_model": "model_id from specialized catalog (REQUIRED if plan uses analyze_image)"\n'
@@ -751,7 +751,7 @@ class CentralManager:
             "- Do NOT include a Manager agent in your response — the system has a Manager already. Only include worker agents.\n"
             "- REUSE existing team agents when possible — if a team agent already has the right role/tools, include it by name instead of creating a new one\n"
             "- Only create NEW agents when the team lacks the required capability\n"
-            "- CRITICAL: When reusing an existing agent, you MUST keep ALL of its original tools. Do NOT remove or replace existing tools (search_web, scrape_web, analyze_image, etc.). You may ADD model_traits like 'reasoning' or 'long_context' but you must NEVER remove existing tools. Tools give agents external abilities — removing them cripples the agent.\n"
+            "- CRITICAL: When reusing an existing agent, you MUST keep ALL of its original tools. Do NOT remove or replace existing tools (analyze_image, generate_image, etc.). You may ADD model_traits like 'reasoning' or 'long_context' but you must NEVER remove existing tools. Tools give agents external abilities — removing them cripples the agent.\n"
             "- Model_traits (reasoning, creative_writing, write_code, long_context) are NOT tools — they guide model selection only. Never use them to replace actual tools.\n"
             "- If the user mentions @AgentName, that agent MUST be included in the plan — use the exact name from the team agents list\n"
             "- Each agent has a 'reuse_existing' field: set true to use an existing agent as-is, false to create new or modify. You decide based on context.\n"
@@ -866,7 +866,7 @@ class CentralManager:
             "- Each agent should have a clear, distinct responsibility\n"
             "- Assign capabilities to agents based on the descriptions above — "
             "match each capability to the agent whose task requires it\n"
-            "- Capabilities of type 'tool' (search_web, generate_image) give the agent external abilities\n"
+            "- Capabilities of type 'tool' (generate_image, generate_video, text_to_speech, transcribe_audio, analyze_image, generate_document) give the agent external abilities\n"
             "- Capabilities of type 'model_trait' (reasoning, creative_writing, write_code, long_context) "
             "guide model selection but are not tools\n"
             "- A manager agent will coordinate the team and delegate tasks\n"

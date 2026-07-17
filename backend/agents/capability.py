@@ -5,12 +5,6 @@ class CapabilityRegistry:
 
     CAPABILITIES = [
         {
-            "name": "search_web",
-            "description": "Search the web for current information using OpenRouter (AI-selected search model)",
-            "type": "tool",
-            "tool_name": "search_web",
-        },
-        {
             "name": "generate_image",
             "description": "Generate images from text prompts using AI image generation via OpenRouter",
             "type": "tool",
@@ -39,12 +33,6 @@ class CapabilityRegistry:
             "description": "Analyze and describe images using AI vision models via OpenRouter (for image understanding, OCR, visual analysis)",
             "type": "tool",
             "tool_name": "analyze_image",
-        },
-        {
-            "name": "scrape_web",
-            "description": "Fetch and extract text content from a specific web page URL (articles, blogs, product pages, documentation)",
-            "type": "tool",
-            "tool_name": "scrape_web",
         },
         {
             "name": "generate_document",

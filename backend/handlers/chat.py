@@ -742,7 +742,10 @@ async def on_message(message: cl.Message):
     print(f"[DEBUG-MSG] on_message called, content[:100]={message.content[:100]}", flush=True)
     state = cl.user_session.get("state") or STATE_IDLE
     user_input = message.content
-    registry = cl.user_session.get("registry") or AgentRegistry()
+    registry = cl.user_session.get("registry")
+    if not registry:
+        registry = AgentRegistry(user_id=cl.user_session.get("user_id"))
+        cl.user_session.set("registry", registry)
     messenger = get_messenger()
 
     # Parse mode prefix: __mode:chat__ or __mode:plan__
@@ -1369,7 +1372,10 @@ async def on_message(message: cl.Message):
                     # Load chat history for the team's session (fresh if new)
                     await messenger.reply_chat_history(messenger.current_session_id)
                     # List agents for this team
-                    registry = cl.user_session.get("registry") or AgentRegistry()
+                    registry = cl.user_session.get("registry")
+                    if not registry:
+                        registry = AgentRegistry(user_id=cl.user_session.get("user_id"))
+                        cl.user_session.set("registry", registry)
                     team_agents = registry.list_agents(team_id=team_id)
                     if messenger:
                         await messenger.update_agents(registry)
