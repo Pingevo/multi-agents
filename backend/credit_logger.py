@@ -12,7 +12,14 @@ LLM_CALL_LOG_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath
 
 
 def _get_user_prompt() -> str:
-    """Get user_prompt from _thread_local if available."""
+    """Get user_prompt from contextvars (cross-thread) or _thread_local fallback."""
+    try:
+        from backend.globals import user_prompt_ctx
+        val = user_prompt_ctx.get("")
+        if val:
+            return val
+    except ImportError:
+        pass
     try:
         from backend.globals import _thread_local
         return getattr(_thread_local, "user_prompt", "")

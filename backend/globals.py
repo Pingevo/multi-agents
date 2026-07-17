@@ -2,6 +2,7 @@
 
 import os
 import threading
+import contextvars
 
 # ============================================================
 # State Management
@@ -61,4 +62,5 @@ _progress_callback = None
 _media_gen_manager = None
 _media_tool_results = []  # Captures tool results directly (not agent final answer)
 _thread_local = threading.local()  # Per-thread storage for agent name (parallel-safe)
+user_prompt_ctx: contextvars.ContextVar = contextvars.ContextVar("user_prompt", default="")  # Cross-thread user_prompt
 _search_model = ""  # AI-selected OpenRouter search model (set per run)

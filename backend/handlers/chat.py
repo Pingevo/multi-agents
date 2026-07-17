@@ -78,8 +78,9 @@ async def execute_multi_agent_task(
     cl.user_session.set("state", STATE_EXECUTING)
     messenger = get_messenger()
     task_id = str(uuid.uuid4())[:8]
-    from backend.globals import _thread_local
+    from backend.globals import _thread_local, user_prompt_ctx
     _thread_local.user_prompt = user_input[:200]
+    user_prompt_ctx.set(user_input[:200])
 
     if messenger:
         agent_names = ", ".join(s.get("name", "Agent") for s in agent_specs)
@@ -418,8 +419,9 @@ async def execute_task_with_agent(
     messenger = get_messenger()
     task_id = str(uuid.uuid4())[:8]
     agent_name = agent_spec.get("name", "Agent")
-    from backend.globals import _thread_local
+    from backend.globals import _thread_local, user_prompt_ctx
     _thread_local.user_prompt = user_input[:200]
+    user_prompt_ctx.set(user_input[:200])
 
     if messenger:
         await messenger.add_task(task_id, user_input, agent_name)
@@ -788,8 +790,9 @@ async def on_message(message: cl.Message):
         print(f"[ATTACHMENT] {len(attachments)} files: {[a['file_name'] for a in attachments]}", flush=True)
 
     # Set user_prompt for LLM call logging (covers all entry paths: chat, plan, feedback)
-    from backend.globals import _thread_local
+    from backend.globals import _thread_local, user_prompt_ctx
     _thread_local.user_prompt = user_input[:200]
+    user_prompt_ctx.set(user_input[:200])
 
     # Handle JSON action commands from custom frontend
     command = _parse_json_command(user_input)

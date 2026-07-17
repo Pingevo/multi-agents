@@ -14,7 +14,7 @@ from crewai.events.types.tool_usage_events import ToolUsageStartedEvent, ToolUsa
 from crewai.events.types.task_events import TaskStartedEvent, TaskCompletedEvent
 from crewai.events.types.llm_events import LLMCallCompletedEvent
 from crewai.events import event_types
-from backend.globals import _progress_callback, _media_tool_results, _thread_local, _search_model
+from backend.globals import _progress_callback, _media_tool_results, _thread_local, _search_model, user_prompt_ctx
 from backend.utils import _sanitize_error, _debug
 from backend.llm.manager import LLMManager, _is_rate_limit_error
 from backend.llm.selector import ModelSelector
@@ -52,7 +52,7 @@ def _on_llm_call_completed(event: LLMCallCompletedEvent):
     caller = ctx or (f"agent:{agent_role}" if agent_role else "crewai")
     if task_name:
         caller += f":{task_name[:50]}"
-    user_prompt = getattr(_thread_local, "user_prompt", "")
+    user_prompt = user_prompt_ctx.get("") or getattr(_thread_local, "user_prompt", "")
     if not usage:
         print(f"[LLM-EVENT] No usage data for model={model}, caller={caller}", flush=True)
     else:
@@ -309,6 +309,7 @@ class ExecutionOrchestrator:
         self._agent_specs = agent_specs
         # Store task context for LLM call logging
         _thread_local.user_prompt = user_input[:200]
+        user_prompt_ctx.set(user_input[:200])
 
         # Set AI-selected media/search models for this run
         ai_image_model = cl.user_session.get("ai_image_model") or ""
