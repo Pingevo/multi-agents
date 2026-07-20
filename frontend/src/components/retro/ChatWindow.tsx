@@ -1,230 +1,958 @@
-import { useState, useRef, useEffect } from 'react';
-import type { ChatMessage } from '../chatTypes';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import {
+  Bot, CheckCircle, XCircle,
+  Image as ImageIcon, Video, Volume2, FileText, Copy,
+  Cpu, ChevronDown, Square, Pencil, Trash2, Check, X,
+} from 'lucide-react';
+import type {
+  ChatMessage, ActivityEntry, ResultAgent,
+  ImageApprovalStatus, AgentReviewStatus,
+} from '../chatTypes';
 import type { ChatSession } from '../ChatSidebar';
-import { FeedUserMessage, FeedAgentMessage, FeedThinking, FeedProgress, ChatPlanCard, FeedResultBubbles } from './ChatFeed';
+import { ModelPicker, PROVIDER_FAVICONS, getProvider, findModelName } from '../ModelPicker';
+import type { ModelCatalogEntry } from '../ModelPicker';
+import MarkdownRenderer from '../MarkdownRenderer';
+
+// ============================================================
+// Props
+// ============================================================
 
 interface ChatWindowProps {
   messages: ChatMessage[];
-  sessions: ChatSession[];
+  activityLog: ActivityEntry[];
+  isProcessing: boolean;
+  chatSessions: ChatSession[];
   activeSessionId: string | null;
-  isThinking: boolean;
-  thinkingModel?: string;
-  inputMode: 'chat' | 'plan';
+  onSend: (message: string, attachments?: Array<{ url: string; name: string; mime: string }>) => void | Promise<void>;
+  onStop?: () => void;
+  onNewChat: () => void;
+  onSwitchChat: (id: string) => void;
+  onRenameChat: (id: string, title: string) => void;
+  onDeleteChat: (id: string) => void;
+  onAcceptPlan?: () => void;
+  onRejectPlan?: () => void;
+  onConfirmTuning?: (proposals?: any[]) => void;
+  onRejectTuning?: () => void;
+  onApproveImage?: (approvalId: string, model?: string) => void;
+  onRejectImage?: (approvalId: string) => void;
+  onRetryImage?: (approvalId: string) => void;
+  onEditImagePrompt?: (approvalId: string, newPrompt: string) => void;
+  onApproveAgentResult?: (reviewId: string) => void;
+  onRejectAgentResult?: (reviewId: string, feedback: string) => void;
+  onFetchModelCatalog?: () => void;
+  onFetchMediaCatalog?: (mediaType: string) => void;
+  onSearchModels?: (query: string) => void;
+  onSelectModel?: (modelId: string) => void;
+  onChangeAgentModel?: (agentName: string, modelId: string) => void;
+  onChangeManagerModel?: (modelId: string) => void;
+  onChangeMediaModel?: (mediaType: 'imageModel' | 'videoModel' | 'searchModel' | 'ttsModel' | 'sttModel' | 'visionModel', modelId: string) => void;
   selectedModel?: string;
   resolvedModel?: string;
-  onSend: (message: string, attachments?: Array<{ url: string; name: string; mime: string }>) => void;
-  onStop?: () => void;
-  onModeChange: (mode: 'chat' | 'plan') => void;
-  onSessionSwitch: (sessionId: string) => void;
-  onNewSession: () => void;
-  onAction: (name: string, payload?: Record<string, any>) => void;
-  onViewTasks: () => void;
-  isProcessing: boolean;
+  thinkingText?: string;
+  thinkingDuration?: number | null;
+  isThinking?: boolean;
+  inputMode?: 'chat' | 'plan';
+  onModeChange?: (mode: 'chat' | 'plan') => void;
+  disabled?: boolean;
+  preloadedModelCatalog?: Record<string, ModelCatalogEntry[]>;
+  preloadedModelSearchResults?: ModelCatalogEntry[];
+  preloadedMediaCatalog?: Record<string, ModelCatalogEntry[]>;
+  preloadedMediaSearchResults?: ModelCatalogEntry[];
+  onViewTasks?: () => void;
 }
 
+// ============================================================
+// Helpers
+// ============================================================
+
+const agentIcon = (name: string): string => {
+  const n = name.toLowerCase();
+  if (n.includes('analyst') || n.includes('product')) return '📊';
+  if (n.includes('copy') || n.includes('writer')) return '✍️';
+  if (n.includes('image') || n.includes('design') || n.includes('visual')) return '🎨';
+  if (n.includes('seo') || n.includes('search')) return '🔍';
+  if (n.includes('manager')) return '🧠';
+  if (n.includes('video')) return '🎬';
+  return '🤖';
+};
+
+const roleIcon = (role: string): string => {
+  const r = role.toLowerCase();
+  if (r.includes('analyst') || r.includes('product')) return '📊';
+  if (r.includes('copy') || r.includes('writer')) return '✍️';
+  if (r.includes('image') || r.includes('design')) return '🎨';
+  if (r.includes('seo') || r.includes('search')) return '🔍';
+  if (r.includes('manager')) return '🧠';
+  return '🤖';
+};
+
+// ============================================================
+// Sub-components
+// ============================================================
+
+const FeedUserMessage: React.FC<{ msg: ChatMessage }> = ({ msg }) => (
+  <div className="feed-user">
+    {msg.content}
+    {(() => {
+      const atts = msg.attachments || (msg.attachmentUrl ? [{ url: msg.attachmentUrl, name: msg.attachmentName || '', mime: msg.attachmentMime || '' }] : []);
+      if (atts.length === 0) return null;
+      return (
+        <div style={{ marginTop: '6px' }}>
+          {atts.map((att, i) => (
+            <div key={i}>
+              {att.mime?.startsWith('image/') ? (
+                <img src={att.url} alt={att.name} style={{ maxWidth: '100%', borderRadius: '3px', display: 'block' }} />
+              ) : att.mime?.startsWith('audio/') ? (
+                <audio src={att.url} controls style={{ maxWidth: '100%' }} />
+              ) : att.mime?.startsWith('video/') ? (
+                <video src={att.url} controls style={{ maxWidth: '100%', borderRadius: '3px' }} />
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '4px 8px', background: 'rgba(255,255,255,0.15)', borderRadius: '3px' }}>
+                  <FileText size={14} />
+                  <span style={{ fontSize: '11px' }}>{att.name || 'Attachment'}</span>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      );
+    })()}
+  </div>
+);
+
+const FeedAgentMessage: React.FC<{ avatar: string; name: string; children: React.ReactNode; meta?: string }> = ({ avatar, name, children, meta }) => (
+  <div className="feed-agent">
+    <div className="fa-av">{avatar}</div>
+    <div className="fa-bubble">
+      <span className="fa-name">{name}</span>
+      {children}
+      {meta && <span className="fa-meta">{meta}</span>}
+    </div>
+  </div>
+);
+
+const FeedThinking: React.FC<{ model?: string }> = ({ model }) => (
+  <div className="feed-thinking">
+    <div className="ft-av">🧠</div>
+    <div className="ft-bubble">
+      <span className="dots"><span></span><span></span><span></span></span>
+      {model && <span style={{ fontSize: '9px', color: 'var(--ink3)', marginLeft: '6px', fontFamily: 'var(--mono)' }}>{model}</span>}
+    </div>
+  </div>
+);
+
+const FeedProgress: React.FC<{ label: string; onViewProgress?: () => void }> = ({ label, onViewProgress }) => (
+  <div className="feed-progress">
+    <span className="dots"><span></span><span></span><span></span></span>
+    <span>{label}</span>
+    {onViewProgress && (
+      <button className="fe-btn sm" onClick={onViewProgress}>ดู progress</button>
+    )}
+  </div>
+);
+
+// Plan card with waves
+const ChatPlanCard: React.FC<{
+  msg: ChatMessage;
+  onAccept?: () => void;
+  onReject?: () => void;
+}> = ({ msg, onAccept, onReject }) => {
+  const agents = msg.planAgents || [];
+  const wave1 = agents.filter(a => !a.depends_on || a.depends_on.length === 0);
+  const wave1Names = wave1.map(a => a.name);
+  const wave2 = agents.filter(a => a.depends_on?.some(d => wave1Names.includes(d)) && !wave1Names.includes(a.name));
+  const wave2Names = wave2.map(a => a.name);
+  const wave3 = agents.filter(a => a.depends_on?.some(d => wave2Names.includes(d)) && !wave1Names.includes(a.name) && !wave2Names.includes(a.name));
+  const remaining = agents.filter(a => !wave1Names.includes(a.name) && !wave2Names.includes(a.name) && !wave3.map(w => w.name).includes(a.name));
+
+  const waves = [
+    { label: 'Wave 1', agents: wave1 },
+    { label: 'Wave 2', agents: wave2 },
+    { label: 'Wave 3', agents: wave3 },
+  ].filter(w => w.agents.length > 0);
+
+  const planStatus = msg.planStatus || 'pending';
+
+  return (
+    <div className="chat-plan">
+      <div className="chat-plan-waves">
+        {waves.map((wave, i) => (
+          <div key={i} className="chat-plan-wave">
+            <div className="cpw-label">{wave.label}</div>
+            {wave.agents.map((agent, j) => (
+              <div key={j} className="chat-plan-step">
+                <span className="cps-ic">{roleIcon(agent.role)}</span>
+                <span>{agent.name} — {agent.goal || agent.role}</span>
+              </div>
+            ))}
+          </div>
+        ))}
+        {remaining.length > 0 && (
+          <div className="chat-plan-wave">
+            <div className="cpw-label">More</div>
+            {remaining.map((agent, j) => (
+              <div key={j} className="chat-plan-step">
+                <span className="cps-ic">{roleIcon(agent.role)}</span>
+                <span>{agent.name} — {agent.goal || agent.role}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="chat-plan-meta">
+        {agents.length} agents · {waves.length} waves
+        {msg.estimatedCost ? ` · ${msg.estimatedCost}` : ''}
+        {msg.planTaskDescription ? ` · ${msg.planTaskDescription}` : ''}
+      </div>
+      {planStatus === 'pending' && (
+        <div className="chat-plan-actions">
+          <button className="cp-btn reject" onClick={onReject}>ปฏิเสธ</button>
+          <button className="cp-btn approve" onClick={onAccept}>อนุมัติแผน</button>
+        </div>
+      )}
+      {planStatus === 'approved' && (
+        <div className="chat-plan-actions">
+          <span style={{ fontSize: '11px', color: 'var(--green)', fontWeight: 700, padding: '8px 14px' }}>✅ อนุมัติแล้ว</span>
+        </div>
+      )}
+      {planStatus === 'rejected' && (
+        <div className="chat-plan-actions">
+          <span style={{ fontSize: '11px', color: 'var(--red)', fontWeight: 700, padding: '8px 14px' }}>❌ ปฏิเสธแล้ว</span>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Result card
+const ResultCard: React.FC<{ msg: ChatMessage }> = ({ msg }) => {
+  const isError = msg.resultError;
+  const agents = msg.resultAgents || [];
+  return (
+    <div className="card" style={{ borderLeft: `4px solid ${isError ? 'var(--red)' : 'var(--green)'}` }}>
+      <div className="card-hdr">
+        {isError ? <XCircle size={14} style={{ color: 'var(--red)' }} /> : <CheckCircle size={14} style={{ color: 'var(--green)' }} />}
+        <span>{isError ? 'Error' : 'Completed'}</span>
+      </div>
+      <div className="card-body">
+        <MarkdownRenderer content={msg.resultSummary || 'Done'} />
+      </div>
+      {agents.length > 0 && (
+        <div className="result-agents">
+          {agents.map((agent, i) => <ResultAgentCard key={i} agent={agent} index={i} />)}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const ResultAgentCard: React.FC<{ agent: ResultAgent; index: number }> = ({ agent }) => {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="result-agent">
+      <div className="ra-hdr" onClick={() => setOpen(!open)}>
+        <div className="ra-av">{agentIcon(agent.name)}</div>
+        <span>{agent.name}</span>
+        <span className="ra-toggle">{open ? '▲' : '▼'}</span>
+      </div>
+      <div className={`ra-body ${open ? 'open' : ''}`}>
+        <MarkdownRenderer content={agent.output} />
+      </div>
+    </div>
+  );
+};
+
+// Image approval card
+const ImageApprovalCard: React.FC<{
+  msg: ChatMessage;
+  onApprove?: (model?: string) => void;
+  onReject?: () => void;
+  onRetry?: () => void;
+}> = ({ msg, onApprove, onReject, onRetry }) => {
+  const status = msg.approvalStatus as ImageApprovalStatus;
+  if (status === 'approved') {
+    return (
+      <div className="card" style={{ borderLeft: '4px solid var(--green)' }}>
+        <div className="card-hdr"><CheckCircle size={14} style={{ color: 'var(--green)' }} /> <span>Image Approved</span></div>
+      </div>
+    );
+  }
+  if (status === 'rejected') {
+    return (
+      <div className="card" style={{ borderLeft: '4px solid var(--red)' }}>
+        <div className="card-hdr"><XCircle size={14} style={{ color: 'var(--red)' }} /> <span>Image Rejected</span></div>
+      </div>
+    );
+  }
+  return (
+    <div className="card" style={{ borderLeft: '4px solid var(--red)', background: 'rgba(160,48,32,0.03)' }}>
+      <div className="card-hdr">
+        <ImageIcon size={14} style={{ color: 'var(--purple)' }} />
+        <span>Image Approval — {msg.agentName || 'Agent'}</span>
+      </div>
+      <div className="card-body">
+        {msg.imageError ? (
+          <div style={{ color: 'var(--red)', fontSize: '11px' }}>⚠ {msg.imageError}</div>
+        ) : (
+          <div className="img-prompt">{msg.imagePrompt || ''}</div>
+        )}
+        {msg.model && (
+          <div className="img-model-sel" style={{ marginBottom: '4px' }}>
+            🤖 {msg.model}
+            {msg.mediaType && <span style={{ marginLeft: '6px', color: 'var(--ink3)' }}>({msg.mediaType})</span>}
+            {msg.duration ? <span style={{ marginLeft: '6px', color: 'var(--ink3)' }}>{msg.duration}s</span> : null}
+          </div>
+        )}
+      </div>
+      <div className="card-footer">
+        {msg.imageError ? (
+          <button className="btn btn-warm" onClick={onRetry}>🔄 Retry</button>
+        ) : (
+          <>
+            <button className="btn btn-no" onClick={onReject}>❌ Reject</button>
+            <button className="btn btn-yes" onClick={() => onApprove?.()}>✓ Generate</button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// Image result card
+const ImageResultCard: React.FC<{
+  msg: ChatMessage;
+  onEditPrompt?: (approvalId: string, newPrompt: string) => void;
+}> = ({ msg, onEditPrompt }) => {
+  const [editing, setEditing] = useState(false);
+  const [newPrompt, setNewPrompt] = useState(msg.imagePrompt || '');
+
+  return (
+    <div className="card">
+      <div className="card-hdr">
+        <ImageIcon size={14} style={{ color: 'var(--purple)' }} />
+        <span>Image Result — {msg.agentName || 'Agent'}</span>
+      </div>
+      <div className="card-body">
+        <div className="img-result">
+          {msg.mediaType === 'video' ? (
+            <video src={msg.imageUrl} controls style={{ width: '100%', border: '1px solid var(--line)', borderRadius: '3px' }} />
+          ) : (
+            <img src={msg.imageUrl} alt={msg.imagePrompt} style={{ width: '100%', border: '1px solid var(--line)', borderRadius: '3px' }} />
+          )}
+          <div className="ir-info">{msg.imagePrompt}</div>
+          {msg.model && <div className="ir-info">🤖 {msg.model}</div>}
+          <div className="ir-actions">
+            {editing ? (
+              <>
+                <input
+                  type="text"
+                  value={newPrompt}
+                  onChange={e => setNewPrompt(e.target.value)}
+                  style={{ flex: 1, fontSize: '10px', padding: '4px 6px', border: '1px solid var(--line)', borderRadius: '3px', background: 'var(--paper)', color: 'var(--ink)' }}
+                />
+                <button className="btn btn-yes" style={{ padding: '3px 8px', fontSize: '10px' }} onClick={() => { onEditPrompt?.(msg.approvalId || '', newPrompt); setEditing(false); }}>Save</button>
+                <button className="btn btn-no" style={{ padding: '3px 8px', fontSize: '10px' }} onClick={() => setEditing(false)}>Cancel</button>
+              </>
+            ) : (
+              <button className="btn btn-no" style={{ padding: '3px 10px', fontSize: '10px' }} onClick={() => setEditing(true)}>✏️ Edit Prompt</button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Agent review card
+const AgentReviewCard: React.FC<{
+  msg: ChatMessage;
+  onApprove?: () => void;
+  onReject?: (feedback: string) => void;
+}> = ({ msg, onApprove, onReject }) => {
+  const [feedback, setFeedback] = useState('');
+  const [showReject, setShowReject] = useState(false);
+  const status = (msg.reviewStatus || 'pending') as AgentReviewStatus;
+
+  if (status === 'approved') {
+    return (
+      <div className="card" style={{ borderLeft: '4px solid var(--green)' }}>
+        <div className="card-hdr"><CheckCircle size={14} style={{ color: 'var(--green)' }} /> <span>Approved — {msg.agentName}</span></div>
+      </div>
+    );
+  }
+  if (status === 'rejected') {
+    return (
+      <div className="card" style={{ borderLeft: '4px solid var(--red)' }}>
+        <div className="card-hdr"><XCircle size={14} style={{ color: 'var(--red)' }} /> <span>Rejected — {msg.agentName}</span></div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="card" style={{ borderLeft: '4px solid var(--blue)' }}>
+      <div className="card-hdr">
+        <span>🧠 Agent Review — {msg.agentName}</span>
+        <span className="ch-badge">{msg.agentRole}</span>
+      </div>
+      <div className="card-body">
+        <div className="review-output">{msg.content}</div>
+        {showReject && (
+          <div className="review-feedback" style={{ marginTop: '6px' }}>
+            <textarea
+              placeholder="Feedback for re-run..."
+              value={feedback}
+              onChange={e => setFeedback(e.target.value)}
+            />
+          </div>
+        )}
+      </div>
+      <div className="card-footer">
+        {showReject ? (
+          <>
+            <button className="btn btn-no" onClick={() => setShowReject(false)}>Cancel</button>
+            <button className="btn btn-warm" onClick={() => onReject?.(feedback)}>Send Back</button>
+          </>
+        ) : (
+          <>
+            <button className="btn btn-no" onClick={() => setShowReject(true)}>✕ Send Back</button>
+            <button className="btn btn-yes" onClick={onApprove}>✓ Approve</button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// Tuning proposal card
+const TuningCard: React.FC<{
+  msg: ChatMessage;
+  onConfirm?: (proposals?: any[]) => void;
+  onReject?: () => void;
+}> = ({ msg, onConfirm, onReject }) => {
+  const proposals = msg.tuningProposals || [];
+  const status = msg.tuningStatus;
+
+  return (
+    <div className="card" style={{ borderLeft: '4px solid var(--amber)' }}>
+      <div className="card-hdr"><span>📝 ปรับแต่ง Agent</span></div>
+      <div className="card-body">
+        {proposals.map((proposal, pi) => (
+          <div key={pi} style={{ marginBottom: '8px' }}>
+            <div className="ti-agent">{proposal.agent_name}</div>
+            {proposal.changes.map((change: any, ci: number) => (
+              <div key={ci} className="tuning-item">
+                <div className="ti-change">
+                  <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--ink2)' }}>{change.field}:</span>
+                  <span className="ti-old">{Array.isArray(change.old_value) ? change.old_value.join(', ') || '(empty)' : change.old_value || '(empty)'}</span>
+                  <span className="ti-arrow">→</span>
+                  <span className="ti-new">{Array.isArray(change.new_value) ? change.new_value.join(', ') : change.new_value}</span>
+                </div>
+                <div className="ti-reason">{change.reason}</div>
+              </div>
+            ))}
+          </div>
+        ))}
+        {status === 'confirmed' && <div style={{ fontSize: '11px', color: 'var(--green)', fontWeight: 600 }}>✅ ยืนยันแล้ว</div>}
+        {status === 'rejected' && <div style={{ fontSize: '11px', color: 'var(--red)', fontWeight: 600 }}>❌ ปฏิเสธแล้ว</div>}
+        {!status && (
+          <div className="card-footer" style={{ padding: '6px 0', borderTop: 'none' }}>
+            <button className="btn btn-no" onClick={onReject}>ปฏิเสธ</button>
+            <button className="btn btn-yes" onClick={() => onConfirm?.(proposals)}>ยืนยัน</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// Audio result
+const AudioResultCard: React.FC<{ msg: ChatMessage }> = ({ msg }) => (
+  <div className="media-result">
+    <div className="mr-hdr">🔊 Audio — {msg.agentName || 'Agent'}</div>
+    <div className="mr-body">
+      {msg.audioPrompt && <div style={{ fontSize: '10px', color: 'var(--ink3)', fontStyle: 'italic', marginBottom: '4px' }}>"{msg.audioPrompt}"</div>}
+      <audio controls src={msg.audioUrl} style={{ width: '100%', height: '32px' }} />
+      <div className="mr-info">
+        {msg.agentName && <span>Agent: {msg.agentName}</span>}
+        {msg.model && <span>Model: {msg.model}</span>}
+      </div>
+    </div>
+  </div>
+);
+
+// Transcription result
+const TranscriptionCard: React.FC<{ msg: ChatMessage }> = ({ msg }) => (
+  <div className="media-result">
+    <div className="mr-hdr">🎤 Transcription — {msg.agentName || 'Agent'}</div>
+    <div className="mr-body">
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+        <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--ink2)' }}>Transcription</span>
+        <button
+          style={{ fontSize: '9px', color: 'var(--orange)', cursor: 'pointer', background: 'none', border: 'none', display: 'flex', alignItems: 'center', gap: '2px' }}
+          onClick={() => navigator.clipboard.writeText(msg.transcriptionText || '')}
+        >
+          <Copy size={10} /> Copy
+        </button>
+      </div>
+      <div style={{ fontSize: '11px', color: 'var(--ink)', whiteSpace: 'pre-wrap' }}>{msg.transcriptionText}</div>
+      <div className="mr-info">
+        {msg.agentName && <span>Agent: {msg.agentName}</span>}
+        {msg.model && <span>Model: {msg.model}</span>}
+      </div>
+    </div>
+  </div>
+);
+
+// Video result
+const VideoResultCard: React.FC<{ msg: ChatMessage }> = ({ msg }) => (
+  <div className="media-result">
+    <div className="mr-hdr">🎬 Video — {msg.agentName || 'Agent'}</div>
+    <div className="mr-body">
+      {msg.videoPrompt && <div style={{ fontSize: '10px', color: 'var(--ink3)', fontStyle: 'italic', marginBottom: '4px' }}>"{msg.videoPrompt}"</div>}
+      <video controls src={msg.videoUrl} style={{ width: '100%', borderRadius: '3px' }} />
+      <div className="mr-info">
+        {msg.agentName && <span>Agent: {msg.agentName}</span>}
+        {msg.model && <span>Model: {msg.model}</span>}
+      </div>
+    </div>
+  </div>
+);
+
+// File result
+const FileResultCard: React.FC<{ msg: ChatMessage }> = ({ msg }) => (
+  <div className="media-result">
+    <div className="mr-hdr">📎 File — {msg.agentName || 'Agent'}</div>
+    <div className="mr-file">
+      <a href={msg.fileUrl} download={msg.fileName} style={{ display: 'flex', alignItems: 'center', gap: '6px', textDecoration: 'none', color: 'var(--blue)' }}>
+        <FileText size={18} />
+        <div>
+          <div className="mr-file-n">{msg.fileName || 'Download file'}</div>
+          {msg.fileMime && <div className="mr-file-t">{msg.fileMime}</div>}
+        </div>
+      </a>
+    </div>
+    {msg.agentName && <div className="mr-info"><span>Agent: {msg.agentName}</span></div>}
+  </div>
+);
+
+// ============================================================
+// Main ChatWindow Component
+// ============================================================
+
 export const ChatWindow: React.FC<ChatWindowProps> = ({
-  messages, sessions, activeSessionId, isThinking, thinkingModel,
-  inputMode, selectedModel, resolvedModel,
-  onSend, onStop, onModeChange, onSessionSwitch, onNewSession, onAction,
-  onViewTasks, isProcessing,
+  messages, activityLog, isProcessing, chatSessions, activeSessionId,
+  onSend, onStop, onNewChat, onSwitchChat, onRenameChat, onDeleteChat,
+  onAcceptPlan, onRejectPlan, onConfirmTuning, onRejectTuning,
+  onApproveImage, onRejectImage, onRetryImage, onEditImagePrompt,
+  onApproveAgentResult, onRejectAgentResult,
+  onFetchModelCatalog, onFetchMediaCatalog, onSearchModels, onSelectModel,
+  onChangeAgentModel, onChangeManagerModel, onChangeMediaModel,
+  selectedModel, resolvedModel, thinkingText, thinkingDuration, isThinking,
+  inputMode, onModeChange, disabled,
+  preloadedModelCatalog, preloadedModelSearchResults,
+  preloadedMediaCatalog, preloadedMediaSearchResults,
+  onViewTasks,
 }) => {
   const [input, setInput] = useState('');
-  const feedRef = useRef<HTMLDivElement>(null);
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [modelCatalog, setModelCatalog] = useState<Record<string, ModelCatalogEntry[]>>({});
+  const [modelSearchResults, setModelSearchResults] = useState<ModelCatalogEntry[]>([]);
+  const [mediaCatalog, setMediaCatalog] = useState<Record<string, ModelCatalogEntry[]>>({});
+  const [mediaSearchResults, setMediaSearchResults] = useState<ModelCatalogEntry[]>([]);
+  const [attachments, setAttachments] = useState<Array<{ url: string; name: string; mime: string }>>([]);
+  const [attachmentPreviews, setAttachmentPreviews] = useState<Array<string>>([]);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const isNearBottomRef = useRef(true);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const inputBarRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll
+  const handleScroll = useCallback(() => {
+    if (scrollRef.current) {
+      const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
+      isNearBottomRef.current = scrollHeight - scrollTop - clientHeight < 100;
+    }
+  }, []);
 
   useEffect(() => {
-    if (feedRef.current) {
-      feedRef.current.scrollTop = feedRef.current.scrollHeight;
+    if (scrollRef.current && isNearBottomRef.current) {
+      const lastMsg = messages[messages.length - 1];
+      if (lastMsg && lastMsg.messageType === 'model_catalog') return;
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages, isThinking]);
+  }, [messages, activityLog, isProcessing]);
 
-  const handleSend = () => {
-    if (!input.trim() || isProcessing) return;
-    onSend(input.trim());
+  // Process model_catalog messages
+  useEffect(() => {
+    const textCatalogMsgs = messages.filter(
+      m => m.messageType === 'model_catalog' && m.modelCatalogRecommended && (m.catalogType || 'text') === 'text'
+    );
+    if (textCatalogMsgs.length > 0) {
+      const latest = textCatalogMsgs[textCatalogMsgs.length - 1];
+      setModelCatalog(latest.modelCatalogRecommended!);
+      setModelSearchResults(latest.modelCatalogSearchResults || []);
+    }
+    const mediaCatalogMsgs = messages.filter(
+      m => m.messageType === 'model_catalog' && m.modelCatalogRecommended && m.catalogType === 'media'
+    );
+    if (mediaCatalogMsgs.length > 0) {
+      const merged: Record<string, any[]> = {};
+      const mergedSearch: any[] = [];
+      for (const msg of mediaCatalogMsgs) {
+        const rec = msg.modelCatalogRecommended!;
+        for (const [provider, models] of Object.entries(rec)) {
+          if (!merged[provider]) merged[provider] = [];
+          for (const model of models) {
+            if (!merged[provider].some(m => m.id === model.id)) merged[provider].push(model);
+          }
+        }
+        mergedSearch.push(...(msg.modelCatalogSearchResults || []));
+      }
+      setMediaCatalog(merged);
+      setMediaSearchResults(mergedSearch);
+    }
+  }, [messages]);
+
+  // Use preloaded catalog data
+  useEffect(() => {
+    if (preloadedModelCatalog && Object.keys(preloadedModelCatalog).length > 0) {
+      setModelCatalog(prev => Object.keys(prev).length > 0 ? prev : preloadedModelCatalog);
+    }
+    if (preloadedModelSearchResults && preloadedModelSearchResults.length > 0) {
+      setModelSearchResults(prev => prev.length > 0 ? prev : preloadedModelSearchResults);
+    }
+    if (preloadedMediaCatalog && Object.keys(preloadedMediaCatalog).length > 0) {
+      setMediaCatalog(prev => Object.keys(prev).length > 0 ? prev : preloadedMediaCatalog);
+    }
+    if (preloadedMediaSearchResults && preloadedMediaSearchResults.length > 0) {
+      setMediaSearchResults(prev => prev.length > 0 ? prev : preloadedMediaSearchResults);
+    }
+  }, [preloadedModelCatalog, preloadedModelSearchResults, preloadedMediaCatalog, preloadedMediaSearchResults]);
+
+  const handleOpenModelPicker = () => {
+    if (modelPickerOpen) { setModelPickerOpen(false); return; }
+    if (Object.keys(modelCatalog).length === 0 && onFetchModelCatalog) onFetchModelCatalog();
+    setModelPickerOpen(true);
+  };
+
+  const handleSearchModels = (query: string) => { onSearchModels?.(query); };
+  const handleSelectModel = (modelId: string) => { onSelectModel?.(modelId); setModelPickerOpen(false); };
+
+  const handleSubmit = async () => {
+    if ((!input.trim() && attachments.length === 0) || disabled) return;
+    await onSend(input.trim(), attachments.length > 0 ? attachments : undefined);
     setInput('');
+    setAttachments([]);
+    setAttachmentPreviews([]);
+    if (textareaRef.current) textareaRef.current.style.height = 'auto';
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(); }
+  };
+
+  const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInput(e.target.value);
+    const el = e.target;
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 80) + 'px';
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    const newAtt: Array<{ url: string; name: string; mime: string }> = [];
+    const newPrev: Array<string> = [];
+    let processed = 0;
+    const total = files.length;
+    for (let i = 0; i < total; i++) {
+      const file = files[i];
+      if (file.size > 20 * 1024 * 1024) { alert(`File "${file.name}" too large. Maximum 20MB.`); processed++; continue; }
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        newAtt.push({ url: dataUrl, name: file.name, mime: file.type || 'application/octet-stream' });
+        if (file.type.startsWith('image/')) newPrev.push(dataUrl);
+        else if (file.type.startsWith('audio/')) newPrev.push('audio');
+        else if (file.type.startsWith('video/')) newPrev.push('video');
+        else newPrev.push('file');
+        processed++;
+        if (processed === total) {
+          setAttachments(prev => [...prev, ...newAtt]);
+          setAttachmentPreviews(prev => [...prev, ...newPrev]);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.type.startsWith('image/')) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const dataUrl = reader.result as string;
+            setAttachments(prev => [...prev, { url: dataUrl, name: file.name || 'pasted-image.png', mime: file.type }]);
+            setAttachmentPreviews(prev => [...prev, dataUrl]);
+          };
+          reader.readAsDataURL(file);
+        }
+        break;
+      }
     }
   };
 
+  const startEditSession = (id: string, title: string) => { setEditingSessionId(id); setEditTitle(title); };
+  const confirmEditSession = () => {
+    if (editingSessionId && editTitle.trim()) onRenameChat(editingSessionId, editTitle.trim());
+    setEditingSessionId(null); setEditTitle('');
+  };
+
+  // Render messages
   const renderMessage = (msg: ChatMessage) => {
-    switch (msg.messageType) {
-      case 'text':
-        return msg.role === 'user'
-          ? <FeedUserMessage key={msg.id} msg={msg} />
-          : <FeedAgentMessage key={msg.id} avatar="🧠" name="Manager">{msg.content}</FeedAgentMessage>;
+    const msgType = msg.messageType || 'text';
 
-      case 'thinking':
-        return <FeedThinking key={msg.id} model={msg.model} />;
-
-      case 'plan':
-        return (
-          <ChatPlanCard
-            key={msg.id}
-            planAgents={msg.planAgents || []}
-            taskDescription={msg.planTaskDescription || ''}
-            planType={msg.planType}
-            onApprove={() => onAction('plan_approve')}
-            onReject={() => onAction('plan_reject')}
-          />
-        );
-
-      case 'progress':
-      case 'agent_progress':
-        return (
-          <FeedProgress
-            key={msg.id}
-            label={msg.progressLabel || 'กำลังทำงาน...'}
-            onViewProgress={onViewTasks}
-          />
-        );
-
-      case 'result':
-        return (
-          <FeedResultBubbles
-            key={msg.id}
-            agents={msg.resultAgents || []}
-            summary={msg.resultSummary}
-            isError={msg.resultError}
-          />
-        );
-
-      case 'image_approval':
-        return (
-          <FeedAgentMessage key={msg.id} avatar="🎨" name={msg.agentName || 'Image Generator'}>
-            <div className="flex flex-col gap-2">
-              <span>รออนุมัติภาพ: {msg.imagePrompt}</span>
-              <div className="flex gap-2">
-                <button
-                  className="text-[10px] px-3 py-1 border border-green bg-green text-white rounded-retro-sm font-bold hover:bg-green-light transition-colors"
-                  onClick={() => onAction('image_approve', { approvalId: msg.approvalId })}
-                >
-                  Approve
-                </button>
-                <button
-                  className="text-[10px] px-3 py-1 border border-red bg-paper text-red rounded-retro-sm font-bold hover:bg-red hover:text-white transition-colors"
-                  onClick={() => onAction('image_reject', { approvalId: msg.approvalId })}
-                >
-                  Reject
-                </button>
-              </div>
-            </div>
-          </FeedAgentMessage>
-        );
-
-      case 'image_result':
-        return (
-          <FeedAgentMessage key={msg.id} avatar="🎨" name={msg.agentName || 'Image Generator'}>
-            <img src={msg.imageUrl} alt={msg.imagePrompt} className="max-w-full rounded-retro mt-1 block" />
-          </FeedAgentMessage>
-        );
-
-      default:
-        return null;
+    if (msgType === 'plan' && msg.planAgents) {
+      return <ChatPlanCard key={msg.id} msg={msg} onAccept={onAcceptPlan} onReject={onRejectPlan} />;
     }
+    if (msgType === 'progress') {
+      return <FeedProgress key={msg.id} label={msg.progressLabel || 'กำลังทำงาน...'} onViewProgress={onViewTasks} />;
+    }
+    if (msgType === 'agent_progress') {
+      if (!msg.agentProgressList || msg.agentProgressList.length === 0) return null;
+      return (
+        <div key={msg.id} className="prog-agents">
+          {msg.agentProgressList.map((ap, i) => (
+            <div key={i} className="prog-agent">
+              <div className={`pa-dot ${ap.status === 'complete' ? 'ok' : ap.status === 'running' ? 'run' : ap.status === 'waiting_approval' || ap.status === 'awaiting_review' ? 'wt' : 'idle'}`} />
+              <span>{agentIcon(ap.name)} {ap.name}</span>
+              <span className="pa-stat">{ap.status === 'complete' ? 'done' : ap.status === 'running' ? `${ap.progress}%` : ap.status}</span>
+            </div>
+          ))}
+        </div>
+      );
+    }
+    if (msgType === 'result') {
+      return <ResultCard key={msg.id} msg={msg} />;
+    }
+    if (msgType === 'image_approval') {
+      return (
+        <ImageApprovalCard
+          key={msg.id} msg={msg}
+          onApprove={(model) => onApproveImage?.(msg.approvalId || '', model)}
+          onReject={() => onRejectImage?.(msg.approvalId || '')}
+          onRetry={() => onRetryImage?.(msg.approvalId || '')}
+        />
+      );
+    }
+    if (msgType === 'image_result') {
+      return <ImageResultCard key={msg.id} msg={msg} onEditPrompt={onEditImagePrompt} />;
+    }
+    if (msgType === 'model_catalog') { return null; }
+    if (msgType === 'agent_review') {
+      return (
+        <AgentReviewCard
+          key={msg.id} msg={msg}
+          onApprove={() => onApproveAgentResult?.(msg.reviewId || '')}
+          onReject={(feedback) => onRejectAgentResult?.(msg.reviewId || '', feedback)}
+        />
+      );
+    }
+    if (msgType === 'tuning_proposal' && msg.tuningProposals) {
+      return <TuningCard key={msg.id} msg={msg} onConfirm={onConfirmTuning} onReject={onRejectTuning} />;
+    }
+    if (msgType === 'audio_result') { return <AudioResultCard key={msg.id} msg={msg} />; }
+    if (msgType === 'transcription_result') { return <TranscriptionCard key={msg.id} msg={msg} />; }
+    if (msgType === 'video_result') { return <VideoResultCard key={msg.id} msg={msg} />; }
+    if (msgType === 'file_result') { return <FileResultCard key={msg.id} msg={msg} />; }
+    if (msgType === 'thinking' || msgType === 'thinking_done') { return null; }
+
+    // Default: text message
+    if (msg.role === 'user') {
+      return <FeedUserMessage key={msg.id} msg={msg} />;
+    }
+    return (
+      <FeedAgentMessage key={msg.id} avatar={agentIcon(msg.agentName || 'Manager')} name={msg.agentName || 'Manager'}>
+        {msg.content}
+      </FeedAgentMessage>
+    );
   };
 
   return (
-    <div className="flex h-full">
+    <div className="chat-body">
       {/* Session sidebar */}
-      <div className="w-44 flex flex-col border-r border-line bg-cream flex-shrink-0">
-        <div className="px-3 py-2 text-[11px] font-bold text-ink-2 border-b border-line">Sessions</div>
-        <button
-          className="mx-2 my-1.5 px-2 py-1.5 text-[11px] text-ink-2 border border-dashed border-line-2 rounded-retro-sm hover:bg-cream-2 transition-colors text-left"
-          onClick={onNewSession}
-        >
-          + New Session
-        </button>
-        <div className="flex-1 overflow-y-auto px-1.5 flex flex-col gap-0.5">
-          {sessions.map(s => (
-            <button
-              key={s.id}
-              className={`px-2 py-1.5 rounded-retro-sm text-left transition-colors ${
-                activeSessionId === s.id
-                  ? 'bg-paper border border-line text-ink font-semibold'
-                  : 'text-ink-2 hover:bg-cream-2'
-              }`}
-              onClick={() => onSessionSwitch(s.id)}
-            >
-              <div className="text-[11px] truncate">{s.title}</div>
-              <div className="text-[9px] text-ink-3 truncate">{s.updated_at}</div>
-            </button>
-          ))}
+      <div className="chat-sessions">
+        <div className="cs-header">Sessions</div>
+        <div className="cs-new" onClick={onNewChat}>+ New Session</div>
+        <div className="cs-list">
+          {chatSessions.length === 0 ? (
+            <div style={{ fontSize: '10px', color: 'var(--ink3)', padding: '8px 10px', textAlign: 'center' }}>No chats yet</div>
+          ) : (
+            chatSessions.map(s => (
+              <div
+                key={s.id}
+                className={`cs-item ${activeSessionId === s.id ? 'active' : ''}`}
+                onClick={() => editingSessionId !== s.id && onSwitchChat(s.id)}
+              >
+                {editingSessionId === s.id ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <input
+                      type="text" value={editTitle}
+                      onChange={e => setEditTitle(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') { e.stopPropagation(); confirmEditSession(); }
+                        if (e.key === 'Escape') { e.stopPropagation(); setEditingSessionId(null); setEditTitle(''); }
+                      }}
+                      autoFocus
+                      style={{ flex: 1, fontSize: '11px', padding: '2px 4px', border: '1px solid var(--line)', borderRadius: '3px', background: 'var(--paper)', color: 'var(--ink)' }}
+                    />
+                    <button onClick={e => { e.stopPropagation(); confirmEditSession(); }} style={{ color: 'var(--green)', cursor: 'pointer', background: 'none', border: 'none' }}><Check size={12} /></button>
+                    <button onClick={e => { e.stopPropagation(); setEditingSessionId(null); setEditTitle(''); }} style={{ color: 'var(--ink3)', cursor: 'pointer', background: 'none', border: 'none' }}><X size={12} /></button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="cs-name">{s.title}</div>
+                    <div className="cs-preview">{s.updated_at || ''}</div>
+                    <div style={{ display: 'flex', gap: '4px', marginTop: '2px', opacity: 0.6 }}>
+                      <button onClick={e => { e.stopPropagation(); startEditSession(s.id, s.title); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink3)' }}><Pencil size={10} /></button>
+                      <button onClick={e => { e.stopPropagation(); if (confirm('Delete this chat?')) { onDeleteChat(s.id); } }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink3)' }}><Trash2 size={10} /></button>
+                    </div>
+                  </>
+                )}
+              </div>
+            ))
+          )}
         </div>
       </div>
 
       {/* Chat area */}
-      <div className="flex-1 flex flex-col min-w-0 min-h-0">
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0 }}>
         {/* Feed */}
-        <div
-          ref={feedRef}
-          className="flex-1 overflow-y-auto min-h-0 px-4 py-3 flex flex-col gap-2.5"
-        >
-          {messages.length === 0 && !isThinking && (
-            <div className="flex items-center justify-center h-full text-ink-3 text-[12px]">
-              พิมพ์คำสั่งถึงทีม...
+        <div ref={scrollRef} onScroll={handleScroll} className="chat-feed">
+          {messages.length === 0 && activityLog.length === 0 && !isProcessing ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--ink3)' }}>
+              <Bot size={40} style={{ opacity: 0.3, marginBottom: '8px' }} />
+              <span style={{ fontSize: '13px' }}>No conversation yet</span>
+              <span style={{ fontSize: '11px', marginTop: '2px' }}>Type a message below to start</span>
             </div>
+          ) : (
+            <>
+              {messages.map(renderMessage)}
+
+              {/* Activity log */}
+              {(activityLog.length > 0 || isProcessing) && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', paddingLeft: '40px' }}>
+                  {activityLog.map(entry => (
+                    <div key={entry.id} className="feed-event system">
+                      <span className="fe-ic">{entry.status === 'current' ? '⏳' : '✓'}</span>
+                      <div className="fe-body"><div className="fe-title">{entry.text}</div></div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Thinking indicator */}
+              {isThinking && !messages.some(m => m.messageType === 'plan' && m.planStatus === 'pending') && (
+                <FeedThinking model={resolvedModel} />
+              )}
+            </>
           )}
-          {messages.map(renderMessage)}
-          {isThinking && <FeedThinking model={thinkingModel} />}
         </div>
 
-        {/* Input */}
-        <div className="border-t border-line bg-cream px-3 py-2 flex-shrink-0">
-          <div className="flex items-center justify-between mb-1.5">
-            <div className="text-[10px] text-ink-3 font-mono">
-              ⚡ {selectedModel || 'auto-router'}
-              {resolvedModel && resolvedModel !== selectedModel && (
-                <span className="text-green"> → {resolvedModel}</span>
+        {/* Input bar */}
+        <div ref={inputBarRef} className="chat-input">
+          {modelPickerOpen && (
+            <ModelPicker
+              recommended={modelCatalog}
+              searchResults={modelSearchResults}
+              selectedModel={selectedModel || ''}
+              onSelect={handleSelectModel}
+              onSearch={handleSearchModels}
+              onClose={() => setModelPickerOpen(false)}
+              anchorRef={inputBarRef}
+            />
+          )}
+          {/* Model status + mode toggle */}
+          <div className="ci-top">
+            <button className="ci-model" onClick={handleOpenModelPicker} disabled={disabled}>
+              {(() => {
+                const modelId = selectedModel || resolvedModel || '';
+                const provider = getProvider(modelId);
+                const favicon = PROVIDER_FAVICONS[provider];
+                if (favicon) return <img src={favicon} alt="" style={{ width: '12px', height: '12px', borderRadius: '2px', objectFit: 'contain' }} onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />;
+                return <Cpu size={12} />;
+              })()}
+              {selectedModel ? (
+                <>
+                  <span>{findModelName(selectedModel, modelCatalog, modelSearchResults)}</span>
+                  <span style={{ fontSize: '8px', padding: '1px 4px', borderRadius: '2px', background: 'rgba(192,80,30,0.15)', color: 'var(--orange)' }}>Manual</span>
+                </>
+              ) : (
+                <>
+                  <span>{resolvedModel ? findModelName(resolvedModel, modelCatalog, modelSearchResults) : 'auto-router'}</span>
+                  <span style={{ fontSize: '8px', padding: '1px 4px', borderRadius: '2px', background: 'rgba(90,122,74,0.15)', color: 'var(--green)' }}>Auto</span>
+                </>
               )}
-            </div>
-            <div className="flex gap-1">
-              <button
-                className={`px-2.5 py-0.5 text-[10px] rounded-retro-sm font-semibold transition-colors ${
-                  inputMode === 'chat' ? 'bg-ink text-paper' : 'bg-paper text-ink-2 border border-line hover:bg-cream-2'
-                }`}
-                onClick={() => onModeChange('chat')}
-              >
-                💬 Chat
-              </button>
-              <button
-                className={`px-2.5 py-0.5 text-[10px] rounded-retro-sm font-semibold transition-colors ${
-                  inputMode === 'plan' ? 'bg-ink text-paper' : 'bg-paper text-ink-2 border border-line hover:bg-cream-2'
-                }`}
-                onClick={() => onModeChange('plan')}
-              >
-                ✨ Plan
-              </button>
+              <ChevronDown size={12} style={{ transform: modelPickerOpen ? 'rotate(180deg)' : '' }} />
+            </button>
+            <div className="ci-mode">
+              <button className={`ci-mode-btn ${inputMode === 'chat' ? 'active' : ''}`} onClick={() => onModeChange?.('chat')} disabled={disabled}>💬 Chat</button>
+              <button className={`ci-mode-btn ${inputMode === 'plan' ? 'active' : ''}`} onClick={() => onModeChange?.('plan')} disabled={disabled}>✨ Plan</button>
             </div>
           </div>
-          <div className="flex items-center gap-1.5">
-            <button className="w-7 h-7 border border-line-2 bg-paper rounded-retro-sm text-sm text-ink-2 hover:bg-cream-2 transition-colors flex items-center justify-center">+</button>
+          {/* Attachments preview */}
+          {attachments.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '6px' }}>
+              {attachments.map((att, idx) => (
+                <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '4px 8px', background: 'var(--paper)', border: '1px solid var(--line)', borderRadius: '3px' }}>
+                  <div style={{ width: '24px', height: '24px', borderRadius: '3px', background: 'rgba(192,80,30,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    {attachmentPreviews[idx]?.startsWith('data:') ? (
+                      <img src={attachmentPreviews[idx]} alt="" style={{ width: '24px', height: '24px', borderRadius: '3px', objectFit: 'cover' }} />
+                    ) : attachmentPreviews[idx] === 'audio' ? (
+                      <Volume2 size={14} style={{ color: 'var(--orange)' }} />
+                    ) : attachmentPreviews[idx] === 'video' ? (
+                      <Video size={14} style={{ color: 'var(--orange)' }} />
+                    ) : (
+                      <FileText size={14} style={{ color: 'var(--orange)' }} />
+                    )}
+                  </div>
+                  <span style={{ fontSize: '10px', color: 'var(--ink)', maxWidth: '100px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</span>
+                  <button onClick={() => { setAttachments(prev => prev.filter((_, i) => i !== idx)); setAttachmentPreviews(prev => prev.filter((_, i) => i !== idx)); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink3)' }}><X size={12} /></button>
+                </div>
+              ))}
+            </div>
+          )}
+          <input ref={fileInputRef} type="file" multiple onChange={handleFileSelect} style={{ display: 'none' }} accept="image/*,audio/*,video/*,.pdf,.txt,.json,.csv,.doc,.docx,.md" />
+          {/* Input row */}
+          <div className="ci-row">
+            <button className="ci-plus" onClick={() => fileInputRef.current?.click()} disabled={disabled} title="Attach file">+</button>
             <textarea
-              className="flex-1 border border-line-2 bg-paper rounded-retro-sm px-2.5 py-1.5 text-[12px] text-ink resize-none outline-none focus:border-orange"
-              rows={1}
-              placeholder="พิมพ์คำสั่งถึงทีม..."
+              ref={textareaRef}
+              className="ci-input"
+              placeholder={disabled ? 'Waiting...' : 'พิมพ์คำสั่งถึงทีม...'}
               value={input}
-              onChange={e => setInput(e.target.value)}
+              onChange={handleInput}
               onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
+              disabled={disabled}
+              rows={1}
             />
-            {isProcessing && onStop ? (
-              <button
-                className="px-3 py-1.5 border border-red bg-red text-white rounded-retro-sm text-[12px] font-bold hover:bg-red-light transition-colors"
-                onClick={onStop}
-              >
-                ⏹
+            {isProcessing ? (
+              <button className="ci-send" onClick={() => onStop?.()} style={{ background: 'var(--red)' }} title="Stop">
+                <Square size={13} className="fill-current" />
               </button>
             ) : (
-              <button
-                className="px-3 py-1.5 border border-orange bg-orange text-white rounded-retro-sm text-[12px] font-bold hover:bg-orange-light transition-colors"
-                onClick={handleSend}
-                disabled={!input.trim()}
-              >
-                ➤
-              </button>
+              <button className="ci-send" onClick={handleSubmit} disabled={disabled || (!input.trim() && attachments.length === 0)}>➤</button>
             )}
           </div>
         </div>

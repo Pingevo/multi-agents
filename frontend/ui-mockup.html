@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent Office — UI Mockup</title>
+<style>
+:root{--bg:#0a0b0f;--s:#131419;--s2:#1c1e26;--s3:#262833;--bd:#1e2028;--bl:#2a2d3a;--t:#e8e9ee;--t2:#9ca3af;--t3:#6b7280;--ac:#6366f1;--al:#818cf8;--ok:#22c55e;--wn:#f59e0b;--er:#ef4444;--pp:#a855f7;--bu:#3b82f6;--or:#f97316;--dk:#2d3142;--dl:#363a4f}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Inter,-apple-system,sans-serif;background:var(--bg);color:var(--t);height:100vh;overflow:hidden;display:flex;flex-direction:column}
+.hdr{height:48px;background:var(--s);border-bottom:1px solid var(--bd);display:flex;align-items:center;justify-content:space-between;padding:0 16px;flex-shrink:0;z-index:100}
+.hdr-l{display:flex;align-items:center;gap:10px}
+.logo{width:26px;height:26px;background:linear-gradient(135deg,var(--ac),var(--pp));border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#fff}
+.hdr-t{font-size:14px;font-weight:600}
+.hdr-r{display:flex;align-items:center;gap:14px}
+.cb{display:flex;align-items:center;gap:6px;padding:4px 10px;background:var(--s2);border-radius:16px;font-size:11px;color:var(--t2)}
+.cb .d{width:5px;height:5px;border-radius:50%;background:var(--ok)}
+.sb{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--t2)}
+.sb .d{width:6px;height:6px;border-radius:50%;background:var(--ok)}
+.ua{width:26px;height:26px;border-radius:50%;background:var(--ac);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:#fff}
+.main{flex:1;display:flex;min-height:0;position:relative}
+/* Office */
+.office{flex:1;position:relative;overflow:hidden;background:radial-gradient(ellipse at center,#1a1c24 0%,#11131a 100%)}
+.floor{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:100%;height:100%;
+  background:repeating-linear-gradient(0deg,transparent,transparent 79px,rgba(255,255,255,.02) 79px,rgba(255,255,255,.02) 80px),
+  repeating-linear-gradient(90deg,transparent,transparent 79px,rgba(255,255,255,.02) 79px,rgba(255,255,255,.02) 80px)}
+/* Zones */
+.zone{position:absolute;border-radius:8px;border:1px dashed rgba(255,255,255,.06)}
+.zone-lbl{position:absolute;top:-8px;left:12px;font-size:9px;color:var(--t3);text-transform:uppercase;letter-spacing:.1em;background:var(--bg);padding:0 6px}
+.z-meeting{top:40px;left:40px;width:300px;height:200px;background:rgba(99,102,241,.03);border-color:rgba(99,102,241,.12)}
+.z-desks{top:40px;right:420px;width:calc(100% - 740px);min-width:300px;height:calc(100% - 80px);background:rgba(255,255,255,.01)}
+.z-manager{bottom:40px;left:40px;width:300px;height:180px;background:rgba(245,158,11,.03);border-color:rgba(245,158,11,.12)}
+/* Agent character */
+.ac{position:absolute;display:flex;flex-direction:column;align-items:center;cursor:pointer;transition:transform .3s;z-index:10}
+.ac:hover{transform:scale(1.05)}
+.ac.sel{z-index:20}
+.ac-body{width:44px;height:52px;position:relative;margin-bottom:3px}
+.ac-head{width:22px;height:22px;border-radius:50%;margin:0 auto;position:relative;z-index:2;border:2px solid var(--s);display:flex;align-items:center;justify-content:center;font-size:13px}
+.ac-torso{width:30px;height:26px;margin:-3px auto 0;border-radius:10px 10px 5px 5px;position:relative;z-index:1}
+.ac-desk{width:56px;height:22px;background:var(--dk);border-radius:4px;border:1px solid var(--dl);margin-top:-2px;position:relative}
+.ac-mon{position:absolute;top:-14px;left:50%;transform:translateX(-50%);width:16px;height:10px;background:var(--s3);border:1px solid var(--bl);border-radius:2px}
+.ac-mon.on{background:var(--ac);box-shadow:0 0 8px rgba(99,102,241,.4)}
+.ac-mon.ok{background:var(--ok);box-shadow:0 0 8px rgba(34,197,94,.3)}
+.ac-mon.wn{background:var(--wn);box-shadow:0 0 8px rgba(245,158,11,.3)}
+.ac-name{font-size:10px;font-weight:600;background:var(--s);padding:2px 7px;border-radius:4px;border:1px solid var(--bd);white-space:nowrap;margin-top:5px}
+.ac-role{font-size:8px;color:var(--t3);margin-top:2px}
+/* Thought bubble */
+.tb{position:absolute;top:-30px;left:50%;transform:translateX(-50%);background:var(--s);border:1px solid var(--bl);border-radius:10px;padding:3px 8px;font-size:9px;white-space:nowrap;display:flex;align-items:center;gap:4px;z-index:30;box-shadow:0 4px 12px rgba(0,0,0,.4)}
+.tb::after{content:'';position:absolute;bottom:-5px;left:50%;transform:translateX(-50%);width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid var(--s)}
+.spn{width:10px;height:10px;border:1.5px solid var(--s3);border-top-color:var(--ac);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+/* Status ring */
+.ring{position:absolute;top:-3px;left:50%;transform:translateX(-50%);width:52px;height:52px;border-radius:50%;border:2px solid transparent}
+.ring.run{border-color:var(--ac);animation:pr 2s ease-in-out infinite}
+.ring.ok{border-color:var(--ok)}
+.ring.er{border-color:var(--er)}
+.ring.wt{border-color:var(--pp)}
+.ring.rv{border-color:var(--wn)}
+@keyframes pr{0%,100%{opacity:.4;transform:translateX(-50%) scale(1)}50%{opacity:1;transform:translateX(-50%) scale(1.08)}}
+/* Progress bar under char */
+.pbar{position:absolute;bottom:-1px;left:50%;transform:translateX(-50%);width:48px;height:3px;background:var(--s3);border-radius:2px;overflow:hidden}
+.pbar-f{height:100%;background:var(--ac);border-radius:2px;transition:width .3s}
+.pbar-f.ok{background:var(--ok)}
+/* Connection lines */
+.conn{position:absolute;z-index:5;pointer-events:none}
+.conn svg{width:100%;height:100%}
+.conn .dash{stroke:var(--ac);stroke-width:1.5;stroke-dasharray:4 4;fill:none;animation:df 1s linear infinite}
+@keyframes df{to{stroke-dashoffset:-8}}
+.conn .sol{stroke:var(--ok);stroke-width:1.5;fill:none;opacity:.3}
+/* Meeting room (Plan card) */
+.mt{position:absolute;top:60px;left:60px;width:260px;z-index:15}
+.mt-c{background:var(--s);border:1px solid var(--ac);border-radius:12px;padding:14px;box-shadow:0 8px 24px rgba(0,0,0,.3)}
+.mt-h{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.mt-i{width:24px;height:24px;border-radius:6px;background:rgba(99,102,241,.15);display:flex;align-items:center;justify-content:center;font-size:13px}
+.mt-t{font-size:12px;font-weight:600;color:var(--al)}
+.mt-b{font-size:9px;padding:2px 8px;border-radius:10px;background:rgba(99,102,241,.12);color:var(--ac);margin-left:auto}
+.mt-task{font-size:11px;color:var(--t2);padding:8px 10px;background:var(--s2);border-radius:6px;margin-bottom:10px;line-height:1.5}
+.mt-agents{display:flex;flex-direction:column;gap:6px;margin-bottom:10px}
+.mt-a{display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--s2);border-radius:6px;border:1px solid var(--bd)}
+.mt-a .av{width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0}
+.mt-a .n{font-size:11px;font-weight:500}
+.mt-a .r{font-size:9px;color:var(--t3)}
+.mt-a .bn{font-size:8px;padding:1px 5px;border-radius:3px;background:rgba(99,102,241,.12);color:var(--ac)}
+.mt-act{display:flex;gap:8px}
+.mt-ok{flex:1;padding:7px;border-radius:6px;background:rgba(34,197,94,.12);color:var(--ok);border:1px solid rgba(34,197,94,.3);font-size:11px;font-weight:600;cursor:pointer}
+.mt-no{flex:1;padding:7px;border-radius:6px;background:rgba(239,68,68,.1);color:var(--er);border:1px solid rgba(239,68,68,.25);font-size:11px;font-weight:600;cursor:pointer}
+/* Manager desk */
+.md{position:absolute;bottom:60px;left:60px;width:260px;z-index:15}
+.md-c{background:var(--s);border:1px solid rgba(245,158,11,.3);border-radius:12px;padding:14px;box-shadow:0 8px 24px rgba(0,0,0,.3)}
+.md-h{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.md-a{width:28px;height:28px;border-radius:8px;background:rgba(245,158,11,.15);display:flex;align-items:center;justify-content:center;font-size:15px}
+.md-t{font-size:12px;font-weight:600}
+.md-s{font-size:9px;color:var(--wn);margin-left:auto}
+.md-out{font-size:10px;color:var(--t2);padding:8px 10px;background:var(--s2);border-radius:6px;max-height:70px;overflow-y:auto;line-height:1.5;margin-bottom:8px}
+.md-act{display:flex;gap:6px}
+.md-ok{flex:1;padding:5px;border-radius:5px;background:rgba(34,197,94,.1);color:var(--ok);border:1px solid rgba(34,197,94,.3);font-size:10px;font-weight:600;cursor:pointer}
+.md-no{flex:1;padding:5px;border-radius:5px;background:rgba(245,158,11,.1);color:var(--wn);border:1px solid rgba(245,158,11,.3);font-size:10px;font-weight:600;cursor:pointer}
+/* Bulletin board (image approval + results) */
+.bb{position:absolute;top:60px;right:440px;width:210px;z-index:15}
+.bi{background:var(--s);border:1px solid var(--bl);border-radius:8px;padding:10px;margin-bottom:8px;box-shadow:0 4px 12px rgba(0,0,0,.2)}
+.bi.ap{border-color:rgba(168,85,247,.3)}
+.bi.rs{border-color:rgba(34,197,94,.25)}
+.bi-h{display:flex;align-items:center;gap:6px;margin-bottom:6px}
+.bi-i{width:18px;height:18px;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:10px}
+.bi-t{font-size:10px;font-weight:600}
+.bi-a{font-size:8px;color:var(--t3);margin-left:auto}
+.bi-b{font-size:9px;color:var(--t2);line-height:1.5;margin-bottom:6px}
+.bi-ph{width:100%;height:50px;background:var(--s2);border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:18px;margin-bottom:6px}
+.bi-act{display:flex;gap:4px}
+.bi-btn{flex:1;padding:4px;border-radius:4px;font-size:9px;font-weight:600;cursor:pointer;border:1px solid}
+.bi-btn.g{background:rgba(168,85,247,.15);color:var(--pp);border-color:rgba(168,85,247,.3)}
+.bi-btn.c{background:var(--s2);color:var(--t2);border-color:var(--bd)}
+/* Tuning panel */
+.tp{position:absolute;bottom:60px;right:440px;width:210px;z-index:15}
+.tp-c{background:var(--s);border:1px solid rgba(99,102,241,.3);border-radius:10px;padding:12px;box-shadow:0 6px 16px rgba(0,0,0,.3)}
+.tp-h{font-size:11px;font-weight:600;color:var(--al);margin-bottom:8px}
+.tp-item{margin-bottom:6px}
+.tp-an{font-size:10px;font-weight:500;margin-bottom:3px}
+.tp-ch{display:flex;align-items:center;gap:4px;font-size:9px;margin-bottom:2px}
+.tp-old{padding:1px 5px;border-radius:3px;background:var(--s2);color:var(--t3);text-decoration:line-through}
+.tp-arr{color:var(--t3)}
+.tp-new{padding:1px 5px;border-radius:3px;background:rgba(99,102,241,.1);color:var(--ac)}
+.tp-rs{font-size:8px;color:var(--t3);font-style:italic;margin-top:2px}
+.tp-act{display:flex;gap:6px;margin-top:8px}
+.tp-ok{flex:1;padding:5px;border-radius:5px;background:rgba(34,197,94,.1);color:var(--ok);border:1px solid rgba(34,197,94,.3);font-size:10px;font-weight:600;cursor:pointer}
+.tp-no{flex:1;padding:5px;border-radius:5px;background:rgba(239,68,68,.1);color:var(--er);border:1px solid rgba(239,68,68,.25);font-size:10px;font-weight:600;cursor:pointer}
+/* Agent detail popup */
+.popup{position:absolute;z-index:50;background:var(--s);border:1px solid var(--bl);border-radius:12px;padding:14px;width:220px;box-shadow:0 12px 32px rgba(0,0,0,.5)}
+.pp-h{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.pp-a{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px}
+.pp-n{font-size:13px;font-weight:600}
+.pp-r{font-size:10px;color:var(--t2)}
+.pp-x{margin-left:auto;cursor:pointer;color:var(--t3);font-size:14px}
+.pp-st{display:flex;align-items:center;gap:6px;margin-bottom:8px}
+.pp-pill{font-size:9px;padding:2px 8px;border-radius:10px}
+.pp-pill.run{background:rgba(99,102,241,.12);color:var(--ac)}
+.pp-pill.ok{background:rgba(34,197,94,.12);color:var(--ok)}
+.pp-sec{margin-bottom:8px}
+.pp-lbl{font-size:9px;color:var(--t3);text-transform:uppercase;margin-bottom:3px}
+.pp-val{font-size:11px;color:var(--t);line-height:1.5}
+.pp-tools{display:flex;flex-wrap:wrap;gap:3px}
+.pp-tag{font-size:8px;padding:2px 6px;border-radius:3px;background:rgba(99,102,241,.1);color:var(--ac)}
+.pp-act{display:flex;gap:4px;margin-top:10px;padding-top:10px;border-top:1px solid var(--bd)}
+.pp-btn{padding:5px 10px;border-radius:5px;font-size:10px;font-weight:600;cursor:pointer;border:1px solid}
+.pp-btn.as{background:var(--ac);color:#fff;border-color:var(--ac);flex:1}
+.pp-btn.ed{background:var(--s2);color:var(--t2);border-color:var(--bd)}
+.pp-btn.dl{background:var(--s2);color:var(--er);border-color:rgba(239,68,68,.2)}
+/* Chat panel */
+.chat{position:absolute;bottom:0;right:0;width:400px;height:100%;background:var(--s);border-left:1px solid var(--bd);display:flex;flex-direction:column;z-index:40}
+.chat-h{padding:10px 14px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:8px;flex-shrink:0}
+.chat-sb{flex:1;display:flex;align-items:center;gap:6px;padding:5px 10px;background:var(--s2);border-radius:6px;cursor:pointer;font-size:12px}
+.chat-sb .t{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chat-nb{width:28px;height:28px;border-radius:6px;background:var(--s2);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:14px;color:var(--t2)}
+.chat-m{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px}
+.mu{display:flex;justify-content:flex-end}
+.mu .b{max-width:80%;background:var(--ac);color:#fff;padding:8px 12px;border-radius:12px 12px 4px 12px;font-size:12px;line-height:1.5}
+.mu .b img{max-width:100%;border-radius:6px;margin-top:6px}
+.ma{display:flex;gap:8px}
+.ma .av{width:24px;height:24px;border-radius:6px;background:var(--s2);border:1px solid var(--bl);display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0}
+.mc{background:var(--s2);border:1px solid var(--bd);border-radius:8px;overflow:hidden;margin-bottom:6px}
+.mc-h{padding:6px 10px;display:flex;align-items:center;gap:6px;font-size:10px;font-weight:600;border-bottom:1px solid var(--bd)}
+.mc-b{padding:8px 10px;font-size:11px;line-height:1.5;color:var(--t2)}
+.mc.rs{border-color:rgba(34,197,94,.25)}
+.mc.rs .mc-h{background:rgba(34,197,94,.05);border-color:rgba(34,197,94,.15)}
+.mc.pl{border-color:rgba(99,102,241,.25)}
+.mc.pl .mc-h{background:rgba(99,102,241,.05);border-color:rgba(99,102,241,.15)}
+.mc.rv{border-color:rgba(59,130,246,.25)}
+.mc.rv .mc-h{background:rgba(59,130,246,.05);border-color:rgba(59,130,246,.15)}
+.mc.tn{border-color:rgba(99,102,241,.25)}
+.mc.tn .mc-h{background:rgba(99,102,241,.05);border-color:rgba(99,102,241,.15)}
+.thinking{display:flex;gap:8px}
+.thinking .av{width:24px;height:24px;border-radius:6px;background:var(--s2);border:1px solid var(--bl);display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0}
+.thinking .dots{padding:8px 12px;background:var(--s);border:1px solid var(--bd);border-radius:8px;display:flex;gap:4px}
+.thinking .dots span{width:6px;height:6px;border-radius:50%;background:var(--t3);animation:bounce 1.4s ease-in-out infinite}
+.thinking .dots span:nth-child(2){animation-delay:.2s}
+.thinking .dots span:nth-child(3){animation-delay:.4s}
+@keyframes bounce{0%,80%,100%{transform:scale(.6);opacity:.4}40%{transform:scale(1);opacity:1}}
+/* Input bar */
+.ib{padding:12px 14px;border-top:1px solid var(--bd);flex-shrink:0}
+.ib-model{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.ib-ms{display:flex;align-items:center;gap:6px;padding:5px 10px;background:var(--s2);border:1px solid var(--bd);border-radius:6px;font-size:11px;color:var(--t2);cursor:pointer}
+.ib-ms:hover{border-color:var(--ac)}
+.ib-ms .ab{font-size:8px;padding:1px 5px;border-radius:3px;background:rgba(34,197,94,.15);color:var(--ok)}
+.ib-mode{display:flex;background:var(--s2);border-radius:6px;padding:2px;margin-left:auto}
+.ib-mb{padding:4px 10px;border:none;background:transparent;color:var(--t3);font-size:11px;font-weight:500;border-radius:4px;cursor:pointer}
+.ib-mb.act{background:var(--ac);color:#fff}
+.ib-att{display:flex;gap:6px;margin-bottom:8px}
+.ib-ac{display:flex;align-items:center;gap:6px;padding:5px 8px;background:var(--s2);border:1px solid var(--bd);border-radius:6px}
+.ib-ac img{width:28px;height:28px;border-radius:4px;object-fit:cover}
+.ib-ac .n{font-size:10px;font-weight:500}
+.ib-ac .ty{font-size:8px;color:var(--t3)}
+.ib-ac .rm{width:16px;height:16px;border-radius:50%;background:var(--s3);display:flex;align-items:center;justify-content:center;font-size:10px;cursor:pointer;color:var(--t2)}
+.ib-row{display:flex;gap:8px;align-items:flex-end}
+.ib-ab{width:36px;height:36px;border-radius:8px;background:var(--s2);border:1px solid var(--bd);color:var(--t2);font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.ib-ab:hover{background:var(--s3);color:var(--t)}
+.ib-ta{flex:1;min-height:36px;max-height:100px;padding:8px 12px;background:var(--s2);border:1px solid var(--bd);border-radius:8px;color:var(--t);font-size:13px;font-family:inherit;resize:none;outline:none}
+.ib-ta:focus{border-color:var(--ac)}
+.ib-ta::placeholder{color:var(--t3)}
+.ib-send{padding:8px 16px;background:var(--ac);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;flex-shrink:0}
+.ib-send:hover{background:var(--al)}
+.ib-stop{padding:8px 16px;background:var(--er);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;flex-shrink:0}
+/* Scrollbar */
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--s3);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:var(--bl)}
+/* Responsive */
+@media(max-width:1024px){.bb,.tp{right:420px;width:180px}.mt,.md{width:220px}}
+@media(max-width:768px){.chat{width:100%}.bb,.tp,.mt,.md{display:none}}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="hdr">
+  <div class="hdr-l">
+    <div class="logo">A</div>
+    <span class="hdr-t">Agent Office — Marketing Team</span>
+  </div>
+  <div class="hdr-r">
+    <div class="cb"><span class="d"></span>$2.45 / $10.00</div>
+    <div class="sb"><span class="d"></span>System Ready</div>
+    <div class="ua">I</div>
+  </div>
+</div>
+
+<div class="main">
+  <!-- OFFICE -->
+  <div class="office">
+    <div class="floor"></div>
+
+    <!-- Zones -->
+    <div class="zone z-meeting"><span class="zone-lbl">Meeting Room</span></div>
+    <div class="zone z-desks"><span class="zone-lbl">Workstations</span></div>
+    <div class="zone z-manager"><span class="zone-lbl">Manager's Office</span></div>
+
+    <!-- Connection lines (agent collaboration) -->
+    <div class="conn" style="top:180px;left:200px;width:200px;height:100px">
+      <svg><path class="dash" d="M0,50 Q100,0 200,50"/></svg>
+    </div>
+    <div class="conn" style="top:300px;left:350px;width:150px;height:80px">
+      <svg><path class="sol" d="M0,40 Q75,80 150,40"/></svg>
+    </div>
+
+    <!-- Agent 1: Product Analyst (running) -->
+    <div class="ac" style="top:120px;left:480px" onclick="togglePopup('p1')">
+      <div class="ring run"></div>
+      <div class="tb"><div class="spn"></div>กำลังวิเคราะห์...</div>
+      <div class="ac-body">
+        <div class="ac-head" style="background:rgba(99,102,241,.2)">📊</div>
+        <div class="ac-torso" style="background:rgba(99,102,241,.15)"></div>
+      </div>
+      <div class="ac-desk"><div class="ac-mon on"></div></div>
+      <div class="ac-name">Product Analyst</div>
+      <div class="ac-role">วิเคราะห์สินค้า</div>
+      <div class="pbar"><div class="pbar-f" style="width:65%"></div></div>
+    </div>
+
+    <!-- Agent 2: Copywriter (complete) -->
+    <div class="ac" style="top:120px;left:600px" onclick="togglePopup('p2')">
+      <div class="ring ok"></div>
+      <div class="tb" style="border-color:rgba(34,197,94,.3)">✓ เสร็จแล้ว</div>
+      <div class="ac-body">
+        <div class="ac-head" style="background:rgba(249,115,22,.2)">✍️</div>
+        <div class="ac-torso" style="background:rgba(249,115,22,.15)"></div>
+      </div>
+      <div class="ac-desk"><div class="ac-mon ok"></div></div>
+      <div class="ac-name">Copywriter</div>
+      <div class="ac-role">เขียนคอนเทนต์</div>
+      <div class="pbar"><div class="pbar-f ok" style="width:100%"></div></div>
+    </div>
+
+    <!-- Agent 3: Image Generator (waiting approval) -->
+    <div class="ac" style="top:280px;left:480px" onclick="togglePopup('p3')">
+      <div class="ring wt"></div>
+      <div class="tb" style="border-color:rgba(168,85,247,.3)">🎨 รออนุมัติ</div>
+      <div class="ac-body">
+        <div class="ac-head" style="background:rgba(168,85,247,.2)">🎨</div>
+        <div class="ac-torso" style="background:rgba(168,85,247,.15)"></div>
+      </div>
+      <div class="ac-desk"><div class="ac-mon wn"></div></div>
+      <div class="ac-name">Image Generator</div>
+      <div class="ac-role">สร้างภาพ</div>
+    </div>
+
+    <!-- Agent 4: SEO Specialist (idle) -->
+    <div class="ac" style="top:280px;left:600px" onclick="togglePopup('p4')">
+      <div class="ac-body">
+        <div class="ac-head" style="background:rgba(59,130,246,.2)">🔍</div>
+        <div class="ac-torso" style="background:rgba(59,130,246,.15)"></div>
+      </div>
+      <div class="ac-desk"><div class="ac-mon"></div></div>
+      <div class="ac-name">SEO Specialist</div>
+      <div class="ac-role">วิเคราะห์ SEO</div>
+    </div>
+
+    <!-- Agent 5: Data Researcher (error) -->
+    <div class="ac" style="top:400px;left:540px" onclick="togglePopup('p5')">
+      <div class="ring er"></div>
+      <div class="tb" style="border-color:rgba(239,68,68,.3)">⚠️ Error</div>
+      <div class="ac-body">
+        <div class="ac-head" style="background:rgba(239,68,68,.2)">📈</div>
+        <div class="ac-torso" style="background:rgba(239,68,68,.15)"></div>
+      </div>
+      <div class="ac-desk"><div class="ac-mon" style="background:var(--er);box-shadow:0 0 8px rgba(239,68,68,.3)"></div></div>
+      <div class="ac-name">Data Researcher</div>
+      <div class="ac-role">วิจัยข้อมูล</div>
+    </div>
+
+    <!-- Meeting Room (Plan Card) -->
+    <div class="mt">
+      <div class="mt-c">
+        <div class="mt-h">
+          <div class="mt-i">📋</div>
+          <span class="mt-t">แผนงาน</span>
+          <span class="mt-b">4 agents</span>
+        </div>
+        <div class="mt-task">วิเคราะห์ภาพสินค้าและหาจุดแข็งเพื่อนำไปทำการตลาด</div>
+        <div class="mt-agents">
+          <div class="mt-a">
+            <div class="av" style="background:rgba(99,102,241,.15)">📊</div>
+            <div><div class="n">Product Analyst</div><div class="r">วิเคราะห์สินค้า</div></div>
+            <span class="bn">New</span>
+          </div>
+          <div class="mt-a">
+            <div class="av" style="background:rgba(168,85,247,.15)">🎨</div>
+            <div><div class="n">Image Generator</div><div class="r">สร้างภาพ</div></div>
+            <span class="bn">New</span>
+          </div>
+        </div>
+        <div class="mt-act">
+          <button class="mt-ok">✓ ยืนยันแผน</button>
+          <button class="mt-no">✕ ปฏิเสธ</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Manager Desk (Agent Review) -->
+    <div class="md">
+      <div class="md-c">
+        <div class="md-h">
+          <div class="md-a">🧠</div>
+          <span class="md-t">Manager Review</span>
+          <span class="md-s">รอตรวจสอบ</span>
+        </div>
+        <div class="md-out">สินค้ามีจุดเด่นที่ดีไซน์ทันสมัย วัสดุพรีเมียม และฟังก์ชันพิเศษที่คู่แข่งยังไม่มี แนะนำให้เน้น...</div>
+        <div class="md-act">
+          <button class="md-ok">✓ อนุมัติ</button>
+          <button class="md-no">✕ ส่งกลับแก้</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bulletin Board (Image Approval + Result) -->
+    <div class="bb">
+      <!-- Image Approval -->
+      <div class="bi ap">
+        <div class="bi-h">
+          <div class="bi-i" style="background:rgba(168,85,247,.15)">🖼️</div>
+          <span class="bi-t">อนุมัติภาพ</span>
+          <span class="bi-a">Image Gen</span>
+        </div>
+        <div class="bi-b">"สินค้าพรีเมียมบนโต๊ะไม้ แสงอบอุ่น"</div>
+        <div class="bi-ph">🎨</div>
+        <div class="bi-act">
+          <button class="bi-btn g">🖼️ Generate</button>
+          <button class="bi-btn c">❌ Cancel</button>
+        </div>
+      </div>
+      <!-- Result -->
+      <div class="bi rs">
+        <div class="bi-h">
+          <div class="bi-i" style="background:rgba(34,197,94,.15)">✓</div>
+          <span class="bi-t">เสร็จสิ้น</span>
+          <span class="bi-a">2 agents</span>
+        </div>
+        <div class="bi-b">วิเคราะห์ภาพสินค้าเสร็จ พบจุดแข็ง 3 ด้าน พร้อมแนวทางการตลาด</div>
+      </div>
+    </div>
+
+    <!-- Tuning Panel -->
+    <div class="tp">
+      <div class="tp-c">
+        <div class="tp-h">📝 ปรับแต่ง Agent</div>
+        <div class="tp-item">
+          <div class="tp-an">Copywriter</div>
+          <div class="tp-ch">
+            <span class="tp-old">gpt-4o</span>
+            <span class="tp-arr">→</span>
+            <span class="tp-new">claude-3.5</span>
+          </div>
+          <div class="tp-rs">เหมาะกับการเขียนคอนเทนต์ภาษาไทยมากกว่า</div>
+        </div>
+        <div class="tp-act">
+          <button class="tp-ok">ยืนยัน</button>
+          <button class="tp-no">ปฏิเสธ</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Agent Detail Popup (for Agent 1) -->
+    <div class="popup" id="p1" style="top:100px;left:540px;display:none">
+      <div class="pp-h">
+        <div class="pp-a" style="background:rgba(99,102,241,.15)">📊</div>
+        <div><div class="pp-n">Product Analyst</div><div class="pp-r">วิเคราะห์สินค้าและตลาด</div></div>
+        <span class="pp-x" onclick="togglePopup('p1')">✕</span>
+      </div>
+      <div class="pp-st">
+        <span class="pp-pill run">Running · 65%</span>
+      </div>
+      <div class="pp-sec">
+        <div class="pp-lbl">Current Tool</div>
+        <div class="pp-val">🔍 search_shopee</div>
+      </div>
+      <div class="pp-sec">
+        <div class="pp-lbl">Goal</div>
+        <div class="pp-val">วิเคราะห์ภาพสินค้า หาจุดแข็ง กลุ่มเป้าหมาย และแนวทางการตลาด</div>
+      </div>
+      <div class="pp-sec">
+        <div class="pp-lbl">Tools</div>
+        <div class="pp-tools">
+          <span class="pp-tag">🔍 search</span>
+          <span class="pp-tag">👁️ vision</span>
+        </div>
+      </div>
+      <div class="pp-sec">
+        <div class="pp-lbl">Output Preview</div>
+        <div class="pp-val" style="max-height:80px;overflow-y:auto;background:var(--s2);padding:6px 8px;border-radius:6px;font-size:10px;color:var(--t2)">สินค้ามีดีไซน์โดดเด่น ใช้วัสดุคุณภาพสูง มีฟังก์ชัน 2-in-1...</div>
+      </div>
+      <div class="pp-act">
+        <button class="pp-btn as">🚀 Assign Task</button>
+        <button class="pp-btn ed">✏️</button>
+        <button class="pp-btn dl">🗑️</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- CHAT PANEL (floating right) -->
+  <div class="chat">
+    <div class="chat-h">
+      <div class="chat-sb">
+        <span>💬</span>
+        <span class="t">วิเคราะห์สินค้า Shopee</span>
+        <span>▼</span>
+      </div>
+      <div class="chat-nb">+</div>
+    </div>
+
+    <div class="chat-m">
+      <!-- User message with image -->
+      <div class="mu">
+        <div class="b">
+          วิเคราะห์ภาพสินค้านี้ให้หน่อย และบอกจุดแข็งที่ควรนำไปทำการตลาด
+          <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='120' fill='%23ddd'%3E%3Crect width='200' height='120' rx='6'/%3E%3Ctext x='50%25' y='50%25' fill='%23666' font-size='12' text-anchor='middle' dy='.3em'%3EProduct Image%3C/text%3E%3C/svg%3E" alt="product">
+        </div>
+      </div>
+
+      <!-- Plan card in chat -->
+      <div class="ma">
+        <div class="av">🤖</div>
+        <div class="mc pl">
+          <div class="mc-h">📋 แผนงาน · 4 agents</div>
+          <div class="mc-b">วิเคราะห์ภาพสินค้าและหาจุดแข็งเพื่อนำไปทำการตลาด</div>
+        </div>
+      </div>
+
+      <!-- Progress in chat -->
+      <div class="ma">
+        <div class="av">🤖</div>
+        <div class="mc">
+          <div class="mc-h">⏳ กำลังทำงาน · 50%</div>
+          <div class="mc-b">2 agents working · 1 complete · 1 running</div>
+        </div>
+      </div>
+
+      <!-- Result in chat -->
+      <div class="ma">
+        <div class="av">🤖</div>
+        <div class="mc rs">
+          <div class="mc-h">✓ เสร็จสิ้น</div>
+          <div class="mc-b">วิเคราะห์ภาพสินค้าเสร็จ พบจุดแข็ง 3 ด้าน พร้อมแนวทางการตลาด</div>
+        </div>
+      </div>
+
+      <!-- Agent review in chat -->
+      <div class="ma">
+        <div class="av">🧠</div>
+        <div class="mc rv">
+          <div class="mc-h">🧠 รอตรวจสอบ · Product Analyst</div>
+          <div class="mc-b">สินค้ามีจุดเด่นที่ดีไซน์ทันสมัย วัสดุพรีเมียม...</div>
+        </div>
+      </div>
+
+      <!-- Tuning in chat -->
+      <div class="ma">
+        <div class="av">🤖</div>
+        <div class="mc tn">
+          <div class="mc-h">📝 ปรับแต่ง Agent</div>
+          <div class="mc-b">Copywriter: gpt-4o → claude-3.5 (เหมาะกับภาษาไทย)</div>
+        </div>
+      </div>
+
+      <!-- Thinking -->
+      <div class="thinking">
+        <div class="av">🤖</div>
+        <div class="dots"><span></span><span></span><span></span></div>
+      </div>
+    </div>
+
+    <!-- Input bar -->
+    <div class="ib">
+      <div class="ib-model">
+        <div class="ib-ms">⚡ <span>Auto Router</span> <span class="ab">Auto</span></div>
+        <div class="ib-mode">
+          <button class="ib-mb">💬 Chat</button>
+          <button class="ib-mb act">✨ Plan</button>
+        </div>
+      </div>
+      <div class="ib-att">
+        <div class="ib-ac">
+          <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' fill='%23ddd'%3E%3Crect width='28' height='28' rx='4'/%3E%3C/svg%3E">
+          <div><div class="n">product.jpg</div><div class="ty">JPEG · 1.2MB</div></div>
+          <div class="rm">✕</div>
+        </div>
+      </div>
+      <div class="ib-row">
+        <button class="ib-ab">+</button>
+        <textarea class="ib-ta" placeholder="พิมพ์ข้อความถึงทีม..." rows="1"></textarea>
+        <button class="ib-send">ส่ง</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function togglePopup(id) {
+  const el = document.getElementById(id);
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+</script>
+</body>
+</html>

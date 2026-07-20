@@ -1,34 +1,56 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
+import '/retro-mockup.css';
 import { WindowManagerProvider, useWindowManager } from './WindowManager';
 import { RetroWindow } from './RetroWindow';
 import { Taskbar } from './Taskbar';
 import { StartMenu } from './StartMenu';
 import { DesktopIcons } from './DesktopIcons';
+import { AgentsWindow } from './AgentsWindow';
+import { HistoryWindow } from './HistoryWindow';
+import { ScheduleWindow } from './ScheduleWindow';
+import { SettingsWindow } from './SettingsWindow';
 import { ChatWindow } from './ChatWindow';
 import { TasksWindow } from './TasksWindow';
-import type { WindowId, PlanData } from './types';
-import type { ChatMessage } from '../chatTypes';
+import type { WindowId } from './types';
+import type { ChatMessage, ActivityEntry } from '../chatTypes';
 import type { ChatSession } from '../ChatSidebar';
+import type { Agent, Plan } from '../../types/platform';
+import type { Team } from '../../types/team';
+import type { ModelCatalogEntry } from '../ModelPicker';
 
 interface RetroDesktopProps {
-  // Chat props
+  // Team
+  team: Team;
+  onBack: () => void;
+  onDeleteTeam: (teamId: string) => void;
+  // Chat
   chatMessages: ChatMessage[];
   chatSessions: ChatSession[];
   activeSessionId: string | null;
+  activityLog: ActivityEntry[];
+  isProcessing: boolean;
   isThinking: boolean;
-  thinkingModel?: string;
+  thinkingText?: string;
+  thinkingDuration?: number | null;
   inputMode: 'chat' | 'plan';
   selectedModel?: string;
   resolvedModel?: string;
-  isProcessing: boolean;
+  connectionStatus: 'connecting' | 'connected' | 'disconnected';
+  systemStatus?: string;
   onSendCommand: (message: string, attachments?: Array<{ url: string; name: string; mime: string }>) => void | Promise<void>;
   onStop?: () => void;
   onModeChange: (mode: 'chat' | 'plan') => void;
-  onSessionSwitch: (sessionId: string) => void;
-  onNewSession: () => void;
   onAction: (name: string, payload?: Record<string, any>) => void;
-  // Tasks props
-  plans: PlanData[];
+  // Platform state
+  agents: Agent[];
+  currentPlan: Plan | null;
+  availableTools: Array<{ name: string; description: string }>;
+  credits: any;
+  // Model catalog
+  modelCatalog: Record<string, ModelCatalogEntry[]>;
+  modelSearchResults: ModelCatalogEntry[];
+  mediaCatalog: Record<string, ModelCatalogEntry[]>;
+  mediaSearchResults: ModelCatalogEntry[];
 }
 
 const windowConfig: Record<WindowId, { title: string; icon: string; width: number; height: number }> = {
@@ -44,10 +66,112 @@ const DesktopInner: React.FC<RetroDesktopProps> = (props) => {
   const { windows, activeWindowId, openWindow, closeWindow, focusWindow, minimizeWindow, moveWindow, resizeWindow } = useWindowManager();
   const [startMenuOpen, setStartMenuOpen] = useState(false);
 
+  // Auto-open chat window on mount
+  useEffect(() => {
+    handleOpenWindow('chat');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleOpenWindow = useCallback((id: WindowId) => {
     const cfg = windowConfig[id];
     openWindow(id, cfg.title, cfg.icon, cfg.width, cfg.height);
   }, [openWindow]);
+
+  const handleSessionSwitch = useCallback((sessionId: string) => {
+    props.onAction('switch_chat', { session_id: sessionId });
+  }, [props.onAction]);
+
+  const handleNewSession = useCallback(() => {
+    props.onAction('new_chat');
+  }, [props.onAction]);
+
+  const handleRenameChat = useCallback((sessionId: string, title: string) => {
+    props.onAction('rename_chat', { session_id: sessionId, title });
+  }, [props.onAction]);
+
+  const handleDeleteChat = useCallback((sessionId: string) => {
+    props.onAction('delete_chat', { session_id: sessionId });
+  }, [props.onAction]);
+
+  const handleFetchModelCatalog = useCallback(() => {
+    props.onAction('fetch_model_catalog');
+  }, [props.onAction]);
+
+  const handleSearchModels = useCallback((query: string) => {
+    props.onAction('search_models', { query });
+  }, [props.onAction]);
+
+  const handleSelectModel = useCallback((modelId: string) => {
+    props.onAction('set_selected_model', { model_id: modelId });
+  }, [props.onAction]);
+
+  const handleChangeAgentModel = useCallback((agentName: string, modelId: string) => {
+    props.onAction('change_agent_model', { agent_name: agentName, model_id: modelId });
+  }, [props.onAction]);
+
+  const handleChangeManagerModel = useCallback((modelId: string) => {
+    props.onAction('change_manager_model', { model_id: modelId });
+  }, [props.onAction]);
+
+  const handleChangeMediaModel = useCallback((mediaType: 'imageModel' | 'videoModel' | 'searchModel' | 'ttsModel' | 'sttModel' | 'visionModel', modelId: string) => {
+    props.onAction('change_media_model', { media_type: mediaType, model_id: modelId });
+  }, [props.onAction]);
+
+  const handleFetchMediaCatalog = useCallback((mediaType: string) => {
+    props.onAction('fetch_media_catalog', { media_type: mediaType });
+  }, [props.onAction]);
+
+  const handleAcceptPlan = useCallback(() => {
+    props.onAction('accept_plan');
+  }, [props.onAction]);
+
+  const handleRejectPlan = useCallback(() => {
+    props.onAction('reject_plan');
+  }, [props.onAction]);
+
+  const handleConfirmTuning = useCallback((proposals: any[]) => {
+    props.onAction('confirm_tuning', { proposals });
+  }, [props.onAction]);
+
+  const handleRejectTuning = useCallback(() => {
+    props.onAction('reject_tuning');
+  }, [props.onAction]);
+
+  const handleApproveImage = useCallback((approvalId: string, model?: string) => {
+    props.onAction('approve_image', { approval_id: approvalId, model });
+  }, [props.onAction]);
+
+  const handleRejectImage = useCallback((approvalId: string) => {
+    props.onAction('reject_image', { approval_id: approvalId });
+  }, [props.onAction]);
+
+  const handleRetryImage = useCallback((approvalId: string) => {
+    props.onAction('retry_image', { approval_id: approvalId });
+  }, [props.onAction]);
+
+  const handleEditImagePrompt = useCallback((approvalId: string, newPrompt: string) => {
+    props.onAction('retry_image', { approval_id: approvalId, prompt: newPrompt });
+  }, [props.onAction]);
+
+  const handleApproveAgentResult = useCallback((reviewId: string) => {
+    props.onAction('approve_agent_result', { review_id: reviewId });
+  }, [props.onAction]);
+
+  const handleRejectAgentResult = useCallback((reviewId: string, feedback: string) => {
+    props.onAction('reject_agent_result', { review_id: reviewId, feedback });
+  }, [props.onAction]);
+
+  const handleSaveAgentConfig = useCallback((data: any) => {
+    props.onAction('config_agent', data);
+  }, [props.onAction]);
+
+  const handleAddAgent = useCallback((data: any) => {
+    props.onAction('add_agent', data);
+  }, [props.onAction]);
+
+  const handleDeleteAgent = useCallback((agentId: string) => {
+    props.onAction('delete_agent', { agent_id: agentId });
+  }, [props.onAction]);
 
   const renderWindowContent = (id: string) => {
     switch (id as WindowId) {
@@ -55,33 +179,89 @@ const DesktopInner: React.FC<RetroDesktopProps> = (props) => {
         return (
           <ChatWindow
             messages={props.chatMessages}
-            sessions={props.chatSessions}
+            activityLog={props.activityLog}
+            isProcessing={props.isProcessing}
+            chatSessions={props.chatSessions}
             activeSessionId={props.activeSessionId}
-            isThinking={props.isThinking}
-            thinkingModel={props.thinkingModel}
-            inputMode={props.inputMode}
-            selectedModel={props.selectedModel}
-            resolvedModel={props.resolvedModel}
             onSend={props.onSendCommand}
             onStop={props.onStop}
+            onNewChat={handleNewSession}
+            onSwitchChat={handleSessionSwitch}
+            onRenameChat={handleRenameChat}
+            onDeleteChat={handleDeleteChat}
+            onAcceptPlan={handleAcceptPlan}
+            onRejectPlan={handleRejectPlan}
+            onConfirmTuning={handleConfirmTuning}
+            onRejectTuning={handleRejectTuning}
+            onApproveImage={handleApproveImage}
+            onRejectImage={handleRejectImage}
+            onRetryImage={handleRetryImage}
+            onEditImagePrompt={handleEditImagePrompt}
+            onApproveAgentResult={handleApproveAgentResult}
+            onRejectAgentResult={handleRejectAgentResult}
+            onFetchModelCatalog={handleFetchModelCatalog}
+            onFetchMediaCatalog={handleFetchMediaCatalog}
+            onSearchModels={handleSearchModels}
+            onSelectModel={handleSelectModel}
+            onChangeAgentModel={handleChangeAgentModel}
+            onChangeManagerModel={handleChangeManagerModel}
+            onChangeMediaModel={handleChangeMediaModel}
+            selectedModel={props.selectedModel}
+            resolvedModel={props.resolvedModel}
+            thinkingText={props.thinkingText}
+            thinkingDuration={props.thinkingDuration}
+            isThinking={props.isThinking}
+            inputMode={props.inputMode}
             onModeChange={props.onModeChange}
-            onSessionSwitch={props.onSessionSwitch}
-            onNewSession={props.onNewSession}
-            onAction={props.onAction}
+            disabled={props.isProcessing}
+            preloadedModelCatalog={props.modelCatalog}
+            preloadedModelSearchResults={props.modelSearchResults}
+            preloadedMediaCatalog={props.mediaCatalog}
+            preloadedMediaSearchResults={props.mediaSearchResults}
             onViewTasks={() => handleOpenWindow('tasks')}
-            isProcessing={props.isProcessing}
           />
         );
       case 'tasks':
-        return <TasksWindow plans={props.plans} onAction={props.onAction} />;
+        return (
+          <TasksWindow
+            chatMessages={props.chatMessages}
+            onApproveImage={(approvalId) => props.onAction('approve_image', { approval_id: approvalId })}
+            onRejectImage={(approvalId) => props.onAction('reject_image', { approval_id: approvalId })}
+            onRetryImage={(approvalId) => props.onAction('retry_image', { approval_id: approvalId })}
+            onEditImagePrompt={(approvalId, newPrompt) => props.onAction('retry_image', { approval_id: approvalId, prompt: newPrompt })}
+            onSkipReview={(agentName) => props.onAction('skip_review', { agent_name: agentName })}
+          />
+        );
       case 'agents':
-        return <div className="p-4 text-ink-3 text-[12px]">Agents window — coming soon</div>;
+        return (
+          <AgentsWindow
+            agents={props.agents}
+            availableTools={props.availableTools}
+            onAddAgent={handleAddAgent}
+            onConfigAgent={handleSaveAgentConfig}
+            onDeleteAgent={handleDeleteAgent}
+            modelCatalog={props.modelCatalog}
+            modelSearchResults={props.modelSearchResults}
+            onSearchModels={handleSearchModels}
+            onFetchModelCatalog={handleFetchModelCatalog}
+            selectedModel={props.selectedModel}
+          />
+        );
       case 'history':
-        return <div className="p-4 text-ink-3 text-[12px]">History window — coming soon</div>;
+        return <HistoryWindow activityLog={props.activityLog} />;
       case 'schedule':
-        return <div className="p-4 text-ink-3 text-[12px]">Schedule window — coming soon</div>;
+        return <ScheduleWindow />;
       case 'settings':
-        return <div className="p-4 text-ink-3 text-[12px]">Settings window — coming soon</div>;
+        return (
+          <SettingsWindow
+            credits={props.credits}
+            connectionStatus={props.connectionStatus}
+            systemStatus={props.systemStatus}
+            team={props.team}
+            onBack={props.onBack}
+            onDeleteTeam={props.onDeleteTeam}
+          />
+        );
       default:
         return null;
     }
@@ -135,6 +315,7 @@ const DesktopInner: React.FC<RetroDesktopProps> = (props) => {
         onToggleStartMenu={() => setStartMenuOpen(prev => !prev)}
         onOpenWindow={handleOpenWindow}
       />
+
     </div>
   );
 };

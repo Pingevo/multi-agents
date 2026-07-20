@@ -290,38 +290,86 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
 
   if (!position) return null;
 
+  const R = {
+    dropdown: {
+      position: 'fixed' as const,
+      zIndex: 99999,
+      background: 'var(--cream)',
+      border: '2px solid var(--ink)',
+      borderRadius: '4px',
+      boxShadow: '3px 3px 10px rgba(0,0,0,0.3)',
+      overflow: 'hidden',
+      display: 'flex',
+      flexDirection: 'row' as const,
+    },
+    leftPanel: {
+      width: '58%',
+      display: 'flex',
+      flexDirection: 'column' as const,
+      borderRight: '1px solid var(--line)',
+    },
+    searchWrap: {
+      padding: '4px 6px',
+      borderBottom: '1px solid var(--line)',
+      background: 'var(--paper)',
+      position: 'relative' as const,
+      flexShrink: 0,
+    },
+    searchInput: {
+      width: '100%',
+      background: 'var(--cream)',
+      border: '1px solid var(--line)',
+      borderRadius: '2px',
+      paddingLeft: '20px',
+      paddingRight: '4px',
+      padding: '3px 4px 3px 20px',
+      fontSize: '10px',
+      color: 'var(--ink)',
+      outline: 'none',
+    },
+    modelList: {
+      overflowY: 'auto' as const,
+      flex: 1,
+      minHeight: 0,
+      padding: '3px',
+    },
+    rightPanel: {
+      width: '42%',
+      background: 'var(--paper)',
+      padding: '8px',
+      display: 'flex',
+      flexDirection: 'column' as const,
+    },
+  };
+
   const dropdown = (
     <div
       ref={containerRef}
-      className="fixed bg-surface border border-border rounded-xl shadow-2xl z-[100] overflow-hidden flex flex-row"
-      style={{ ...(position.top !== undefined ? { top: position.top } : { bottom: position.bottom }), right: position.right, width: position.maxWidth, height: '360px' }}
+      style={{ ...R.dropdown, ...(position.top !== undefined ? { top: position.top } : { bottom: position.bottom }), right: position.right, width: position.maxWidth, height: '360px' }}
     >
       {/* Left panel — model list */}
-      <div className="w-[58%] flex flex-col border-r border-border">
+      <div style={R.leftPanel}>
         {/* Search bar */}
-        <div className="px-3 py-2 border-b border-border bg-surface shrink-0">
-          <div className="relative">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-2" />
-            <input
-              ref={searchInputRef}
-              value={searchQuery}
-              onChange={(e) => handleSearch(e.target.value)}
-              placeholder="Search models..."
-              className="w-full bg-surface-2 border border-border rounded-md pl-8 pr-2 py-1 text-xs text-text placeholder:text-text-2 focus:outline-none focus:border-accent"
-            />
-          </div>
+        <div style={R.searchWrap}>
+          <Search size={11} style={{ position: 'absolute', left: '6px', top: '50%', transform: 'translateY(-50%)', color: 'var(--ink3)' }} />
+          <input
+            ref={searchInputRef}
+            value={searchQuery}
+            onChange={(e) => handleSearch(e.target.value)}
+            placeholder="Search models..."
+            style={R.searchInput}
+          />
         </div>
 
         {/* Model list */}
-        <div className="overflow-y-auto flex-1 min-h-0 p-1">
+        <div style={R.modelList}>
           {activeTab === 'recommended' && !searchQuery && (
-            <div className="p-1">
+            <div style={{ padding: '2px' }}>
               {/* Pinned AI-selected model — always shown at top */}
               {pinnedModelId && (() => {
                 const all = Object.values(recommended).flat().concat(searchResults);
                 let pinned = all.find(m => m.id === pinnedModelId);
                 if (!pinned) {
-                  // Model not in catalog — create a minimal entry from the ID
                   pinned = { id: pinnedModelId, name: pinnedModelId.split('/').pop()?.split(':')[0] || pinnedModelId, context_length: '?', prompt_price: '?', completion_price: '?', categories: [], is_free: false };
                 }
                 const provider = getProvider(pinned.id);
@@ -329,18 +377,29 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
                   <button
                     onClick={() => handleSelect(pinnedModelId)}
                     onMouseEnter={() => setHoveredModel(pinned)}
-                    className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left transition-colors mb-2 border border-border/50 ${
-                      selectedModel === pinnedModelId ? 'bg-accent/10 text-text' : 'text-text-2 hover:bg-surface-2'
-                    }`}
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '4px 6px',
+                      borderRadius: '2px',
+                      textAlign: 'left',
+                      marginBottom: '4px',
+                      border: '1px solid var(--line)',
+                      background: selectedModel === pinnedModelId ? 'rgba(192,80,30,0.08)' : 'transparent',
+                      color: selectedModel === pinnedModelId ? 'var(--ink)' : 'var(--ink2)',
+                      cursor: 'pointer',
+                    }}
                   >
                     {PROVIDER_FAVICONS[provider] ? (
-                      <img src={PROVIDER_FAVICONS[provider]!} alt="" className="w-4 h-4 rounded shrink-0 object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                      <img src={PROVIDER_FAVICONS[provider]!} alt="" style={{ width: '14px', height: '14px', borderRadius: '2px', objectFit: 'contain', flexShrink: 0 }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
                     ) : (
-                      <Cpu className="w-4 h-4 shrink-0 text-text-2" />
+                      <Cpu size={14} style={{ flexShrink: 0, color: 'var(--ink3)' }} />
                     )}
-                    <span className="text-xs font-medium flex-1">{stripProviderPrefix(pinned.name)}</span>
-                    <span className="text-[9px] text-text-2 shrink-0">AI selected</span>
-                    {selectedModel === pinnedModelId && <Check className="w-3.5 h-3.5 text-accent shrink-0" />}
+                    <span style={{ fontSize: '10px', fontWeight: 600, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{stripProviderPrefix(pinned.name)}</span>
+                    <span style={{ fontSize: '8px', color: 'var(--ink3)', flexShrink: 0 }}>AI selected</span>
+                    {selectedModel === pinnedModelId && <Check size={11} style={{ color: 'var(--orange)', flexShrink: 0 }} />}
                   </button>
                 );
               })()}
@@ -362,7 +421,7 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
           )}
 
           {activeTab === 'search' && (
-            <div className="p-1">
+            <div style={{ padding: '2px' }}>
               {filteredSearchResults.map((model) => (
                 <ModelRow
                   key={model.id}
@@ -378,87 +437,88 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
       </div>
 
       {/* Right panel — details */}
-      <div className="w-[42%] bg-surface-2 p-3 flex flex-col">
+      <div style={R.rightPanel}>
         {previewModel ? (
           <>
-            <div className="flex items-start gap-2 mb-3">
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', marginBottom: '8px' }}>
               {PROVIDER_FAVICONS[getProvider(previewModel.id)] ? (
                 <img
                   src={PROVIDER_FAVICONS[getProvider(previewModel.id)]!}
                   alt=""
-                  className="w-7 h-7 rounded-lg shrink-0 object-contain"
+                  style={{ width: '22px', height: '22px', borderRadius: '3px', objectFit: 'contain', flexShrink: 0 }}
                   onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                 />
               ) : (
-                <Cpu className="w-7 h-7 shrink-0 text-text-2" />
+                <Cpu size={22} style={{ flexShrink: 0, color: 'var(--ink3)' }} />
               )}
-              <div className="min-w-0">
-                <div className="text-sm font-semibold text-text leading-tight">{stripProviderPrefix(previewModel.name)}</div>
-                <div className="text-[10px] text-text-2 mt-0.5">{previewModel.id}</div>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--ink)', lineHeight: 1.2 }}>{stripProviderPrefix(previewModel.name)}</div>
+                <div style={{ fontSize: '9px', color: 'var(--ink3)', marginTop: '1px' }}>{previewModel.id}</div>
               </div>
             </div>
 
-            <div className="space-y-3 flex-1">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1 }}>
               <div>
-                <div className="text-[10px] text-text-2 uppercase tracking-wide mb-1">Context</div>
-                <div className="text-xs text-text">{formatContext(previewModel.context_length)} tokens</div>
+                <div style={{ fontSize: '8px', color: 'var(--ink3)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '2px' }}>Context</div>
+                <div style={{ fontSize: '10px', color: 'var(--ink)' }}>{formatContext(previewModel.context_length)} tokens</div>
               </div>
 
               <div>
-                <div className="text-[10px] text-text-2 uppercase tracking-wide mb-1">Cost / 1M tokens</div>
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-text-2">Input</span>
-                    <span className="text-text">{formatPrice(previewModel.prompt_price)}</span>
+                <div style={{ fontSize: '8px', color: 'var(--ink3)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '2px' }}>Cost / 1M tokens</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '10px' }}>
+                    <span style={{ color: 'var(--ink3)' }}>Input</span>
+                    <span style={{ color: 'var(--ink)' }}>{formatPrice(previewModel.prompt_price)}</span>
                   </div>
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-text-2">Output</span>
-                    <span className="text-text">{formatPrice(previewModel.completion_price)}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '10px' }}>
+                    <span style={{ color: 'var(--ink3)' }}>Output</span>
+                    <span style={{ color: 'var(--ink)' }}>{formatPrice(previewModel.completion_price)}</span>
                   </div>
                   {parsePrice(previewModel.image_price) !== null && parsePrice(previewModel.image_price)! > 0 && (
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-text-2">Image</span>
-                      <span className="text-text">{formatPrice(previewModel.image_price)}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '10px' }}>
+                      <span style={{ color: 'var(--ink3)' }}>Image</span>
+                      <span style={{ color: 'var(--ink)' }}>{formatPrice(previewModel.image_price)}</span>
                     </div>
                   )}
                   {parsePrice(previewModel.video_price) !== null && parsePrice(previewModel.video_price)! > 0 && (
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-text-2">Video</span>
-                      <span className="text-text">{formatPrice(previewModel.video_price)}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '10px' }}>
+                      <span style={{ color: 'var(--ink3)' }}>Video</span>
+                      <span style={{ color: 'var(--ink)' }}>{formatPrice(previewModel.video_price)}</span>
                     </div>
                   )}
                   {parsePrice(previewModel.audio_price) !== null && parsePrice(previewModel.audio_price)! > 0 && (
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-text-2">Audio</span>
-                      <span className="text-text">{formatPrice(previewModel.audio_price)}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '10px' }}>
+                      <span style={{ color: 'var(--ink3)' }}>Audio</span>
+                      <span style={{ color: 'var(--ink)' }}>{formatPrice(previewModel.audio_price)}</span>
                     </div>
                   )}
                   {parsePrice(previewModel.web_search_price) !== null && parsePrice(previewModel.web_search_price)! > 0 && (
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-text-2">Web Search</span>
-                      <span className="text-text">{formatPrice(previewModel.web_search_price)}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '10px' }}>
+                      <span style={{ color: 'var(--ink3)' }}>Web Search</span>
+                      <span style={{ color: 'var(--ink)' }}>{formatPrice(previewModel.web_search_price)}</span>
                     </div>
                   )}
                 </div>
                 {/* Cost tier bar */}
-                <div className="text-[9px] text-text-2 mb-1">Cost tier</div>
-                <div className="flex items-center gap-1.5">
-                  <div className="flex-1 h-1.5 rounded-full bg-surface-3 overflow-hidden">
+                <div style={{ fontSize: '8px', color: 'var(--ink3)', marginBottom: '2px' }}>Cost tier</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <div style={{ flex: 1, height: '5px', borderRadius: '2px', background: 'var(--line)', overflow: 'hidden' }}>
                     <div
-                      className="h-full rounded-full"
                       style={{
+                        height: '100%',
+                        borderRadius: '2px',
                         width: `${getModelCostTier(previewModel) === 'free' ? 100 : getModelCostTier(previewModel) === 'low' ? 75 : getModelCostTier(previewModel) === 'mid' ? 45 : getModelCostTier(previewModel) === 'unknown' ? 30 : 20}%`,
                         backgroundColor: COST_TIER_COLORS[getModelCostTier(previewModel)],
                       }}
                     />
                   </div>
-                  <span className="text-[9px] text-text-2 capitalize shrink-0">{getModelCostTier(previewModel)}</span>
+                  <span style={{ fontSize: '8px', color: 'var(--ink3)', textTransform: 'capitalize', flexShrink: 0 }}>{getModelCostTier(previewModel)}</span>
                 </div>
               </div>
 
               {isModelFree(previewModel) && (
-                <div className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-500/10 text-emerald-500 text-[10px]">
-                  <Star className="w-3 h-3" />
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', padding: '2px 6px', borderRadius: '2px', background: 'rgba(90,122,74,0.15)', color: 'var(--green)', fontSize: '9px' }}>
+                  <Star size={10} />
                   Free model
                 </div>
               )}
@@ -466,14 +526,14 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
 
           </>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center gap-3 px-4 text-center">
-            <Sparkles className="w-8 h-8 text-accent" />
-            <div className="text-sm font-semibold text-text">Free Router</div>
-            <div className="text-[11px] text-text-2 leading-relaxed">
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '12px', textAlign: 'center' }}>
+            <Sparkles size={26} style={{ color: 'var(--orange)' }} />
+            <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--ink)' }}>Free Router</div>
+            <div style={{ fontSize: '10px', color: 'var(--ink3)', lineHeight: 1.4 }}>
               OpenRouter automatically selects a free model for each request based on prompt complexity, task type, and model capabilities.
             </div>
             {isAdaptive && (
-              <div className="text-[10px] text-accent font-medium">Currently active</div>
+              <div style={{ fontSize: '9px', color: 'var(--orange)', fontWeight: 600 }}>Currently active</div>
             )}
           </div>
         )}
@@ -496,27 +556,36 @@ const ModelRow: React.FC<{
     <button
       onClick={() => onSelect(model.id)}
       onMouseEnter={() => onHover(model)}
-      className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left transition-colors ${
-        isSelected ? 'bg-accent/10 text-text' : 'text-text-2 hover:bg-surface-2'
-      }`}
+      style={{
+        width: '100%',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '6px',
+        padding: '4px 6px',
+        borderRadius: '2px',
+        textAlign: 'left',
+        background: isSelected ? 'rgba(192,80,30,0.08)' : 'transparent',
+        color: isSelected ? 'var(--ink)' : 'var(--ink2)',
+        cursor: 'pointer',
+        border: 'none',
+      }}
     >
       {PROVIDER_FAVICONS[provider] ? (
         <img
           src={PROVIDER_FAVICONS[provider]!}
           alt=""
-          className="w-4 h-4 rounded shrink-0 object-contain"
+          style={{ width: '14px', height: '14px', borderRadius: '2px', objectFit: 'contain', flexShrink: 0 }}
           onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
         />
       ) : (
-        <Cpu className="w-4 h-4 shrink-0 text-text-2" />
+        <Cpu size={14} style={{ flexShrink: 0, color: 'var(--ink3)' }} />
       )}
-      <span className="text-xs truncate flex-1">{stripProviderPrefix(model.name)}</span>
+      <span style={{ fontSize: '10px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{stripProviderPrefix(model.name)}</span>
       <div
-        className="w-1.5 h-1.5 rounded-full shrink-0"
-        style={{ backgroundColor: COST_TIER_COLORS[getModelCostTier(model)] }}
+        style={{ width: '5px', height: '5px', borderRadius: '50%', flexShrink: 0, backgroundColor: COST_TIER_COLORS[getModelCostTier(model)] }}
         title={`Cost: ${isModelFree(model) ? 'Free' : formatPrice(getMaxPrice(model))}/1M`}
       />
-      {isSelected && <Check className="w-3.5 h-3.5 text-accent shrink-0" />}
+      {isSelected && <Check size={11} style={{ color: 'var(--orange)', flexShrink: 0 }} />}
     </button>
   );
 };

@@ -4,11 +4,9 @@ import { PlatformProvider, usePlatform } from './context/PlatformContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { LoginScreen } from './components/LoginScreen';
 import { TeamListPage } from './components/TeamListPage';
-import { TeamDetailPage } from './components/TeamDetailPage';
 import { TeamCreateModal } from './components/TeamCreateModal';
 import { AICreateTeamModal } from './components/AICreateTeamModal';
 import { RetroDesktop } from './components/retro/RetroDesktop';
-import { tasksToPlans } from './components/retro/tasksToPlans';
 import type { ChatMessage, ActivityEntry, PlanAgent } from './components/chatTypes';
 import type { ChatSession } from './components/ChatSidebar';
 import type { ChatReplyEnvelope, ChatReplyPayload, ChatReplyPlan, ChatReplyAgentReview } from './schemas/messages';
@@ -368,7 +366,7 @@ const parseChatSessionMessage = (message: any): { sessions: ChatSession[]; curre
 };
 
 function AppContent() {
-  const { updateState, agents, tasks, credits, system_status, available_tools } = usePlatform();
+  const { updateState, agents, tasks, credits, system_status, available_tools, current_plan } = usePlatform();
   const { isAuthenticated, token, isLoading: authLoading } = useAuth();
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -979,6 +977,59 @@ function AppContent() {
             )
           );
         }
+      } else if (name === 'config_agent') {
+        const agentId = payload?.agent_id as string;
+        if (agentId) {
+          updateState((prev) => ({
+            agents: (prev.agents || []).map(a =>
+              a.id === agentId
+                ? {
+                    ...a,
+                    name: payload.name || a.name,
+                    role: payload.role || a.role,
+                    goal: payload.goal ?? a.goal,
+                    persona: payload.persona ?? a.persona,
+                    model: payload.model ?? a.model,
+                    tools: payload.tools || a.tools,
+                    ...(payload.expertise ? { expertise: payload.expertise } : {}),
+                    ...(payload.personality ? { personality: payload.personality } : {}),
+                    ...(payload.brand_context ? { brand_context: payload.brand_context } : {}),
+                  } as any
+                : a
+            ),
+          }));
+        }
+      } else if (name === 'add_agent') {
+        const newAgent: Agent = {
+          id: `temp-${Date.now()}`,
+          name: payload?.name || 'New Agent',
+          role: payload?.role || '',
+          goal: payload?.goal || '',
+          persona: payload?.persona || '',
+          tools: payload?.tools ? (typeof payload.tools === 'string' ? payload.tools.split(',').map((t: string) => t.trim()).filter(Boolean) : payload.tools) : [],
+          model: payload?.model || '',
+          status: 'Idle',
+          ...(payload.template_id ? { template_id: payload.template_id } : {}),
+        };
+        updateState((prev) => ({ agents: [...(prev.agents || []), newAgent] }));
+      } else if (name === 'add_agent_form') {
+        const newAgent: Agent = {
+          id: `temp-${Date.now()}`,
+          name: payload?.name || 'New Agent',
+          role: payload?.role || '',
+          goal: payload?.goal || '',
+          persona: payload?.persona || '',
+          tools: payload?.tools ? (typeof payload.tools === 'string' ? payload.tools.split(',').map((t: string) => t.trim()).filter(Boolean) : payload.tools) : [],
+          model: payload?.model || '',
+          status: 'Idle',
+          ...(payload.template_id ? { template_id: payload.template_id } : {}),
+        };
+        updateState((prev) => ({ agents: [...(prev.agents || []), newAgent] }));
+      } else if (name === 'delete_agent') {
+        const agentId = payload?.agent_id as string;
+        if (agentId) {
+          updateState((prev) => ({ agents: (prev.agents || []).filter(a => a.id !== agentId) }));
+        }
       }
       sendAction(name, payload);
     },
@@ -998,8 +1049,8 @@ function AppContent() {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-900">
-        <div className="text-slate-400 text-lg">Loading...</div>
+      <div className="min-h-screen flex items-center justify-center" style={{ background: '#e8dcc8' }}>
+        <div className="text-ink-3 text-lg">Loading...</div>
       </div>
     );
   }
@@ -1071,26 +1122,39 @@ function AppContent() {
   }
 
   // Team detail page — Retro Desktop UI
-  const retroPlans = tasksToPlans(tasks || [], agents || []);
   return (
     <>
       <RetroDesktop
+        team={selectedTeam}
+        onBack={() => {
+          setSelectedTeamId(null);
+        }}
+        onDeleteTeam={(teamId) => handleAction('delete_team', { team_id: teamId })}
         chatMessages={chatMessages}
         chatSessions={chatSessions}
         activeSessionId={activeSessionId}
+        activityLog={activityLog}
+        isProcessing={isProcessing}
         isThinking={isThinking}
-        thinkingModel={resolvedModel}
+        thinkingText={thinkingText}
+        thinkingDuration={thinkingDuration}
         inputMode={inputMode}
         selectedModel={selectedModel}
         resolvedModel={resolvedModel}
-        isProcessing={isProcessing}
+        connectionStatus={connectionStatus}
+        systemStatus={system_status}
         onSendCommand={handleSendCommand}
         onStop={handleStop}
         onModeChange={setInputMode}
-        onSessionSwitch={(sessionId) => handleAction('switch_chat', { session_id: sessionId })}
-        onNewSession={() => handleAction('new_chat')}
         onAction={handleAction}
-        plans={retroPlans}
+        agents={agents || []}
+        currentPlan={current_plan}
+        availableTools={available_tools || []}
+        credits={credits || null}
+        modelCatalog={modelCatalogData.recommended}
+        modelSearchResults={modelCatalogData.searchResults}
+        mediaCatalog={modelCatalogData.mediaCatalog}
+        mediaSearchResults={modelCatalogData.mediaSearchResults}
       />
       <TeamCreateModal
         open={showCreateModal}

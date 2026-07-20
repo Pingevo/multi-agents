@@ -35,31 +35,48 @@ export function LoginScreen() {
   };
 
   const handleOAuthLogin = () => {
-    if (oauthUrl) window.location.href = oauthUrl;
+    if (oauthUrl) {
+      // Replace redirect_uri in the URL to point back to frontend
+      try {
+        const url = new URL(oauthUrl);
+        url.searchParams.set('redirect_uri', window.location.origin + '/');
+        window.location.href = url.toString();
+      } catch {
+        window.location.href = oauthUrl;
+      }
+    } else {
+      const params = new URLSearchParams({
+        app_name: 'Multi-Agent Platform',
+        redirect_uri: window.location.origin + '/',
+        client_id: 'multi_agent_app',
+      });
+      window.location.href = 'https://data.digital.in.th/system81/login?' + params.toString();
+    }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
-      <div className="w-full max-w-md p-8 bg-slate-800/50 backdrop-blur-sm rounded-2xl border border-slate-700 shadow-2xl">
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-white mb-2">Multi-Agent Platform</h1>
-          <p className="text-slate-400">Sign in to access your workspace</p>
+    <div className="min-h-screen flex items-center justify-center" style={{ background: '#e8dcc8' }}>
+      <div className="w-full max-w-md p-6 bg-paper border border-line-2 rounded-retro shadow-retro-lg">
+        <div className="text-center mb-6">
+          <div className="text-4xl mb-2">🪟</div>
+          <h1 className="text-xl font-bold text-ink mb-1">Agent OS</h1>
+          <p className="text-[12px] text-ink-3">Sign in to access your workspace</p>
         </div>
 
-        {oauthUrl && (
-          <button
-            type="button"
-            onClick={handleOAuthLogin}
-            disabled={loading}
-            className="w-full py-2.5 px-4 mb-6 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-600 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors"
-          >
-            Login with System81
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={handleOAuthLogin}
+          disabled={loading}
+          className="w-full py-2.5 px-4 mb-4 bg-green border border-green text-white font-bold rounded-retro hover:bg-green-light disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-[13px]"
+        >
+          Login with System81
+        </button>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="border-t border-line my-4" />
+
+        <form onSubmit={handleSubmit} className="space-y-3">
           <div>
-            <label htmlFor="username" className="block text-sm font-medium text-slate-300 mb-1.5">
+            <label htmlFor="username" className="block text-[11px] font-semibold text-ink-2 mb-1">
               Username
             </label>
             <input
@@ -69,13 +86,13 @@ export function LoginScreen() {
               onChange={(e) => setUsername(e.target.value)}
               placeholder="Enter your username"
               disabled={loading}
-              className="w-full px-4 py-2.5 bg-slate-900/50 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+              className="w-full px-3 py-2 bg-paper border border-line-2 rounded-retro-sm text-ink text-[13px] placeholder-ink-3 focus:outline-none focus:border-orange transition-colors"
               autoFocus
             />
           </div>
 
           <div>
-            <label htmlFor="password" className="block text-sm font-medium text-slate-300 mb-1.5">
+            <label htmlFor="password" className="block text-[11px] font-semibold text-ink-2 mb-1">
               Password
             </label>
             <input
@@ -85,12 +102,12 @@ export function LoginScreen() {
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Enter your password"
               disabled={loading}
-              className="w-full px-4 py-2.5 bg-slate-900/50 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+              className="w-full px-3 py-2 bg-paper border border-line-2 rounded-retro-sm text-ink text-[13px] placeholder-ink-3 focus:outline-none focus:border-orange transition-colors"
             />
           </div>
 
           {error && (
-            <div className="text-sm text-red-400 bg-red-950/30 border border-red-800/50 rounded-lg px-3 py-2">
+            <div className="text-[11px] text-red bg-red/10 border border-red/30 rounded-retro-sm px-3 py-2">
               {error}
             </div>
           )}
@@ -98,7 +115,7 @@ export function LoginScreen() {
           <button
             type="submit"
             disabled={loading || !username.trim() || !password}
-            className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-600 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors"
+            className="w-full py-2.5 px-4 bg-orange border border-orange text-white font-bold rounded-retro hover:bg-orange-light disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-[13px]"
           >
             {loading ? 'Signing in...' : 'Sign in'}
           </button>
