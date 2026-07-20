@@ -7,6 +7,8 @@ import { TeamListPage } from './components/TeamListPage';
 import { TeamDetailPage } from './components/TeamDetailPage';
 import { TeamCreateModal } from './components/TeamCreateModal';
 import { AICreateTeamModal } from './components/AICreateTeamModal';
+import { RetroDesktop } from './components/retro/RetroDesktop';
+import { tasksToPlans } from './components/retro/tasksToPlans';
 import type { ChatMessage, ActivityEntry, PlanAgent } from './components/chatTypes';
 import type { ChatSession } from './components/ChatSidebar';
 import type { ChatReplyEnvelope, ChatReplyPayload, ChatReplyPlan, ChatReplyAgentReview } from './schemas/messages';
@@ -366,7 +368,7 @@ const parseChatSessionMessage = (message: any): { sessions: ChatSession[]; curre
 };
 
 function AppContent() {
-  const { updateState, agents, credits, system_status, available_tools } = usePlatform();
+  const { updateState, agents, tasks, credits, system_status, available_tools } = usePlatform();
   const { isAuthenticated, token, isLoading: authLoading } = useAuth();
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -1068,40 +1070,27 @@ function AppContent() {
     );
   }
 
-  // Team detail page
+  // Team detail page — Retro Desktop UI
+  const retroPlans = tasksToPlans(tasks || [], agents || []);
   return (
     <>
-      <TeamDetailPage
-        team={selectedTeam}
-        onBack={() => {
-          setSelectedTeamId(null);
-          handleAction('select_team', { team_id: '' });
-        }}
-        onDeleteTeam={(teamId) => {
-          handleAction('delete_team', { team_id: teamId });
-          setSelectedTeamId(null);
-        }}
-        onSendCommand={handleSendCommand}
-        onStop={handleStop}
-        onAction={handleAction}
-        connectionStatus={connectionStatus}
+      <RetroDesktop
         chatMessages={chatMessages}
-        activityLog={activityLog}
-        isProcessing={isProcessing}
         chatSessions={chatSessions}
         activeSessionId={activeSessionId}
+        isThinking={isThinking}
+        thinkingModel={resolvedModel}
+        inputMode={inputMode}
         selectedModel={selectedModel}
         resolvedModel={resolvedModel}
-        thinkingText={thinkingText}
-        thinkingDuration={thinkingDuration}
-        isThinking={isThinking}
-        inputMode={inputMode}
+        isProcessing={isProcessing}
+        onSendCommand={handleSendCommand}
+        onStop={handleStop}
         onModeChange={setInputMode}
-        preloadedModelCatalog={modelCatalogData.recommended}
-        preloadedModelSearchResults={modelCatalogData.searchResults}
-        preloadedMediaCatalog={modelCatalogData.mediaCatalog}
-        preloadedMediaSearchResults={modelCatalogData.mediaSearchResults}
-        onMentionAgent={() => {}}
+        onSessionSwitch={(sessionId) => handleAction('switch_chat', { session_id: sessionId })}
+        onNewSession={() => handleAction('new_chat')}
+        onAction={handleAction}
+        plans={retroPlans}
       />
       <TeamCreateModal
         open={showCreateModal}
