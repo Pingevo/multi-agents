@@ -65,6 +65,23 @@ interface ChatWindowProps {
 // Helpers
 // ============================================================
 
+const relativeTime = (timestamp: string): string => {
+  if (!timestamp) return '';
+  const now = Date.now();
+  const then = new Date(timestamp).getTime();
+  if (isNaN(then)) return '';
+  const diff = now - then;
+  const sec = Math.floor(diff / 1000);
+  const min = Math.floor(sec / 60);
+  const hour = Math.floor(min / 60);
+  const day = Math.floor(hour / 24);
+  if (day > 7) return new Date(timestamp).toLocaleDateString();
+  if (day > 0) return `${day} day${day > 1 ? 's' : ''} ago`;
+  if (hour > 0) return `${hour} hour${hour > 1 ? 's' : ''} ago`;
+  if (min > 0) return `${min} minute${min > 1 ? 's' : ''} ago`;
+  return 'just now';
+};
+
 const agentIcon = (name: string): string => {
   const n = name.toLowerCase();
   if (n.includes('analyst') || n.includes('product')) return '📊';
@@ -569,6 +586,25 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const inputBarRef = useRef<HTMLDivElement>(null);
 
+  const [sidebarWidth, setSidebarWidth] = useState(140);
+  const sidebarResizeRef = useRef<HTMLDivElement>(null);
+
+  const handleSidebarResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = sidebarWidth;
+    const onMove = (ev: MouseEvent) => {
+      const newWidth = Math.max(100, Math.min(300, startWidth + ev.clientX - startX));
+      setSidebarWidth(newWidth);
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, [sidebarWidth]);
+
   // Auto-scroll
   const handleScroll = useCallback(() => {
     if (scrollRef.current) {
@@ -791,7 +827,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   return (
     <div className="chat-body">
       {/* Session sidebar */}
-      <div className="chat-sessions">
+      <div className="chat-sessions" style={{ width: sidebarWidth }}>
         <div className="cs-header">Sessions</div>
         <div className="cs-new" onClick={onNewChat}>+ New Session</div>
         <div className="cs-list">
@@ -805,7 +841,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
                 onClick={() => editingSessionId !== s.id && onSwitchChat(s.id)}
               >
                 {editingSessionId === s.id ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', overflow: 'hidden', width: '100%' }}>
                     <input
                       type="text" value={editTitle}
                       onChange={e => setEditTitle(e.target.value)}
@@ -814,7 +850,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
                         if (e.key === 'Escape') { e.stopPropagation(); setEditingSessionId(null); setEditTitle(''); }
                       }}
                       autoFocus
-                      style={{ flex: 1, fontSize: '11px', padding: '2px 4px', border: '1px solid var(--line)', borderRadius: '3px', background: 'var(--paper)', color: 'var(--ink)' }}
+                      style={{ flex: 1, minWidth: 0, fontSize: '11px', padding: '2px 4px', border: '1px solid var(--line)', borderRadius: '3px', background: 'var(--paper)', color: 'var(--ink)' }}
                     />
                     <button onClick={e => { e.stopPropagation(); confirmEditSession(); }} style={{ color: 'var(--green)', cursor: 'pointer', background: 'none', border: 'none' }}><Check size={12} /></button>
                     <button onClick={e => { e.stopPropagation(); setEditingSessionId(null); setEditTitle(''); }} style={{ color: 'var(--ink3)', cursor: 'pointer', background: 'none', border: 'none' }}><X size={12} /></button>
@@ -822,7 +858,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
                 ) : (
                   <>
                     <div className="cs-name">{s.title}</div>
-                    <div className="cs-preview">{s.updated_at || ''}</div>
+                    <div className="cs-preview">{relativeTime(s.updated_at)}</div>
                     <div style={{ display: 'flex', gap: '4px', marginTop: '2px', opacity: 0.6 }}>
                       <button onClick={e => { e.stopPropagation(); startEditSession(s.id, s.title); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink3)' }}><Pencil size={10} /></button>
                       <button onClick={e => { e.stopPropagation(); if (confirm('Delete this chat?')) { onDeleteChat(s.id); } }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink3)' }}><Trash2 size={10} /></button>
@@ -833,6 +869,21 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
             ))
           )}
         </div>
+      </div>
+      {/* Sidebar resize handle */}
+      <div
+        ref={sidebarResizeRef}
+        onMouseDown={handleSidebarResizeStart}
+        style={{
+          width: '4px',
+          cursor: 'col-resize',
+          background: 'transparent',
+          flexShrink: 0,
+          position: 'relative',
+          zIndex: 5,
+        }}
+      >
+        <div style={{ position: 'absolute', inset: '0 1px', background: 'var(--line)', opacity: 0.3 }} />
       </div>
 
       {/* Chat area */}

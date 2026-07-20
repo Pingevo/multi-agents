@@ -108,7 +108,7 @@ export const RetroWindow: React.FC<RetroWindowProps> = ({
       </div>
 
       {/* Body */}
-      <div className="flex-1 overflow-auto min-h-0">
+      <div className="flex-1 overflow-hidden min-h-0 flex flex-col">
         {children}
       </div>
 

@@ -23,18 +23,22 @@ export const WindowManagerProvider: React.FC<{ children: ReactNode }> = ({ child
   const openWindow = useCallback((id: WindowId, title: string, icon: string, width = 600, height = 400) => {
     setWindows(prev => {
       const existing = prev.find(w => w.id === id);
-      if (existing) {
-        const z = ++zCounter;
-        setActiveWindowId(id);
-        return prev.map(w => w.id === id ? { ...w, minimized: false, zIndex: z } : w);
-      }
       const z = ++zCounter;
-      const offset = prev.length * 24;
+      if (existing) {
+        // Re-open: un-minimize and center on screen
+        const cx = Math.max(0, (window.innerWidth - width) / 2);
+        const cy = Math.max(0, (window.innerHeight - height) / 2);
+        setActiveWindowId(id);
+        return prev.map(w => w.id === id ? { ...w, minimized: false, zIndex: z, x: cx, y: cy, width, height } : w);
+      }
+      // New window: center on screen
+      const cx = Math.max(0, (window.innerWidth - width) / 2);
+      const cy = Math.max(0, (window.innerHeight - height) / 2);
       setActiveWindowId(id);
       return [...prev, {
         id, title, icon,
-        x: 40 + offset,
-        y: 30 + offset,
+        x: cx,
+        y: cy,
         width, height,
         zIndex: z,
         minimized: false,
