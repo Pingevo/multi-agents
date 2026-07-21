@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import type { NotificationItem } from '../chatTypes';
 
 type FilterTab = 'pending' | 'completed';
@@ -24,8 +24,7 @@ const isCompleted = (n: NotificationItem): boolean => {
   return false;
 };
 
-const getTargetWindow = (n: NotificationItem): 'chat' | 'tasks' => {
-  if (n.messageType === 'image_approval' || n.messageType === 'agent_review') return 'tasks';
+const getTargetWindow = (_n: NotificationItem): 'chat' | 'tasks' => {
   return 'chat';
 };
 

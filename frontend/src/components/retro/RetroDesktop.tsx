@@ -230,13 +230,12 @@ const DesktopInner: React.FC<RetroDesktopProps> = (props) => {
         return (
           <TasksWindow
             chatMessages={props.chatMessages}
-            onAcceptPlan={handleAcceptPlan}
-            onRejectPlan={handleRejectPlan}
-            onApproveImage={(approvalId) => props.onAction('approve_image', { approval_id: approvalId })}
-            onRejectImage={(approvalId) => props.onAction('reject_image', { approval_id: approvalId })}
-            onRetryImage={(approvalId) => props.onAction('retry_image', { approval_id: approvalId })}
-            onEditImagePrompt={(approvalId, newPrompt) => props.onAction('retry_image', { approval_id: approvalId, prompt: newPrompt })}
-            onSkipReview={(agentName) => props.onAction('skip_review', { agent_name: agentName })}
+            notifications={props.notifications}
+            activeSessionId={props.activeSessionId}
+            onNavigate={(sessionId) => {
+              props.onAction('switch_chat', { session_id: sessionId });
+              handleOpenWindow('chat');
+            }}
           />
         );
       case 'agents':

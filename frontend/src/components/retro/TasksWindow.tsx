@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import {
   Loader2,
 } from 'lucide-react';
-import type { ChatMessage, AgentProgressEntry, PlanAgent, ResultAgent, PlanStatus } from '../chatTypes';
+import type { ChatMessage, AgentProgressEntry, PlanAgent, ResultAgent, PlanStatus, NotificationItem } from '../chatTypes';
 import type { Agent, PendingApproval, ImageResult } from '../../types/platform';
 import MarkdownRenderer from '../MarkdownRenderer';
 import { Dialog } from './Dialog';
@@ -13,15 +13,9 @@ import { Dialog } from './Dialog';
 
 interface TasksWindowProps {
   chatMessages: ChatMessage[];
-  onAcceptPlan?: () => void;
-  onRejectPlan?: () => void;
-  onApproveImage?: (approvalId: string) => void;
-  onRejectImage?: (approvalId: string) => void;
-  onRetryImage?: (approvalId: string) => void;
-  onEditImagePrompt?: (approvalId: string, newPrompt: string) => void;
-  onRetryTask?: () => void;
-  onRateTask?: (rating: number) => void;
-  onSkipReview?: (agentName: string) => void;
+  notifications: NotificationItem[];
+  activeSessionId: string | null;
+  onNavigate: (sessionId: string) => void;
 }
 
 interface StoryboardRun {
@@ -106,11 +100,8 @@ const TaskAgentCard: React.FC<{
   progress?: AgentProgressEntry;
   pendingApprovals: PendingApproval[];
   imageResults: ImageResult[];
-  onApproveImage?: (id: string) => void;
-  onRejectImage?: (id: string) => void;
-  onRetryImage?: (id: string) => void;
-  onSkipReview?: (name: string) => void;
-}> = ({ agent, progress, pendingApprovals, imageResults, onApproveImage, onRejectImage, onRetryImage, onSkipReview }) => {
+  onNavigate?: () => void;
+}> = ({ agent, progress, pendingApprovals, imageResults, onNavigate }) => {
   const [showOutputDialog, setShowOutputDialog] = useState(false);
   const [dialogTab, setDialogTab] = useState<'output' | 'review'>('output');
   const status = progress?.status || 'pending';
@@ -173,16 +164,6 @@ const TaskAgentCard: React.FC<{
         </div>
       )}
 
-      {/* Skip review button */}
-      {onSkipReview && hasOutput && !isComplete && !isError && (
-        <button
-          className="kcard-btn"
-          style={{ background: 'rgba(200,146,32,0.1)', color: 'var(--amber)', borderColor: 'rgba(200,146,32,0.3)' }}
-          onClick={() => onSkipReview(agent.name)}
-        >
-          หยุดตรวจ
-        </button>
-      )}
 
       {/* View output button — opens Dialog popup */}
       {hasOutput && (
@@ -269,23 +250,14 @@ const TaskAgentCard: React.FC<{
         </div>
       </Dialog>
 
-      {/* Image approvals */}
+      {/* Image approvals — click to navigate to chat */}
       {pendingApprovals.map(pa => (
-        <div key={pa.approvalId} style={{ marginTop: '4px' }}>
+        <div key={pa.approvalId} style={{ marginTop: '4px', cursor: 'pointer' }} onClick={() => onNavigate?.()}>
           {pa.approvalStatus === 'pending' && (
-            <>
-              <div style={{ fontSize: '10px', color: 'var(--ink2)', marginBottom: '2px' }}>🖼️ {pa.prompt}</div>
-              <div style={{ display: 'flex', gap: '4px' }}>
-                <button className="kcard-btn reject" onClick={() => onRejectImage?.(pa.approvalId)}>Reject</button>
-                <button className="kcard-btn approve" onClick={() => onApproveImage?.(pa.approvalId)}>Generate</button>
-              </div>
-            </>
+            <div style={{ fontSize: '10px', color: 'var(--ink2)', marginBottom: '2px' }}>🖼️ {pa.prompt} — <span style={{ color: 'var(--purple)' }}>คลิกเพื่ออนุมัติใน Chat</span></div>
           )}
           {pa.approvalStatus === 'error' && (
-            <>
-              <div style={{ fontSize: '10px', color: 'var(--red)', marginBottom: '2px' }}>⚠ {pa.imageError}</div>
-              <button className="kcard-btn" style={{ background: 'rgba(200,146,32,0.1)', color: 'var(--amber)' }} onClick={() => onRetryImage?.(pa.approvalId)}>🔄 Retry</button>
-            </>
+            <div style={{ fontSize: '10px', color: 'var(--red)', marginBottom: '2px' }}>⚠ {pa.imageError} — <span style={{ color: 'var(--amber)' }}>คลิกเพื่อ Retry ใน Chat</span></div>
           )}
           {pa.approvalStatus === 'approved' && (
             <div style={{ fontSize: '10px', color: 'var(--green)' }}>✓ Approved — generating...</div>
@@ -314,14 +286,8 @@ const TaskAgentCard: React.FC<{
 
 const PlanFrame: React.FC<{
   run: StoryboardRun;
-  onAcceptPlan?: () => void;
-  onRejectPlan?: () => void;
-  onApproveImage?: (id: string) => void;
-  onRejectImage?: (id: string) => void;
-  onRetryImage?: (id: string) => void;
-  onEditImagePrompt?: (id: string, p: string) => void;
-  onSkipReview?: (name: string) => void;
-}> = ({ run, onAcceptPlan, onRejectPlan, onApproveImage, onRejectImage, onRetryImage, onSkipReview }) => {
+  onNavigate?: () => void;
+}> = ({ run, onNavigate }) => {
   const [collapsed, setCollapsed] = useState(false);
 
   const planAgentsAsAgents: Agent[] = useMemo(() =>
@@ -368,11 +334,10 @@ const PlanFrame: React.FC<{
       </div>
       {!collapsed && (
         <div className="plan-frame-body">
-          {/* Pending plan actions */}
+          {/* Pending plan — click to navigate to chat */}
           {run.planStatus === 'pending' && (
-            <div className="kcard-plan-actions">
-              <button className="kcard-btn reject" onClick={onRejectPlan}>Reject</button>
-              <button className="kcard-btn approve" onClick={onAcceptPlan}>Approve Plan</button>
+            <div className="kcard-plan-actions" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '6px 10px', border: '1px solid rgba(200,146,32,0.3)', background: 'rgba(200,146,32,0.05)', borderRadius: '3px', fontSize: '11px', color: 'var(--amber)' }} onClick={() => onNavigate?.()}>
+              คลิกเพื่ออนุมัติแผนใน Chat
             </div>
           )}
 
@@ -393,10 +358,7 @@ const PlanFrame: React.FC<{
                 progress={nodeProgress}
                 pendingApprovals={agentApprovals}
                 imageResults={agentImages}
-                onApproveImage={onApproveImage}
-                onRejectImage={onRejectImage}
-                onRetryImage={onRetryImage}
-                onSkipReview={onSkipReview}
+                onNavigate={onNavigate}
               />
             );
           })}
@@ -431,15 +393,67 @@ const PlanFrame: React.FC<{
 // Main TasksWindow
 // ============================================================
 
+const isPending = (n: NotificationItem): boolean => {
+  if (n.messageType === 'plan') return n.planStatus === 'pending';
+  if (n.messageType === 'image_approval') return n.approvalStatus === 'pending' || n.approvalStatus === 'error';
+  if (n.messageType === 'agent_review') return n.reviewStatus === 'pending';
+  if (n.messageType === 'tuning_proposal') return n.tuningStatus !== 'confirmed' && n.tuningStatus !== 'rejected';
+  return false;
+};
+
+const getNotifIcon = (n: NotificationItem): string => {
+  if (n.messageType === 'plan') return '📋';
+  if (n.messageType === 'image_approval') return '🖼️';
+  if (n.messageType === 'agent_review') return '🔍';
+  if (n.messageType === 'tuning_proposal') return '🔧';
+  return '🔔';
+};
+
+const getNotifTitle = (n: NotificationItem): string => {
+  if (n.messageType === 'plan') return 'Plan Approval';
+  if (n.messageType === 'image_approval') return 'Image Generation';
+  if (n.messageType === 'agent_review') return 'Agent Review';
+  if (n.messageType === 'tuning_proposal') return 'Tuning Proposal';
+  return 'Notification';
+};
+
+const getNotifDesc = (n: NotificationItem): string => {
+  if (n.messageType === 'plan') return n.planTaskDescription || n.content?.slice(0, 80) || 'Plan awaiting approval';
+  if (n.messageType === 'image_approval') return n.imagePrompt || 'Image generation request';
+  if (n.messageType === 'agent_review') return `Agent: ${n.agentName || '—'}`;
+  if (n.messageType === 'tuning_proposal') return n.tuningProposals ? `${n.tuningProposals.length} change(s) for ${n.tuningProposals[0]?.agent_name || 'agent'}` : 'Tuning proposal';
+  return n.content?.slice(0, 80) || '';
+};
+
 export const TasksWindow: React.FC<TasksWindowProps> = ({
   chatMessages,
-  onAcceptPlan, onRejectPlan,
-  onApproveImage, onRejectImage, onRetryImage, onEditImagePrompt,
-  onSkipReview,
+  notifications,
+  activeSessionId,
+  onNavigate,
 }) => {
   const runs = useMemo(() => buildRuns(chatMessages), [chatMessages]);
 
-  if (runs.length === 0) {
+  // Pending notifications from OTHER sessions
+  const otherSessionPending = useMemo(() =>
+    notifications.filter(n => isPending(n) && n.sessionId !== activeSessionId),
+    [notifications, activeSessionId]
+  );
+
+  // Group by session
+  const otherSessions = useMemo(() => {
+    const map = new Map<string, { title: string; items: NotificationItem[] }>();
+    for (const n of otherSessionPending) {
+      if (!map.has(n.sessionId)) {
+        map.set(n.sessionId, { title: n.sessionTitle || 'Unknown', items: [] });
+      }
+      map.get(n.sessionId)!.items.push(n);
+    }
+    return Array.from(map.entries());
+  }, [otherSessionPending]);
+
+  const hasContent = runs.length > 0 || otherSessions.length > 0;
+
+  if (!hasContent) {
     return (
       <div className="tasks-list">
         <div className="kcard-empty">
@@ -451,19 +465,51 @@ export const TasksWindow: React.FC<TasksWindowProps> = ({
   }
 
   return (
-    <div className="tasks-list">
-      {runs.map(run => (
-        <PlanFrame
-          key={run.runIndex}
-          run={run}
-          onAcceptPlan={onAcceptPlan}
-          onRejectPlan={onRejectPlan}
-          onApproveImage={onApproveImage}
-          onRejectImage={onRejectImage}
-          onRetryImage={onRetryImage}
-          onEditImagePrompt={onEditImagePrompt}
-          onSkipReview={onSkipReview}
-        />
+    <div className="tasks-list" style={{ overflowY: 'auto', maxHeight: '100%' }}>
+      {/* Current session tasks */}
+      {runs.length > 0 && (
+        <div style={{ marginBottom: '8px' }}>
+          <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--ink3)', marginBottom: '6px', padding: '2px 4px', borderBottom: '1px solid var(--line)' }}>
+            📌 เซสชันปัจจุบัน
+          </div>
+          {runs.map(run => (
+            <PlanFrame
+              key={run.runIndex}
+              run={run}
+              onNavigate={() => onNavigate(activeSessionId || '')}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Other sessions pending */}
+      {otherSessions.map(([sessionId, group]) => (
+        <div key={sessionId} style={{ marginBottom: '8px' }}>
+          <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--ink3)', marginBottom: '6px', padding: '2px 4px', borderBottom: '1px solid var(--line)' }}>
+            💬 {group.title}
+          </div>
+          {group.items.map(n => (
+            <div
+              key={n.id}
+              className="plan-frame pending"
+              style={{ cursor: 'pointer', marginBottom: '6px' }}
+              onClick={() => onNavigate(sessionId)}
+            >
+              <div className="plan-frame-hdr">
+                <span className="pf-ic">{getNotifIcon(n)}</span>
+                <div className="pf-info">
+                  <div className="pf-title">{getNotifTitle(n)}</div>
+                  <div className="pf-bar"><div className="pf-bar-fill" style={{ width: '0%' }} /></div>
+                </div>
+                <span className="pf-badge">รอดำเนินการ</span>
+              </div>
+              <div className="plan-frame-body" style={{ padding: '6px 10px' }}>
+                <div style={{ fontSize: '10px', color: 'var(--ink2)' }}>{getNotifDesc(n)}</div>
+                <div style={{ fontSize: '10px', color: 'var(--amber)', marginTop: '4px' }}>คลิกเพื่อไปยัง Chat</div>
+              </div>
+            </div>
+          ))}
+        </div>
       ))}
     </div>
   );
