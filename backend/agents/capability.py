@@ -47,6 +47,12 @@ class CapabilityRegistry:
             "tool_name": "browse_web",
         },
         {
+            "name": "search_web",
+            "description": "Search the web using DuckDuckGo and return results — use for finding information, looking up facts, researching topics",
+            "type": "tool",
+            "tool_name": "search_web",
+        },
+        {
             "name": "reasoning",
             "description": "Strong analytical and reasoning capability for coordination and planning",
             "type": "model_trait",

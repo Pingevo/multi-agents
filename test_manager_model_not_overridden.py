@@ -42,7 +42,7 @@ class TestManagerModelNotOverridden(unittest.TestCase):
             '"image_model":"","video_model":"","search_model":""}'
         )
 
-        def stream(prompt):
+        def stream(prompt, **kwargs):
             yield ai_response
 
         llm_mgr.call_streaming = stream
