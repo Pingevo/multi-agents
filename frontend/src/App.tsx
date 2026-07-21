@@ -1227,6 +1227,7 @@ function AppContent() {
         modelSearchResults={modelCatalogData.searchResults}
         mediaCatalog={modelCatalogData.mediaCatalog}
         mediaSearchResults={modelCatalogData.mediaSearchResults}
+        taskItems={(tasks || []) as any}
       />
       <TeamCreateModal
         open={showCreateModal}

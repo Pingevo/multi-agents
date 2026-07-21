@@ -94,6 +94,13 @@ class StateMessenger:
                 "brand_context": a.get("brand_context", {}),
                 "learnings": a.get("learnings", []),
                 "depends_on": a.get("depends_on", []),
+                "template_id": a.get("template_id", ""),
+                "output_format": a.get("output_format", ""),
+                "quality_criteria": a.get("quality_criteria", ""),
+                "review_iterations": a.get("review_iterations", 3),
+                "max_iter": a.get("max_iter", 20),
+                "max_retry_limit": a.get("max_retry_limit", 3),
+                "allow_delegation": a.get("allow_delegation", False),
             }
             for a in agents
         ]
@@ -113,6 +120,10 @@ class StateMessenger:
 
     async def update_agents(self, registry: AgentRegistry):
         self.state["agents"] = self._agents_for_ui(registry.list_agents())
+        await self._send()
+
+    async def update_tasks(self, task_store: TaskStore):
+        self.state["tasks"] = task_store.list_tasks()
         await self._send()
 
     async def set_status(self, status: str):

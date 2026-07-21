@@ -181,3 +181,18 @@ export interface HistoryTaskLog {
   created_at: string;
   entries: HistoryLogEntry[];
 }
+
+export interface TaskItem {
+  id: string;
+  team_id?: string;
+  session_id?: string;
+  status: 'draft' | 'running' | 'review' | 'done' | string;
+  plan_agents?: Array<{ name: string; role: string }>;
+  plan_type?: string;
+  input?: string;
+  progress?: number;
+  result?: string | null;
+  images?: Array<{ url: string; prompt: string; mediaType?: string }>;
+  created_at?: string;
+  done_at?: string;
+}

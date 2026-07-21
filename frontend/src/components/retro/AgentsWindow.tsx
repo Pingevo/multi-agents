@@ -253,6 +253,12 @@ const AgentConfigForm: React.FC<{
   const [expertise, setExpertise] = useState<string[]>((agent as any).expertise || []);
   const [personality, setPersonality] = useState<Record<string, string>>((agent as any).personality || {});
   const [brandContext, setBrandContext] = useState<Record<string, string>>((agent as any).brand_context || {});
+  const [outputFormat, setOutputFormat] = useState((agent as any).output_format || '');
+  const [qualityCriteria, setQualityCriteria] = useState((agent as any).quality_criteria || '');
+  const [reviewIterations, setReviewIterations] = useState((agent as any).review_iterations ?? 3);
+  const [maxIter, setMaxIter] = useState((agent as any).max_iter ?? 20);
+  const [maxRetryLimit, setMaxRetryLimit] = useState((agent as any).max_retry_limit ?? 3);
+  const [allowDelegation, setAllowDelegation] = useState((agent as any).allow_delegation ?? false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const modelBtnRef = useRef<HTMLButtonElement>(null);
 
@@ -278,6 +284,12 @@ const AgentConfigForm: React.FC<{
       expertise,
       personality,
       brand_context: brandContext,
+      output_format: outputFormat,
+      quality_criteria: qualityCriteria,
+      review_iterations: reviewIterations,
+      max_iter: maxIter,
+      max_retry_limit: maxRetryLimit,
+      allow_delegation: allowDelegation,
     });
   };
 
@@ -426,6 +438,39 @@ const AgentConfigForm: React.FC<{
           ))}
         </div>
       </div>
+
+      {/* Output Format */}
+      <FieldRow label="Output Format" field="output_format">
+        <textarea value={outputFormat} onChange={e => setOutputFormat(e.target.value)} rows={2} className={textareaCls} placeholder="เช่น [Hook] [Body] [CTA] [Hashtags]" />
+      </FieldRow>
+
+      {/* Quality Criteria */}
+      <FieldRow label="Quality Criteria" field="quality_criteria">
+        <textarea value={qualityCriteria} onChange={e => setQualityCriteria(e.target.value)} rows={3} className={textareaCls} placeholder="เช่น 1. ต้องมี Hook 2. ต้องมี CTA 3. ใช้ภาษาวัยรุ่น" />
+      </FieldRow>
+
+      {/* Review Iterations */}
+      <FieldRow label="Review Iterations" field="review_iterations">
+        <input type="number" min={1} max={10} value={reviewIterations} onChange={e => setReviewIterations(parseInt(e.target.value) || 3)} className={inputCls} />
+      </FieldRow>
+
+      {/* Max Iter */}
+      <FieldRow label="Max Iterations" field="max_iter">
+        <input type="number" min={1} max={100} value={maxIter} onChange={e => setMaxIter(parseInt(e.target.value) || 20)} className={inputCls} />
+      </FieldRow>
+
+      {/* Max Retry Limit */}
+      <FieldRow label="Max Retry Limit" field="max_retry_limit">
+        <input type="number" min={0} max={10} value={maxRetryLimit} onChange={e => setMaxRetryLimit(parseInt(e.target.value) || 3)} className={inputCls} />
+      </FieldRow>
+
+      {/* Allow Delegation */}
+      <FieldRow label="Allow Delegation" field="allow_delegation">
+        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+          <input type="checkbox" checked={allowDelegation} onChange={e => setAllowDelegation(e.target.checked)} style={{ accentColor: 'var(--orange)' }} />
+          <span style={{ fontSize: '11px', color: 'var(--ink2)' }}>{allowDelegation ? 'อนุญาต' : 'ไม่อนุญาต'}</span>
+        </label>
+      </FieldRow>
 
       {/* Learnings (read-only) */}
       <div className="ad-section">

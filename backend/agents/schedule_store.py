@@ -28,13 +28,14 @@ class ScheduledTaskStore:
     def list_scheduled(self) -> list[dict]:
         return self.tasks
 
-    def add_scheduled(self, name: str, prompt: str, interval_hours: float, mode: str = "plan") -> dict:
+    def add_scheduled(self, name: str, prompt: str, interval_hours: float, mode: str = "plan", team_id: str = "") -> dict:
         task = {
             "id": f"sched_{datetime.now().strftime('%Y%m%d%H%M%S')}",
             "name": name,
             "prompt": prompt,
             "interval_hours": interval_hours,
             "mode": mode,
+            "team_id": team_id,
             "last_run": None,
             "next_run": datetime.now().isoformat(),
             "created_at": datetime.now().isoformat(),
@@ -51,6 +52,14 @@ class ScheduledTaskStore:
             self._save()
             return True
         return False
+
+    def delete_by_team(self, team_id: str) -> int:
+        before = len(self.tasks)
+        self.tasks = [t for t in self.tasks if t.get("team_id") != team_id]
+        deleted = before - len(self.tasks)
+        if deleted > 0:
+            self._save()
+        return deleted
 
     def toggle_active(self, task_id: str) -> bool:
         for t in self.tasks:

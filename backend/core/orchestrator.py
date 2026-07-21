@@ -629,6 +629,13 @@ class ExecutionOrchestrator:
                         f"Task: {a['goal']}\n"
                         f"Output:\n{a['output']}\n"
                     )
+                    # Include agent-specific quality criteria if set
+                    qc = a.get("quality_criteria", "")
+                    if qc:
+                        agents_section += f"QUALITY CRITERIA for {a['name']} (MUST check all):\n{qc}\n"
+                    of = a.get("output_format", "")
+                    if of:
+                        agents_section += f"EXPECTED OUTPUT FORMAT for {a['name']}:\n{of}\n"
                     # Detect template contract for this agent
                     a_tmpl_id = detect_template_id(a.get("role", ""), a.get("name", ""))
                     if a_tmpl_id:
@@ -662,6 +669,8 @@ class ExecutionOrchestrator:
                     f"- REJECT if the output mentions tools but doesn't show actual results from using them\n"
                     f"- REJECT if the output is too brief or doesn't address the user's actual question\n"
                     f"- REJECT if any specific requirement from the user's original request is not addressed in the output — check each requirement one by one\n"
+                    f"- If an agent has QUALITY CRITERIA listed above, check EACH criterion one by one and REJECT if any is not met\n"
+                    f"- If an agent has an EXPECTED OUTPUT FORMAT listed above, REJECT if the output does not follow that format\n"
                     f"- APPROVE only if the output contains concrete, specific information that fully addresses the user's request and follows the required format\n"
                     f"- feedback must be specific: tell the agent exactly what details to add or fix, including which sections are missing\n"
                     f"- summary should be concise: e.g. 'รอบ 1: งานยังไม่ครบ ขาดสรุป — สั่งแก้' or 'รอบ 2: ครบ ตรงโจทย์ — ผ่าน'\n"
@@ -882,7 +891,8 @@ class ExecutionOrchestrator:
                                             "feedback": tmpl_feedback,
                                             "output_preview": output_text[:2000],
                                         })
-                                        if state_ph["retry_count"] >= MAX_REVIEW_RETRIES:
+                                        tmpl_review_iters = agent_specs[i].get("review_iterations", MAX_REVIEW_RETRIES)
+                                        if state_ph["retry_count"] >= tmpl_review_iters:
                                             print(f"[DEBUG-SCHED] Agent '{name}' hit max retries on template validation — force approving", flush=True)
                                             approved_outputs[name] = output_text
                                             _send_progress_for_agent(i, "complete", output_text[:8000],
@@ -997,6 +1007,8 @@ class ExecutionOrchestrator:
                                 "role": role,
                                 "goal": goal,
                                 "output": state["current_output"],
+                                "quality_criteria": agent_specs[idx].get("quality_criteria", ""),
+                                "output_format": agent_specs[idx].get("output_format", ""),
                             })
 
                         # Determine wave retry count (max of all pending)
@@ -1037,13 +1049,14 @@ class ExecutionOrchestrator:
                                 del agent_review_state[idx]
                             else:
                                 # Check max retry limit before re-running
-                                if state["retry_count"] >= MAX_REVIEW_RETRIES:
-                                    print(f"[DEBUG-SCHED] Agent '{name}' hit max retries ({MAX_REVIEW_RETRIES}) — force approving", flush=True)
+                                agent_review_iters = agent_specs[idx].get("review_iterations", MAX_REVIEW_RETRIES)
+                                if state["retry_count"] >= agent_review_iters:
+                                    print(f"[DEBUG-SCHED] Agent '{name}' hit max retries ({agent_review_iters}) — force approving", flush=True)
                                     approved_outputs[name] = state["current_output"]
                                     agent_outputs[idx] = state["current_result"]
                                     _send_progress_for_agent(idx, "complete", state["current_output"][:8000],
                                         review_round=state["retry_count"] + 1,
-                                        review_summary=f"ครบจำนวน retry สูงสุด ({MAX_REVIEW_RETRIES}) — ใช้ output ปัจจุบัน",
+                                        review_summary=f"ครบจำนวน retry สูงสุด ({agent_review_iters}) — ใช้ output ปัจจุบัน",
                                         review_history=state["review_history"])
                                     done_indices.add(idx)
                                     del agent_review_state[idx]

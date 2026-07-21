@@ -9,7 +9,7 @@ interface AgentConfigModalProps {
   agent: Agent | null;
   availableTools: Array<{ name: string; description: string }>;
   onClose: () => void;
-  onSave: (data: { agent_id: string; name: string; role: string; goal: string; persona: string; model: string; tools: string[]; expertise?: string[]; personality?: Record<string, string>; brand_context?: Record<string, string> }) => void;
+  onSave: (data: { agent_id: string; name: string; role: string; goal: string; persona: string; model: string; tools: string[]; expertise?: string[]; personality?: Record<string, string>; brand_context?: Record<string, string>; output_format?: string; quality_criteria?: string; review_iterations?: number; max_iter?: number; max_retry_limit?: number; allow_delegation?: boolean }) => void;
   onAction?: (name: string, payload?: Record<string, any>) => void;
   modelCatalog?: Record<string, ModelCatalogEntry[]>;
   modelSearchResults?: ModelCatalogEntry[];
@@ -70,6 +70,30 @@ const FIELD_TOOLTIPS: Record<string, { desc: string; example: string }> = {
   'brand.target_audience': {
     desc: 'กลุ่มเป้าหมายของเนื้อหาที่ agent สร้าง กำหนดระดับความซับซ้อนและภาษาที่ใช้',
     example: 'เช่น วัยรุ่น 18-25 ปี, ผู้บริหารระดับสูง, นักลงทุนมือใหม่',
+  },
+  output_format: {
+    desc: 'รูปแบบผลลัพธ์ที่ agent ต้องทำตาม กำหนดโครงสร้าง output ที่ชัดเจน',
+    example: 'เช่น [Hook] [Body] [CTA] [Hashtags], หรือ JSON schema, หรือ markdown sections',
+  },
+  quality_criteria: {
+    desc: 'เกณฑ์ที่ Manager ใช้ตรวจสอบคุณภาพผลงานของ agent ก่อนผ่าน',
+    example: 'เช่น 1. ต้องมี Hook 2. ต้องมี CTA 3. ใช้ภาษาวัยรุ่น 4. ไม่เกิน 280 ตัวอักษร',
+  },
+  review_iterations: {
+    desc: 'จำนวนครั้งขั้นต่ำที่ Manager ตรวจสอบผลงาน agent ถ้าไม่ผ่านจะส่งกลับให้แก้',
+    example: 'เช่น 3 (ค่าเริ่มต้น), 5 (ตรวจเข้มข้น), 1 (ตรวจน้อย)',
+  },
+  max_iter: {
+    desc: 'จำนวนรอบสูงสุดที่ agent คิดวนซ้ำได้ ค่ามาก = คิดละเอียด แต่ช้าและใช้ token มาก',
+    example: 'เช่น 20 (ค่าเริ่มต้น), 5 (เร็ว กระชับ), 50 (คิดละเอียดมาก)',
+  },
+  max_retry_limit: {
+    desc: 'จำนวนครั้งสูงสุดที่ agent ลองใหม่เมื่อเกิดข้อผิดพลาด',
+    example: 'เช่น 3 (ค่าเริ่มต้น), 1 (ลองครั้งเดียว), 5 (พยายามมาก)',
+  },
+  allow_delegation: {
+    desc: 'อนุญาตให้ agent มอบหมายงานให้ agent อื่นในทีมได้',
+    example: 'เช่น false (ค่าเริ่มต้น — ทำเอง), true (สามารถมอบหมายได้)',
   },
   learnings: {
     desc: 'บทเรียนที่ agent บันทึกจากการทำงานก่อนหน้า ช่วยให้ทำงานได้ดีขึ้นในครั้งต่อไป',
@@ -167,6 +191,12 @@ export const AgentConfigModal: React.FC<AgentConfigModalProps> = ({
   const [expertise, setExpertise] = useState<string[]>([]);
   const [personality, setPersonality] = useState<Record<string, string>>({});
   const [brandContext, setBrandContext] = useState<Record<string, string>>({});
+  const [outputFormat, setOutputFormat] = useState('');
+  const [qualityCriteria, setQualityCriteria] = useState('');
+  const [reviewIterations, setReviewIterations] = useState(3);
+  const [maxIter, setMaxIter] = useState(20);
+  const [maxRetryLimit, setMaxRetryLimit] = useState(3);
+  const [allowDelegation, setAllowDelegation] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const modelBtnRef = useRef<HTMLButtonElement>(null);
@@ -189,6 +219,12 @@ export const AgentConfigModal: React.FC<AgentConfigModalProps> = ({
       setExpertise((agent as any).expertise || []);
       setPersonality((agent as any).personality || {});
       setBrandContext((agent as any).brand_context || {});
+      setOutputFormat((agent as any).output_format || '');
+      setQualityCriteria((agent as any).quality_criteria || '');
+      setReviewIterations((agent as any).review_iterations ?? 3);
+      setMaxIter((agent as any).max_iter ?? 20);
+      setMaxRetryLimit((agent as any).max_retry_limit ?? 3);
+      setAllowDelegation((agent as any).allow_delegation ?? false);
       setIsEditing(false);
     }
   }, [agent, selectedModel]);
@@ -206,6 +242,12 @@ export const AgentConfigModal: React.FC<AgentConfigModalProps> = ({
       expertise,
       personality,
       brand_context: brandContext,
+      output_format: outputFormat,
+      quality_criteria: qualityCriteria,
+      review_iterations: reviewIterations,
+      max_iter: maxIter,
+      max_retry_limit: maxRetryLimit,
+      allow_delegation: allowDelegation,
     });
     setIsEditing(false);
     onClose();
@@ -434,6 +476,63 @@ export const AgentConfigModal: React.FC<AgentConfigModalProps> = ({
               ))}
             </div>
           </div>
+
+          {/* Output Format */}
+          <FieldRow label="Output Format" field="output_format">
+            {isEditing ? (
+              <textarea value={outputFormat} onChange={(e) => setOutputFormat(e.target.value)} rows={2} className={textareaCls} placeholder="เช่น [Hook] [Body] [CTA] [Hashtags]" />
+            ) : (
+              <DisplayValue value={outputFormat} multiline />
+            )}
+          </FieldRow>
+
+          {/* Quality Criteria */}
+          <FieldRow label="Quality Criteria" field="quality_criteria">
+            {isEditing ? (
+              <textarea value={qualityCriteria} onChange={(e) => setQualityCriteria(e.target.value)} rows={3} className={textareaCls} placeholder="เช่น 1. ต้องมี Hook 2. ต้องมี CTA 3. ใช้ภาษาวัยรุ่น" />
+            ) : (
+              <DisplayValue value={qualityCriteria} multiline />
+            )}
+          </FieldRow>
+
+          {/* Review Iterations */}
+          <FieldRow label="Review Iterations" field="review_iterations">
+            {isEditing ? (
+              <input type="number" min={1} max={10} value={reviewIterations} onChange={(e) => setReviewIterations(parseInt(e.target.value) || 3)} className={inputCls} />
+            ) : (
+              <DisplayValue value={String(reviewIterations)} />
+            )}
+          </FieldRow>
+
+          {/* Max Iter */}
+          <FieldRow label="Max Iterations" field="max_iter">
+            {isEditing ? (
+              <input type="number" min={1} max={100} value={maxIter} onChange={(e) => setMaxIter(parseInt(e.target.value) || 20)} className={inputCls} />
+            ) : (
+              <DisplayValue value={String(maxIter)} />
+            )}
+          </FieldRow>
+
+          {/* Max Retry Limit */}
+          <FieldRow label="Max Retry Limit" field="max_retry_limit">
+            {isEditing ? (
+              <input type="number" min={0} max={10} value={maxRetryLimit} onChange={(e) => setMaxRetryLimit(parseInt(e.target.value) || 3)} className={inputCls} />
+            ) : (
+              <DisplayValue value={String(maxRetryLimit)} />
+            )}
+          </FieldRow>
+
+          {/* Allow Delegation */}
+          <FieldRow label="Allow Delegation" field="allow_delegation">
+            {isEditing ? (
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={allowDelegation} onChange={(e) => setAllowDelegation(e.target.checked)} className="accent-accent" />
+                <span className="text-xs text-text-2">{allowDelegation ? 'อนุญาต' : 'ไม่อนุญาต'}</span>
+              </label>
+            ) : (
+              <DisplayValue value={allowDelegation ? 'อนุญาต' : 'ไม่อนุญาต'} />
+            )}
+          </FieldRow>
 
           {/* Learnings (auto-generated, read-only) */}
           <div className="py-2.5 border-b border-border">

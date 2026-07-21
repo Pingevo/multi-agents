@@ -1,4 +1,4 @@
-"""TaskStore — JSON-backed task persistence."""
+"""TaskStore — JSON-backed task persistence, separated from chat sessions."""
 
 import json
 import uuid
@@ -6,7 +6,7 @@ from datetime import datetime
 from backend.globals import TASK_REGISTRY_FILE, resolve_data_path
 
 class TaskStore:
-    """เก็บประวัติ Task ลง JSON file เพื่อไม่ให้หายเมื่อ refresh"""
+    """เก็บประวัติ Task ลง JSON file — แยกจาก chat sessions"""
 
     def __init__(self, filepath: str = TASK_REGISTRY_FILE, user_id: str | None = None):
         if user_id:
@@ -27,6 +27,10 @@ class TaskStore:
             json.dump(self.tasks, f, ensure_ascii=False, indent=2)
 
     def add_task(self, task: dict) -> dict:
+        if "id" not in task:
+            task["id"] = f"task_{uuid.uuid4()[:8]}"
+        task.setdefault("status", "draft")
+        task.setdefault("created_at", datetime.now().isoformat())
         self.tasks.append(task)
         self._save()
         return task
@@ -41,12 +45,20 @@ class TaskStore:
         for t in self.tasks:
             if t.get("id") == task_id:
                 t.update(kwargs)
+                if kwargs.get("status") == "done":
+                    t["done_at"] = datetime.now().isoformat()
                 self._save()
                 return t
         return None
 
     def list_tasks(self) -> list[dict]:
         return self.tasks
+
+    def get_tasks_by_team(self, team_id: str) -> list[dict]:
+        return [t for t in self.tasks if t.get("team_id") == team_id]
+
+    def get_tasks_by_session(self, session_id: str) -> list[dict]:
+        return [t for t in self.tasks if t.get("session_id") == session_id]
 
     def delete_task(self, task_id: str) -> bool:
         original_len = len(self.tasks)
@@ -55,6 +67,14 @@ class TaskStore:
             self._save()
             return True
         return False
+
+    def delete_tasks_by_team(self, team_id: str) -> int:
+        before = len(self.tasks)
+        self.tasks = [t for t in self.tasks if t.get("team_id") != team_id]
+        deleted = before - len(self.tasks)
+        if deleted > 0:
+            self._save()
+        return deleted
 
     def clear_all(self):
         self.tasks = []

@@ -10,6 +10,12 @@ export interface Agent {
   status: 'Idle' | 'Busy' | string;
   is_manager?: boolean;
   template_id?: string;
+  output_format?: string;
+  quality_criteria?: string;
+  review_iterations?: number;
+  max_iter?: number;
+  max_retry_limit?: number;
+  allow_delegation?: boolean;
 }
 
 export interface AgentOutput {
@@ -90,6 +96,12 @@ export interface AgentFormData {
   tools: string;
   model?: string;
   template_id?: string;
+  output_format?: string;
+  quality_criteria?: string;
+  review_iterations?: number;
+  max_iter?: number;
+  max_retry_limit?: number;
+  allow_delegation?: boolean;
 }
 
 export interface AssignFormData {

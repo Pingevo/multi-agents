@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import {
   Loader2,
 } from 'lucide-react';
-import type { ChatMessage, AgentProgressEntry, PlanAgent, ResultAgent, PlanStatus, NotificationItem } from '../chatTypes';
+import type { ChatMessage, AgentProgressEntry, PlanAgent, ResultAgent, PlanStatus, NotificationItem, TaskItem } from '../chatTypes';
 import type { Agent, PendingApproval, ImageResult } from '../../types/platform';
 import MarkdownRenderer from '../MarkdownRenderer';
 import { Dialog } from './Dialog';
@@ -16,6 +16,7 @@ interface TasksWindowProps {
   notifications: NotificationItem[];
   activeSessionId: string | null;
   onNavigate: (sessionId: string) => void;
+  taskItems?: TaskItem[];
 }
 
 interface StoryboardRun {
@@ -430,6 +431,7 @@ export const TasksWindow: React.FC<TasksWindowProps> = ({
   notifications,
   activeSessionId,
   onNavigate,
+  taskItems = [],
 }) => {
   const runs = useMemo(() => buildRuns(chatMessages), [chatMessages]);
 
@@ -451,7 +453,7 @@ export const TasksWindow: React.FC<TasksWindowProps> = ({
     return Array.from(map.entries());
   }, [otherSessionPending]);
 
-  const hasContent = runs.length > 0 || otherSessions.length > 0;
+  const hasContent = runs.length > 0 || otherSessions.length > 0 || taskItems.length > 0;
 
   if (!hasContent) {
     return (
@@ -466,6 +468,39 @@ export const TasksWindow: React.FC<TasksWindowProps> = ({
 
   return (
     <div className="tasks-list" style={{ overflowY: 'auto', maxHeight: '100%' }}>
+      {/* TaskStore items — all tasks across sessions */}
+      {taskItems.length > 0 && (
+        <div style={{ marginBottom: '8px' }}>
+          <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--ink3)', marginBottom: '6px', padding: '2px 4px', borderBottom: '1px solid var(--line)' }}>
+            🗂 งานทั้งหมด ({taskItems.length})
+          </div>
+          {taskItems.map(task => (
+            <div key={task.id} className="plan-frame" style={{ marginBottom: '6px' }}>
+              <div className="plan-frame-hdr">
+                <span className="pf-ic">📋</span>
+                <div className="pf-info">
+                  <div className="pf-title">{task.input?.slice(0, 60) || task.id}</div>
+                  <div className="pf-bar"><div className="pf-bar-fill" style={{ width: `${task.progress || 0}%` }} /></div>
+                </div>
+                <span className="pf-badge" style={{
+                  background: task.status === 'done' ? 'rgba(90,122,74,0.15)' : task.status === 'running' ? 'rgba(192,80,30,0.15)' : 'rgba(200,180,50,0.15)',
+                  color: task.status === 'done' ? 'var(--green)' : task.status === 'running' ? 'var(--orange)' : 'var(--amber)',
+                }}>{task.status}</span>
+              </div>
+              {task.plan_agents && task.plan_agents.length > 0 && (
+                <div className="plan-frame-body" style={{ padding: '4px 10px' }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                    {task.plan_agents.map((a, i) => (
+                      <span key={i} style={{ fontSize: '9px', padding: '1px 4px', borderRadius: '2px', background: 'var(--cream)', color: 'var(--ink2)' }}>{agentIcon(a.name)} {a.name}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Current session tasks */}
       {runs.length > 0 && (
         <div style={{ marginBottom: '8px' }}>

@@ -276,7 +276,13 @@ class CentralManager:
             '      "expertise": ["skill1", "skill2"],\n'
             '      "brand_context": {"brand_name": "", "guidelines": "", "target_audience": ""},\n'
             '      "tools": ["capability_name"],\n'
-            '      "model": "choose from: google/gemini-3.5-flash, anthropic/claude-sonnet-5, openai/gpt-5.6-luna"\n'
+            '      "model": "choose from: google/gemini-3.5-flash, anthropic/claude-sonnet-5, openai/gpt-5.6-luna",\n'
+            '      "output_format": "format specification for output (optional, e.g. [Hook] [Body] [CTA] [Hashtags])",\n'
+            '      "quality_criteria": "criteria for quality checking (optional, e.g. 1. Must have hook 2. Must have CTA)",\n'
+            '      "review_iterations": 3,\n'
+            '      "max_iter": 20,\n'
+            '      "max_retry_limit": 3,\n'
+            '      "allow_delegation": false\n'
             "    }\n"
             "  ]\n"
             "}\n"
@@ -308,7 +314,14 @@ class CentralManager:
             '      "tools": ["capability_name"],\n'
             '      "task_description": "What this agent should do",\n'
             '      "depends_on": [],\n'
-            '      "model": "choose from: google/gemini-3.5-flash, anthropic/claude-sonnet-5, openai/gpt-5.6-luna"\n'
+            '      "model": "choose from: google/gemini-3.5-flash, anthropic/claude-sonnet-5, openai/gpt-5.6-luna",\n'
+            '      "template_id": "template id if using a predefined template (optional)",\n'
+            '      "output_format": "format specification for output (optional, e.g. [Hook] [Body] [CTA] [Hashtags])",\n'
+            '      "quality_criteria": "criteria for quality checking (optional, e.g. 1. Must have hook 2. Must have CTA)",\n'
+            '      "review_iterations": 3,\n'
+            '      "max_iter": 20,\n'
+            '      "max_retry_limit": 3,\n'
+            '      "allow_delegation": false\n'
             "    }\n"
             "  ],\n"
             '  "image_model": "model_id from specialized catalog (REQUIRED if plan uses generate_image)",\n'
@@ -571,6 +584,8 @@ class CentralManager:
             "Analyze the request and decide which agent(s) need adjustments.\n"
             "For each agent, specify which fields to change and why.\n\n"
             "Tunable fields:\n"
+            "- name (agent's display name)\n"
+            "- role (agent's role title)\n"
             "- goal (the agent's objective — what it should accomplish)\n"
             "- personality.tone (e.g. professional, casual, friendly, formal)\n"
             "- personality.communication_style (e.g. concise, detailed, conversational)\n"
@@ -581,7 +596,15 @@ class CentralManager:
             "- brand_context.guidelines (tone/style rules)\n"
             "- brand_context.target_audience (who the agent's output is for)\n"
             "- tools (list of capability names — e.g. generate_image, generate_video, text_to_speech, transcribe_audio, analyze_image, generate_document)\n"
-            "- model (LLM model ID — choose from: google/gemini-3.5-flash, anthropic/claude-sonnet-5, openai/gpt-5.6-luna)\n\n"
+            "- model (LLM model ID — choose from: google/gemini-3.5-flash, anthropic/claude-sonnet-5, openai/gpt-5.6-luna)\n"
+            "- template_id (template ID for predefined output templates)\n"
+            "- depends_on (list of agent names this agent depends on)\n"
+            "- output_format (format specification for agent output, e.g. [Hook] [Body] [CTA] [Hashtags])\n"
+            "- quality_criteria (criteria for quality checking, e.g. 1. Must have hook 2. Must have CTA)\n"
+            "- review_iterations (int, minimum Manager review rounds, default 3)\n"
+            "- max_iter (int, max agent thinking iterations, default 20)\n"
+            "- max_retry_limit (int, max agent retries, default 3)\n"
+            "- allow_delegation (bool, allow agent to delegate to other agents, default false)\n\n"
             "Respond with ONLY this JSON (no other text):\n"
             "{\n"
             '  "tuning_proposals": [\n'
@@ -783,7 +806,14 @@ class CentralManager:
             '      "tools": ["capability_name"],\n'
             '      "task_description": "What this agent should do",\n'
             '      "depends_on": [],\n'
-            '      "model": "choose from: google/gemini-3.5-flash, anthropic/claude-sonnet-5, openai/gpt-5.6-luna"\n'
+            '      "model": "choose from: google/gemini-3.5-flash, anthropic/claude-sonnet-5, openai/gpt-5.6-luna",\n'
+            '      "template_id": "template id if using a predefined template (optional)",\n'
+            '      "output_format": "format specification for output (optional, e.g. [Hook] [Body] [CTA] [Hashtags])",\n'
+            '      "quality_criteria": "criteria for quality checking (optional, e.g. 1. Must have hook 2. Must have CTA)",\n'
+            '      "review_iterations": 3,\n'
+            '      "max_iter": 20,\n'
+            '      "max_retry_limit": 3,\n'
+            '      "allow_delegation": false\n'
             "    }\n"
             "  ],\n"
             '  "image_model": "model_id from specialized catalog (REQUIRED if plan uses generate_image)",\n'

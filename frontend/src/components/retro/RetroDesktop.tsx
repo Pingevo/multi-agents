@@ -13,7 +13,7 @@ import { ChatWindow } from './ChatWindow';
 import { TasksWindow } from './TasksWindow';
 import { NotificationsWindow } from './NotificationsWindow';
 import type { WindowId } from './types';
-import type { ChatMessage, ActivityEntry, HistoryTaskLog, NotificationItem } from '../chatTypes';
+import type { ChatMessage, ActivityEntry, HistoryTaskLog, NotificationItem, TaskItem } from '../chatTypes';
 import type { ChatSession } from '../ChatSidebar';
 import type { Agent, Plan } from '../../types/platform';
 import type { Team } from '../../types/team';
@@ -55,6 +55,7 @@ interface RetroDesktopProps {
   modelSearchResults: ModelCatalogEntry[];
   mediaCatalog: Record<string, ModelCatalogEntry[]>;
   mediaSearchResults: ModelCatalogEntry[];
+  taskItems?: TaskItem[];
 }
 
 const windowConfig: Record<WindowId, { title: string; icon: string; width: number; height: number }> = {
@@ -232,6 +233,7 @@ const DesktopInner: React.FC<RetroDesktopProps> = (props) => {
             chatMessages={props.chatMessages}
             notifications={props.notifications}
             activeSessionId={props.activeSessionId}
+            taskItems={props.taskItems}
             onNavigate={(sessionId) => {
               props.onAction('switch_chat', { session_id: sessionId });
               handleOpenWindow('chat');

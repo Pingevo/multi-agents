@@ -71,6 +71,16 @@ class AgentFactory:
                 for lesson in lessons:
                     parts.append(f"  - {lesson}")
 
+        # Output format — user-specified format for agent output
+        output_format = spec.get("output_format", "")
+        if output_format:
+            parts.append(f"You MUST format your output as: {output_format}")
+
+        # Quality criteria — user-specified criteria for self-checking
+        quality_criteria = spec.get("quality_criteria", "")
+        if quality_criteria:
+            parts.append(f"Your work must meet these quality criteria:\n{quality_criteria}")
+
         return "\n".join(parts)
 
     def create_agent(self, spec: dict, model_id: str = "") -> Agent:
@@ -97,10 +107,10 @@ class AgentFactory:
             backstory=backstory,
             llm=llm,
             tools=tools,
-            allow_delegation=False,
+            allow_delegation=spec.get("allow_delegation", False),
             verbose=True,
-            max_iter=20,
-            max_retry_limit=3,
+            max_iter=spec.get("max_iter", 20),
+            max_retry_limit=spec.get("max_retry_limit", 3),
         )
 
     def create_task(self, agent: Agent, spec: dict, user_input: str, agent_memory: list[dict] | None = None) -> Task:
@@ -216,6 +226,12 @@ class AgentFactory:
         }
         if input_files:
             task_kwargs["input_files"] = input_files
+
+        # Use agent's output_format as expected_output if specified
+        output_format = spec.get("output_format", "")
+        if output_format:
+            task_kwargs["expected_output"] = output_format
+
         return Task(**task_kwargs)
 
 

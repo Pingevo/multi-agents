@@ -12,6 +12,7 @@ from backend.agents.registry import AgentRegistry
 from backend.agents.tool_registry import ToolRegistry
 from backend.agents.team_registry import TeamRegistry
 from backend.agents.chat_store import ChatStore
+from backend.agents.task_store import TaskStore
 from backend.core.orchestrator import ExecutionOrchestrator
 from backend.core.messenger import StateMessenger
 from schemas import chat_reply
@@ -123,8 +124,7 @@ async def on_action_accept(action: cl.Action):
 
     cl.user_session.set("current_agent_specs", registered_specs)
 
-    # Track overrides for existing agents (tools/goal/persona changed by secretary)
-    agent_overrides = []
+    # Auto-apply: if Manager adjusted goal/persona/tools of existing agents, persist immediately
     for spec in registered_specs:
         reg_id = spec.get("registry_id", "")
         if not reg_id:
@@ -136,33 +136,29 @@ async def on_action_accept(action: cl.Action):
                 break
         if not agent_in_registry:
             continue
-        orig_tools = list(agent_in_registry.get("tools", []))
-        orig_goal = agent_in_registry.get("goal", "")
-        orig_persona = agent_in_registry.get("persona", "")
-        plan_tools = spec.get("tools", [])
-        plan_goal = spec.get("goal", "")
-        plan_persona = spec.get("persona", "")
-        changes = []
-        if set(orig_tools) != set(plan_tools):
-            changes.append({"field": "tools", "old_value": orig_tools, "new_value": plan_tools, "reason": "Secretary adjusted tools for this task"})
-        if orig_goal != plan_goal:
-            changes.append({"field": "goal", "old_value": orig_goal, "new_value": plan_goal, "reason": "Secretary adjusted goal for this task"})
-        if orig_persona != plan_persona:
-            changes.append({"field": "persona", "old_value": orig_persona, "new_value": plan_persona, "reason": "Secretary adjusted persona for this task"})
-        if changes:
-            agent_overrides.append({
-                "agent_name": spec.get("name", ""),
-                "agent_id": reg_id,
-                "changes": changes,
-            })
-    cl.user_session.set("agent_overrides", agent_overrides)
-    print(f"[DEBUG-ACCEPT] agent_overrides: {len(agent_overrides)} agents with changes", flush=True)
+        update_fields = {}
+        if agent_in_registry.get("goal", "") != spec.get("goal", ""):
+            update_fields["goal"] = spec.get("goal", "")
+        if agent_in_registry.get("persona", "") != spec.get("persona", spec.get("backstory", "")):
+            update_fields["persona"] = spec.get("persona", spec.get("backstory", ""))
+        if set(agent_in_registry.get("tools", [])) != set(spec.get("tools", [])):
+            update_fields["tools"] = spec.get("tools", [])
+        if update_fields:
+            registry.update_agent(reg_id, update_fields)
+            print(f"[DEBUG-ACCEPT] Auto-applied changes to agent {reg_id}: {list(update_fields.keys())}", flush=True)
 
     if messenger:
         messenger.update_plan_status("approved")
         await messenger.update_agents(registry)
         print(f"[DEBUG-ACCEPT] update_agents sent, registry has {len(registry.list_agents())} agents", flush=True)
         await messenger.clear_plan()
+
+    # Update task status to running
+    task_store = cl.user_session.get("task_store")
+    current_task_id = cl.user_session.get("current_task_id")
+    if task_store and current_task_id:
+        task_store.update_task(current_task_id, status="running")
+        await messenger.update_tasks(task_store)
 
     # Check if this is a create_agents plan (only create agents, don't run task)
     plan_type = cl.user_session.get("current_plan_type") or ""
@@ -202,10 +198,27 @@ async def on_action_reject(action: cl.Action):
     rejected_specs = cl.user_session.get("current_agent_specs") or []
     cl.user_session.set("current_agent_specs", None)
     cl.user_session.set("current_registry_id", None)
+
+    # Capture user feedback from payload (frontend sends rejection reason)
+    reject_feedback = ""
+    if action.payload:
+        reject_feedback = action.payload.get("feedback", "").strip()
+    if not reject_feedback:
+        reject_feedback = "ไม่ระบุเหตุผล"
+
+    # Update task status — delete draft task or mark as rejected
+    task_store = cl.user_session.get("task_store")
+    current_task_id = cl.user_session.get("current_task_id")
+    if task_store and current_task_id:
+        task_store.delete_task(current_task_id)
+        cl.user_session.set("current_task_id", None)
+        if messenger:
+            await messenger.update_tasks(task_store)
+
     if messenger:
         messenger.update_plan_status("rejected")
         await messenger.clear_plan()
-        # Store rejected plan in conversation history so AI can revise it
+        # Store rejected plan + user feedback in conversation history so AI can revise
         conversation_history = cl.user_session.get("conversation_history") or []
         if rejected_specs:
             plan_summary = json.dumps([
@@ -213,9 +226,9 @@ async def on_action_reject(action: cl.Action):
                 for a in rejected_specs
             ], ensure_ascii=False)
             conversation_history.append({"role": "assistant", "content": f"Proposed team: {plan_summary}"})
-            conversation_history.append({"role": "user", "content": "[REJECTED] แผนนี้ถูกปฏิเสธ กรุณาพิมพ์คำสั่งใหม่หรืออธิบายสิ่งที่ต้องการแก้"})
+            conversation_history.append({"role": "user", "content": f"[REJECTED] {reject_feedback}"})
             cl.user_session.set("conversation_history", conversation_history)
-        await messenger.reply("🔄 แผนงานถูกปฏิเสธ กรุณาพิมพ์คำสั่งใหม่หรืออธิบายสิ่งที่ต้องการแก้")
+        await messenger.reply(f"🔄 แผนงานถูกปฏิเสธ: {reject_feedback}\n\nกรุณาพิมพ์คำสั่งใหม่หรืออธิบายเพิ่มเติม — Manager จะสร้างแผนใหม่ที่ตรงตามความต้องการ")
         await messenger.reply_notifications(team_id=cl.user_session.get("current_team_id"))
 
 
@@ -485,8 +498,21 @@ async def on_action_confirm_tuning(action: cl.Action):
                     update_fields["expertise"] = new_value if isinstance(new_value, list) else [new_value]
                 elif field == "tools":
                     update_fields["tools"] = new_value if isinstance(new_value, list) else [new_value]
-                elif field in ("goal", "name", "role", "model", "team_id"):
+                elif field in ("goal", "name", "role", "model", "team_id",
+                               "template_id", "output_format", "quality_criteria"):
                     update_fields[field] = new_value
+                elif field == "depends_on":
+                    update_fields["depends_on"] = new_value if isinstance(new_value, list) else [new_value]
+                elif field in ("review_iterations", "max_iter", "max_retry_limit"):
+                    try:
+                        update_fields[field] = int(new_value)
+                    except (ValueError, TypeError):
+                        pass
+                elif field == "allow_delegation":
+                    if isinstance(new_value, bool):
+                        update_fields["allow_delegation"] = new_value
+                    elif isinstance(new_value, str):
+                        update_fields["allow_delegation"] = new_value.lower() in ("true", "1", "yes")
 
         if update_fields:
             registry.update_agent(agent_id, update_fields)
@@ -655,6 +681,17 @@ async def on_action_delete_team(action: cl.Action):
     chat_store = cl.user_session.get("chat_store") or ChatStore(user_id=cl.user_session.get("user_id", "default"))
     chat_store.delete_sessions_by_team(team_id)
 
+    # Delete all tasks belonging to this team
+    task_store = cl.user_session.get("task_store") or TaskStore(user_id=cl.user_session.get("user_id", "default"))
+    deleted_tasks = task_store.delete_tasks_by_team(team_id)
+    print(f"[DEBUG-DELETE-TEAM] Deleted {deleted_tasks} tasks for team {team_id}", flush=True)
+
+    # Delete all scheduled tasks belonging to this team
+    from backend.agents.schedule_store import ScheduledTaskStore
+    sched_store = ScheduledTaskStore(user_id=cl.user_session.get("user_id", "default"))
+    deleted_sched = sched_store.delete_by_team(team_id)
+    print(f"[DEBUG-DELETE-TEAM] Deleted {deleted_sched} scheduled tasks for team {team_id}", flush=True)
+
     team_registry.delete_team(team_id)
     cl.user_session.set("team_registry", team_registry)
     cl.user_session.set("registry", registry)
@@ -662,7 +699,7 @@ async def on_action_delete_team(action: cl.Action):
     if messenger:
         await messenger.update_agents(registry)
         await messenger.reply_team_list(team_registry)
-        await messenger.notify(f"🗑 ลบทีม {team.get('name', '')} และ agent และ chat ทั้งหมดแล้ว")
+        await messenger.notify(f"🗑 ลบทีม {team.get('name', '')} และ agent, chat, task, งานตั้งเวลา ทั้งหมดแล้ว")
 
 
 @cl.action_callback("delete_chat_session")
@@ -705,7 +742,10 @@ async def on_action_config_agent(action: cl.Action):
         return
 
     fields = {}
-    for key in ("name", "role", "goal", "persona", "model", "tools", "expertise", "personality", "brand_context"):
+    for key in ("name", "role", "goal", "persona", "model", "tools", "expertise",
+                "personality", "brand_context", "template_id", "depends_on",
+                "output_format", "quality_criteria", "review_iterations",
+                "max_iter", "max_retry_limit", "allow_delegation"):
         if key in payload:
             fields[key] = payload[key]
 

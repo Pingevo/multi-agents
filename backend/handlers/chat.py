@@ -334,14 +334,12 @@ async def execute_multi_agent_task(
             for media_result, idx in pending_approval_cards:
                 await _send_approval_card(media_result, idx)
 
-            # Post-task: ask user if they want to save agent overrides from the plan
-            agent_overrides = cl.user_session.get("agent_overrides") or []
-            if agent_overrides:
-                print(f"[DEBUG-POST-TASK] Sending tuning card for {len(agent_overrides)} agent overrides", flush=True)
-                cl.user_session.set("pending_tuning_proposal", agent_overrides)
-                await messenger.reply_tuning_proposal(agent_overrides)
-            else:
-                cl.user_session.set("agent_overrides", None)
+            # Update task status to review (user can review results)
+            task_store = cl.user_session.get("task_store")
+            current_task_id = cl.user_session.get("current_task_id")
+            if task_store and current_task_id:
+                task_store.update_task(current_task_id, status="review", progress=100)
+                await messenger.update_tasks(task_store)
     except Exception as e:
         tb = traceback.format_exc()
         print(f"[CREW ERROR] {_sanitize_error(e)}", flush=True)
@@ -1125,7 +1123,8 @@ async def on_message(message: cl.Message):
             interval = float(payload.get("interval_hours", 24))
             mode = payload.get("mode", "plan")
             if prompt:
-                sched = sched_store.add_scheduled(name, prompt, interval, mode)
+                current_team_id = cl.user_session.get("current_team_id", "")
+                sched = sched_store.add_scheduled(name, prompt, interval, mode, team_id=current_team_id)
                 if messenger:
                     await messenger.notify(f"⏰ ตั้งเวลา '{name}' ทุก {interval} ชม. แล้ว")
         elif action_name == "delete_scheduled_task":
@@ -2073,6 +2072,26 @@ async def on_message(message: cl.Message):
                         current_input=user_input)
                     print("[DEBUG-PLAN] reply_plan sent", flush=True)
 
+                    task_store = cl.user_session.get("task_store")
+                    if not task_store:
+                        task_store = TaskStore(user_id=cl.user_session.get("user_id", "default"))
+                        cl.user_session.set("task_store", task_store)
+                    current_team_id = cl.user_session.get("current_team_id", "")
+                    current_session_id = cl.user_session.get("current_session_id", messenger.current_session_id)
+                    task_entry = task_store.add_task({
+                        "team_id": current_team_id,
+                        "session_id": current_session_id,
+                        "status": "draft",
+                        "plan_agents": [{"name": s.get("name", ""), "role": s.get("role", "")} for s in resolved_specs],
+                        "plan_type": "existing" if has_existing else "new",
+                        "input": user_input[:500],
+                        "progress": 0,
+                        "result": None,
+                        "images": [],
+                    })
+                    cl.user_session.set("current_task_id", task_entry["id"])
+                    await messenger.update_tasks(task_store)
+
         except Exception as e:
             cl.user_session.set("state", STATE_IDLE)
             if _is_rate_limit_error(e):
@@ -2286,6 +2305,26 @@ async def on_message(message: cl.Message):
                         agent_specs=resolved_specs,
                         model_assignment=model_assignment,
                         current_input=combined_input)
+
+                    task_store = cl.user_session.get("task_store")
+                    if not task_store:
+                        task_store = TaskStore(user_id=cl.user_session.get("user_id", "default"))
+                        cl.user_session.set("task_store", task_store)
+                    current_team_id = cl.user_session.get("current_team_id", "")
+                    current_session_id = cl.user_session.get("current_session_id", messenger.current_session_id)
+                    task_entry = task_store.add_task({
+                        "team_id": current_team_id,
+                        "session_id": current_session_id,
+                        "status": "draft",
+                        "plan_agents": [{"name": s.get("name", ""), "role": s.get("role", "")} for s in resolved_specs],
+                        "plan_type": "existing" if has_existing else "new",
+                        "input": combined_input[:500],
+                        "progress": 0,
+                        "result": None,
+                        "images": [],
+                    })
+                    cl.user_session.set("current_task_id", task_entry["id"])
+                    await messenger.update_tasks(task_store)
                 return
 
             # Fallback: treat as chat

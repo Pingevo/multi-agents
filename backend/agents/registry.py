@@ -67,6 +67,12 @@ class AgentRegistry:
             "team_id": spec.get("team_id", None),
             "is_manager": spec.get("is_manager", False),
             "template_id": spec.get("template_id", ""),
+            "output_format": spec.get("output_format", ""),
+            "quality_criteria": spec.get("quality_criteria", ""),
+            "review_iterations": spec.get("review_iterations", 3),
+            "max_iter": spec.get("max_iter", 20),
+            "max_retry_limit": spec.get("max_retry_limit", 3),
+            "allow_delegation": spec.get("allow_delegation", False),
             "status": "Idle",
             "created_at": datetime.now().isoformat(),
             "last_used_at": None,
@@ -130,7 +136,9 @@ class AgentRegistry:
             if agent.get("id") == agent_id:
                 for key in ("name", "role", "goal", "persona", "personality",
                             "expertise", "brand_context", "learnings",
-                            "tools", "model", "team_id", "template_id"):
+                            "tools", "model", "team_id", "template_id",
+                            "output_format", "quality_criteria", "review_iterations",
+                            "max_iter", "max_retry_limit", "allow_delegation", "depends_on"):
                     if key in fields:
                         agent[key] = fields[key]
                 self._save()
@@ -168,6 +176,12 @@ class AgentRegistry:
             "depends_on": agent.get("depends_on", []),
             "team_id": agent.get("team_id"),
             "template_id": agent.get("template_id", ""),
+            "output_format": agent.get("output_format", ""),
+            "quality_criteria": agent.get("quality_criteria", ""),
+            "review_iterations": agent.get("review_iterations", 3),
+            "max_iter": agent.get("max_iter", 20),
+            "max_retry_limit": agent.get("max_retry_limit", 3),
+            "allow_delegation": agent.get("allow_delegation", False),
         }
 
     def add_learning(self, agent_id: str, learning: dict) -> bool:
