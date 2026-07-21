@@ -419,6 +419,7 @@ function AppContent() {
   const [thinkingText, setThinkingText] = useState<string>('');
   const [thinkingDuration, setThinkingDuration] = useState<number | null>(null);
   const [isThinking, setIsThinking] = useState(false);
+  const isThinkingRef = useRef(false);
   const thinkingStartRef = useRef<number | null>(null);
   const [inputMode, setInputMode] = useState<'chat' | 'plan'>('plan');
   // Temporarily disable chat mode: always fall back to plan
@@ -663,6 +664,7 @@ function AppContent() {
           setThinkingText(prev => (prev || '') + (reply.content || ''));
           setIsProcessing(true);
           setIsThinking(true);
+          isThinkingRef.current = true;
           return;
         }
         if (reply.messageType === 'thinking_done') {
@@ -671,6 +673,7 @@ function AppContent() {
             thinkingStartRef.current = null;
           }
           setIsThinking(false);
+          isThinkingRef.current = false;
           console.log('[DEBUG-THINKING] setIsThinking(false) in thinking_done');
           return;
         }
@@ -771,7 +774,7 @@ function AppContent() {
         const hasRunning = payloadTasks.some((t: any) => t.status === 'running');
         const hasPendingApprovals = chatMessages.some((m: ChatMessage) => m.messageType === 'image_approval' && m.approvalStatus === 'pending');
         const hasPendingReviews = chatMessages.some((m: ChatMessage) => m.messageType === 'agent_review' && m.reviewStatus === 'pending');
-        if (!hasRunning && !hasPendingApprovals && !hasPendingReviews) {
+        if (!hasRunning && !hasPendingApprovals && !hasPendingReviews && !isThinkingRef.current) {
           clearActivity();
           setIsProcessing(false);
         }
@@ -802,6 +805,7 @@ function AppContent() {
     setThinkingDuration(null);
     thinkingStartRef.current = Date.now();
     setIsThinking(true);
+    isThinkingRef.current = true;
     console.log('[DEBUG-THINKING] setIsThinking(true) in sendMessage');
     const message = {
       id: generateUUIDv4(),
@@ -928,6 +932,7 @@ function AppContent() {
         setThinkingDuration(null);
         thinkingStartRef.current = null;
         setIsThinking(false);
+        isThinkingRef.current = false;
         setIsProcessing(false);
         updateState({ current_plan: null });
       } else if (name === 'confirm_tuning') {
@@ -1003,7 +1008,9 @@ function AppContent() {
         setChatMessages([]);
         updateState({ tasks: [], current_plan: null });
       } else if (name === 'delete_chat') {
-        updateState({ tasks: [], current_plan: null });
+        setChatMessages([]);
+        setNotifications([]);
+        updateState({ current_plan: null, notifications: [] });
       } else if (name === 'set_selected_model') {
         setSelectedModel(payload?.model_id || '');
       } else if (name === 'change_media_model') {
@@ -1113,6 +1120,7 @@ function AppContent() {
     setAiThinkingText('');
     setThinkingText('');
     setIsThinking(false);
+    isThinkingRef.current = false;
     addActivity('Stopped');
   }, [sendMessage, addActivity]);
 

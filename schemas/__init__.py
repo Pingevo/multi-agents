@@ -56,6 +56,7 @@ class PlanAgentItem(BaseModel):
     original_tools: list[str] = []
     original_goal: str = ""
     original_persona: str = ""
+    task_description: str = ""
 
 
 class ResultAgentItem(BaseModel):

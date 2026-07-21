@@ -28,7 +28,7 @@ class TaskStore:
 
     def add_task(self, task: dict) -> dict:
         if "id" not in task:
-            task["id"] = f"task_{uuid.uuid4()[:8]}"
+            task["id"] = f"task_{uuid.uuid4().hex[:8]}"
         task.setdefault("status", "draft")
         task.setdefault("created_at", datetime.now().isoformat())
         self.tasks.append(task)
@@ -75,6 +75,25 @@ class TaskStore:
         if deleted > 0:
             self._save()
         return deleted
+
+    def delete_tasks_by_session(self, session_id: str) -> int:
+        before = len(self.tasks)
+        self.tasks = [t for t in self.tasks if t.get("session_id") != session_id]
+        deleted = before - len(self.tasks)
+        if deleted > 0:
+            self._save()
+        return deleted
+
+    def detach_tasks_by_session(self, session_id: str) -> int:
+        """Unset session_id on tasks from a deleted session, keeping the tasks themselves."""
+        count = 0
+        for t in self.tasks:
+            if t.get("session_id") == session_id:
+                t["session_id"] = None
+                count += 1
+        if count > 0:
+            self._save()
+        return count
 
     def clear_all(self):
         self.tasks = []

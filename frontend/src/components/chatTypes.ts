@@ -13,6 +13,7 @@ export interface PlanAgent {
   original_tools?: string[];
   original_goal?: string;
   original_persona?: string;
+  task_description?: string;
 }
 
 export interface ResultAgent {

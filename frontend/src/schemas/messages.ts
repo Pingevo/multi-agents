@@ -9,6 +9,7 @@ export interface PlanAgentItem {
   tools: string[];
   is_existing: boolean;
   model?: string;
+  task_description?: string;
 }
 
 export interface ResultAgentItem {

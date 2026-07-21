@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import '/retro-mockup.css';
 import { WindowManagerProvider, useWindowManager } from './WindowManager';
 import { RetroWindow } from './RetroWindow';
@@ -71,6 +71,83 @@ const windowConfig: Record<WindowId, { title: string; icon: string; width: numbe
 const DesktopInner: React.FC<RetroDesktopProps> = (props) => {
   const { windows, activeWindowId, openWindow, closeWindow, focusWindow, minimizeWindow, moveWindow, resizeWindow } = useWindowManager();
   const [startMenuOpen, setStartMenuOpen] = useState(false);
+
+  // Toast notifications — fire on real-time chat events
+  const [toasts, setToasts] = useState<{ id: string; text: string; icon: string }[]>([]);
+  const seenMsgIdsRef = useRef<Set<string>>(new Set());
+  const seenNotifIdsRef = useRef<Set<string>>(new Set());
+
+  const pushToast = useCallback((id: string, icon: string, text: string) => {
+    setToasts(prev => [...prev, { id, icon, text }]);
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, 5000);
+  }, []);
+
+  // Watch chatMessages — only fire toast when exactly 1 new message appears (real-time event).
+  // Multiple new messages at once = session switch / history load → skip all.
+  useEffect(() => {
+    const newMsgs: typeof props.chatMessages = [];
+    for (const msg of props.chatMessages) {
+      const key = `msg-${msg.id}`;
+      if (!seenMsgIdsRef.current.has(key)) newMsgs.push(msg);
+    }
+    // Mark all as seen
+    for (const msg of props.chatMessages) seenMsgIdsRef.current.add(`msg-${msg.id}`);
+
+    // Only fire if exactly 1 new message (real-time event)
+    if (newMsgs.length !== 1) return;
+    const msg = newMsgs[0];
+    const key = `msg-${msg.id}`;
+
+    if (msg.messageType === 'plan' && msg.planStatus === 'pending') {
+      pushToast(key, '📋', 'แผนงานรออนุมัติ');
+    } else if (msg.messageType === 'result') {
+      pushToast(key, msg.resultError ? '❌' : '✅', msg.resultError ? 'งานเกิดข้อผิดพลาด' : 'งานเสร็จสิ้นแล้ว');
+    } else if (msg.messageType === 'image_approval' && msg.approvalStatus === 'pending') {
+      pushToast(key, '🖼️', 'รูปภาพรออนุมัติ');
+    } else if (msg.messageType === 'agent_review' && msg.reviewStatus === 'pending') {
+      pushToast(key, '🔍', 'ผลงาน agent รอตรวจสอบ');
+    } else if (msg.messageType === 'tuning_proposal') {
+      pushToast(key, '🔧', 'ข้อเสนอแนะการปรับแต่ง');
+    }
+  }, [props.chatMessages, pushToast]);
+
+  // Watch notifications — same logic: only fire if exactly 1 new notification appears
+  useEffect(() => {
+    const pending = props.notifications.filter(n =>
+      n.sessionId !== props.activeSessionId && (
+        (n.messageType === 'plan' && n.planStatus === 'pending') ||
+        (n.messageType === 'image_approval' && (n.approvalStatus === 'pending' || n.approvalStatus === 'error')) ||
+        (n.messageType === 'agent_review' && n.reviewStatus === 'pending') ||
+        (n.messageType === 'tuning_proposal' && n.tuningStatus !== 'confirmed' && n.tuningStatus !== 'rejected')
+      )
+    );
+
+    const newNotifs: typeof pending = [];
+    for (const n of pending) {
+      const key = `notif-${n.messageType}-${n.id || n.sessionId || ''}-${n.timestamp || ''}`;
+      if (!seenNotifIdsRef.current.has(key)) newNotifs.push(n);
+    }
+    // Mark all as seen
+    for (const n of pending) {
+      const key = `notif-${n.messageType}-${n.id || n.sessionId || ''}-${n.timestamp || ''}`;
+      seenNotifIdsRef.current.add(key);
+    }
+
+    // Only fire if exactly 1 new notification (real-time event)
+    if (newNotifs.length !== 1) return;
+    const n = newNotifs[0];
+    const key = `notif-${n.messageType}-${n.id || n.sessionId || ''}-${n.timestamp || ''}`;
+    let icon = '🔔';
+    let text = 'การแจ้งเตือนใหม่';
+    if (n.messageType === 'plan') { icon = '📋'; text = 'แผนงานรออนุมัติ'; }
+    else if (n.messageType === 'image_approval') { icon = '🖼️'; text = 'รูปภาพรออนุมัติ'; }
+    else if (n.messageType === 'agent_review') { icon = '🔍'; text = 'ผลงาน agent รอตรวจสอบ'; }
+    else if (n.messageType === 'tuning_proposal') { icon = '🔧'; text = 'ข้อเสนอแนะการปรับแต่ง'; }
+    if (n.sessionTitle) text += ` — ${n.sessionTitle}`;
+    pushToast(key, icon, text);
+  }, [props.notifications, props.activeSessionId, pushToast]);
 
   // Auto-open chat window on mount
   useEffect(() => {
@@ -341,6 +418,44 @@ const DesktopInner: React.FC<RetroDesktopProps> = (props) => {
           (n.messageType === 'tuning_proposal' && n.tuningStatus !== 'confirmed' && n.tuningStatus !== 'rejected')
         ).length}
       />
+
+      {/* Toast notifications */}
+      {toasts.length > 0 && (
+        <div style={{
+          position: 'fixed',
+          bottom: '48px',
+          right: '12px',
+          zIndex: 9999,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '6px',
+          maxWidth: '320px',
+        }}>
+          {toasts.map(t => (
+            <div
+              key={t.id}
+              onClick={() => { handleOpenWindow('notifications'); setToasts(prev => prev.filter(tt => tt.id !== t.id)); }}
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '8px',
+                padding: '8px 12px',
+                background: 'var(--cream, #f5f0e8)',
+                border: '1px solid var(--line, #c8b89a)',
+                borderRadius: '4px',
+                boxShadow: '2px 2px 8px rgba(0,0,0,0.15)',
+                fontSize: '11px',
+                color: 'var(--ink, #3a3a3a)',
+                cursor: 'pointer',
+                animation: 'slideIn 0.3s ease',
+              }}
+            >
+              <span style={{ fontSize: '14px', flexShrink: 0 }}>{t.icon}</span>
+              <span>{t.text}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
     </div>
   );

@@ -715,9 +715,31 @@ async def on_action_delete_chat_session(action: cl.Action):
     chat_store = cl.user_session.get("chat_store") or ChatStore(user_id=cl.user_session.get("user_id", "default"))
     chat_store.delete_session(session_id)
 
+    # Delete only draft (pending) tasks from this session
+    task_store = cl.user_session.get("task_store") or TaskStore(user_id=cl.user_session.get("user_id", "default"))
+    draft_tasks = [t for t in task_store.get_tasks_by_session(session_id) if t.get("status") == "draft"]
+    for t in draft_tasks:
+        task_store.delete_task(t["id"])
+    # Detach remaining tasks from the deleted session
+    task_store.detach_tasks_by_session(session_id)
+
     if messenger:
         await messenger.reply_chat_sessions()
-        await messenger.notify("🗑 ลบแชทแล้ว")
+        await messenger.update_tasks(task_store)
+        await messenger.reply_notifications()
+        # Switch to another session
+        current_team_id = cl.user_session.get("current_team_id")
+        remaining = chat_store.list_sessions(team_id=current_team_id, include_unassigned=True) if current_team_id else chat_store.list_sessions()
+        if remaining:
+            messenger.current_session_id = remaining[0]["id"]
+        else:
+            new_s = chat_store.create_session("New Chat", team_id=current_team_id)
+            messenger.current_session_id = new_s["id"]
+        await messenger.reply_chat_history(messenger.current_session_id)
+        if draft_tasks:
+            await messenger.notify(f"🗑 ลบแชทและ {len(draft_tasks)} task ที่รอดำเนินการแล้ว")
+        else:
+            await messenger.notify("🗑 ลบแชทแล้ว")
 
 
 @cl.action_callback("config_agent")

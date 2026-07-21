@@ -100,5 +100,92 @@ class TestFreeModelRotatorBuildCrewaiLLM(unittest.TestCase):
         self.assertIn("meta-llama/llama-3.3-70b-instruct:free", llm.model)
 
 
+class TestFreeModelRotatorVisionBlocklist(unittest.TestCase):
+    """Seam: _fetch_vision_free_models() must exclude blocklisted models and sort preferred first."""
+
+    def _make_api_response(self, model_ids):
+        """Build a mock OpenRouter /models API response."""
+        return {
+            "data": [
+                {
+                    "id": mid,
+                    "architecture": {"input_modalities": ["text", "image"]},
+                }
+                for mid in model_ids
+            ]
+        }
+
+    def test_blocklisted_models_excluded(self):
+        """Content safety / moderation models must not appear in vision model list."""
+        from app import FreeModelRotator
+        rotator = FreeModelRotator(api_key="fake", base_url="https://openrouter.ai/api/v1")
+
+        models = [
+            "nvidia/nemotron-3.5-content-safety:free",
+            "nvidia/nemotron-nano-12b-v2-vl:free",
+            "google/gemini-2.0-flash-exp:free",
+            "qwen/qwen2.5-vl-72b-instruct:free",
+        ]
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = self._make_api_response(models)
+
+        with patch("requests.get", return_value=mock_resp):
+            result = rotator._fetch_vision_free_models()
+
+        self.assertNotIn("nvidia/nemotron-3.5-content-safety:free", result)
+        self.assertNotIn("nvidia/nemotron-nano-12b-v2-vl:free", result)
+        self.assertIn("google/gemini-2.0-flash-exp:free", result)
+        self.assertIn("qwen/qwen2.5-vl-72b-instruct:free", result)
+
+    def test_preferred_models_sorted_first(self):
+        """Preferred models should appear before non-preferred in the list."""
+        from app import FreeModelRotator
+        rotator = FreeModelRotator(api_key="fake", base_url="https://openrouter.ai/api/v1")
+
+        models = [
+            "random/unknown-vision:free",
+            "google/gemini-2.0-flash-exp:free",
+            "another/random-vl:free",
+            "qwen/qwen2.5-vl-72b-instruct:free",
+        ]
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = self._make_api_response(models)
+
+        with patch("requests.get", return_value=mock_resp):
+            result = rotator._fetch_vision_free_models()
+
+        # Preferred models should come first
+        preferred_indices = [i for i, m in enumerate(result) if m in FreeModelRotator._VISION_PREFERRED]
+        non_preferred_indices = [i for i, m in enumerate(result) if m not in FreeModelRotator._VISION_PREFERRED]
+        if preferred_indices and non_preferred_indices:
+            self.assertLess(max(preferred_indices), min(non_preferred_indices))
+
+    def test_empty_api_response_returns_empty(self):
+        """If API returns no vision models, result should be empty list."""
+        from app import FreeModelRotator
+        rotator = FreeModelRotator(api_key="fake", base_url="https://openrouter.ai/api/v1")
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"data": []}
+
+        with patch("requests.get", return_value=mock_resp):
+            result = rotator._fetch_vision_free_models()
+
+        self.assertEqual(result, [])
+
+    def test_api_error_uses_fallback(self):
+        """If API request fails, fallback list should be used."""
+        from app import FreeModelRotator
+        rotator = FreeModelRotator(api_key="fake", base_url="https://openrouter.ai/api/v1")
+
+        with patch("requests.get", side_effect=Exception("Connection error")):
+            result = rotator._fetch_vision_free_models()
+
+        self.assertEqual(result, ["google/gemini-2.0-flash-exp:free"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -418,14 +418,6 @@ const getNotifTitle = (n: NotificationItem): string => {
   return 'Notification';
 };
 
-const getNotifDesc = (n: NotificationItem): string => {
-  if (n.messageType === 'plan') return n.planTaskDescription || n.content?.slice(0, 80) || 'Plan awaiting approval';
-  if (n.messageType === 'image_approval') return n.imagePrompt || 'Image generation request';
-  if (n.messageType === 'agent_review') return `Agent: ${n.agentName || '—'}`;
-  if (n.messageType === 'tuning_proposal') return n.tuningProposals ? `${n.tuningProposals.length} change(s) for ${n.tuningProposals[0]?.agent_name || 'agent'}` : 'Tuning proposal';
-  return n.content?.slice(0, 80) || '';
-};
-
 export const TasksWindow: React.FC<TasksWindowProps> = ({
   chatMessages,
   notifications,
@@ -453,6 +445,15 @@ export const TasksWindow: React.FC<TasksWindowProps> = ({
     return Array.from(map.entries());
   }, [otherSessionPending]);
 
+  // Build unified list: current session runs + taskItems from other sessions
+  // Filter out taskItems that have a matching run in current session (same task, avoid duplicate display)
+  const runInputs = new Set(runs.map(r => (r.userMessage || '').trim().slice(0, 60).toLowerCase()));
+  const currentSessionTasks = taskItems.filter(t =>
+    (!t.session_id || t.session_id === activeSessionId) &&
+    !runInputs.has((t.input || '').trim().slice(0, 60).toLowerCase())
+  );
+  const otherSessionTasks = taskItems.filter(t => t.session_id && t.session_id !== activeSessionId);
+
   const hasContent = runs.length > 0 || otherSessions.length > 0 || taskItems.length > 0;
 
   if (!hasContent) {
@@ -468,79 +469,80 @@ export const TasksWindow: React.FC<TasksWindowProps> = ({
 
   return (
     <div className="tasks-list" style={{ overflowY: 'auto', maxHeight: '100%' }}>
-      {/* TaskStore items — all tasks across sessions */}
-      {taskItems.length > 0 && (
-        <div style={{ marginBottom: '8px' }}>
-          <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--ink3)', marginBottom: '6px', padding: '2px 4px', borderBottom: '1px solid var(--line)' }}>
-            🗂 งานทั้งหมด ({taskItems.length})
-          </div>
-          {taskItems.map(task => (
-            <div key={task.id} className="plan-frame" style={{ marginBottom: '6px' }}>
-              <div className="plan-frame-hdr">
-                <span className="pf-ic">📋</span>
-                <div className="pf-info">
-                  <div className="pf-title">{task.input?.slice(0, 60) || task.id}</div>
-                  <div className="pf-bar"><div className="pf-bar-fill" style={{ width: `${task.progress || 0}%` }} /></div>
-                </div>
-                <span className="pf-badge" style={{
-                  background: task.status === 'done' ? 'rgba(90,122,74,0.15)' : task.status === 'running' ? 'rgba(192,80,30,0.15)' : 'rgba(200,180,50,0.15)',
-                  color: task.status === 'done' ? 'var(--green)' : task.status === 'running' ? 'var(--orange)' : 'var(--amber)',
-                }}>{task.status}</span>
+      {/* Current session runs — highlighted with amber left border */}
+      {runs.map(run => (
+        <div key={`run-${run.runIndex}`} style={{ borderLeft: '3px solid var(--amber)', paddingLeft: '6px', marginBottom: '6px' }}>
+          <PlanFrame
+            run={run}
+            onNavigate={() => onNavigate(activeSessionId || '')}
+          />
+        </div>
+      ))}
+
+      {/* Current session task items — highlighted */}
+      {currentSessionTasks.map(task => (
+        <div key={`ct-${task.id}`} style={{ borderLeft: '3px solid var(--amber)', paddingLeft: '6px', marginBottom: '6px' }}>
+          <div className="plan-frame" style={{ marginBottom: '0' }}>
+            <div className="plan-frame-hdr">
+              <span className="pf-ic">📋</span>
+              <div className="pf-info">
+                <div className="pf-title">{task.input?.slice(0, 60) || task.id}</div>
+                <div className="pf-bar"><div className="pf-bar-fill" style={{ width: `${task.progress || 0}%` }} /></div>
               </div>
-              {task.plan_agents && task.plan_agents.length > 0 && (
-                <div className="plan-frame-body" style={{ padding: '4px 10px' }}>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                    {task.plan_agents.map((a, i) => (
-                      <span key={i} style={{ fontSize: '9px', padding: '1px 4px', borderRadius: '2px', background: 'var(--cream)', color: 'var(--ink2)' }}>{agentIcon(a.name)} {a.name}</span>
-                    ))}
-                  </div>
-                </div>
-              )}
+              <span className="pf-badge" style={{
+                background: task.status === 'done' ? 'rgba(90,122,74,0.15)' : task.status === 'running' ? 'rgba(192,80,30,0.15)' : 'rgba(200,180,50,0.15)',
+                color: task.status === 'done' ? 'var(--green)' : task.status === 'running' ? 'var(--orange)' : 'var(--amber)',
+              }}>{task.status}</span>
             </div>
-          ))}
-        </div>
-      )}
-
-      {/* Current session tasks */}
-      {runs.length > 0 && (
-        <div style={{ marginBottom: '8px' }}>
-          <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--ink3)', marginBottom: '6px', padding: '2px 4px', borderBottom: '1px solid var(--line)' }}>
-            📌 เซสชันปัจจุบัน
+            {task.plan_agents && task.plan_agents.length > 0 && (
+              <div className="plan-frame-body" style={{ padding: '4px 10px' }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                  {task.plan_agents.map((a, i) => (
+                    <span key={i} style={{ fontSize: '9px', padding: '1px 4px', borderRadius: '2px', background: 'var(--cream)', color: 'var(--ink2)' }}>{agentIcon(a.name)} {a.name}</span>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
-          {runs.map(run => (
-            <PlanFrame
-              key={run.runIndex}
-              run={run}
-              onNavigate={() => onNavigate(activeSessionId || '')}
-            />
-          ))}
         </div>
-      )}
+      ))}
 
-      {/* Other sessions pending */}
+      {/* Other session tasks — dimmed */}
+      {otherSessionTasks.map(task => (
+        <div key={`ot-${task.id}`} style={{ borderLeft: '3px solid var(--line)', paddingLeft: '6px', marginBottom: '6px', opacity: 0.6 }}>
+          <div className="plan-frame" style={{ marginBottom: '0' }}>
+            <div className="plan-frame-hdr">
+              <span className="pf-ic">�</span>
+              <div className="pf-info">
+                <div className="pf-title">{task.input?.slice(0, 60) || task.id}</div>
+                <div className="pf-bar"><div className="pf-bar-fill" style={{ width: `${task.progress || 0}%` }} /></div>
+              </div>
+              <span className="pf-badge" style={{
+                background: task.status === 'done' ? 'rgba(90,122,74,0.15)' : task.status === 'running' ? 'rgba(192,80,30,0.15)' : 'rgba(200,180,50,0.15)',
+                color: task.status === 'done' ? 'var(--green)' : task.status === 'running' ? 'var(--orange)' : 'var(--amber)',
+              }}>{task.status}</span>
+            </div>
+          </div>
+        </div>
+      ))}
+
+      {/* Other sessions pending — compact */}
       {otherSessions.map(([sessionId, group]) => (
-        <div key={sessionId} style={{ marginBottom: '8px' }}>
-          <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--ink3)', marginBottom: '6px', padding: '2px 4px', borderBottom: '1px solid var(--line)' }}>
-            💬 {group.title}
-          </div>
+        <div key={sessionId} style={{ marginBottom: '6px' }}>
           {group.items.map(n => (
             <div
               key={n.id}
               className="plan-frame pending"
-              style={{ cursor: 'pointer', marginBottom: '6px' }}
+              style={{ cursor: 'pointer', marginBottom: '4px', opacity: 0.7 }}
               onClick={() => onNavigate(sessionId)}
             >
               <div className="plan-frame-hdr">
                 <span className="pf-ic">{getNotifIcon(n)}</span>
                 <div className="pf-info">
-                  <div className="pf-title">{getNotifTitle(n)}</div>
+                  <div className="pf-title">{getNotifTitle(n)} — {group.title}</div>
                   <div className="pf-bar"><div className="pf-bar-fill" style={{ width: '0%' }} /></div>
                 </div>
                 <span className="pf-badge">รอดำเนินการ</span>
-              </div>
-              <div className="plan-frame-body" style={{ padding: '6px 10px' }}>
-                <div style={{ fontSize: '10px', color: 'var(--ink2)' }}>{getNotifDesc(n)}</div>
-                <div style={{ fontSize: '10px', color: 'var(--amber)', marginTop: '4px' }}>คลิกเพื่อไปยัง Chat</div>
               </div>
             </div>
           ))}

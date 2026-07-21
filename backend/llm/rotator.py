@@ -102,6 +102,25 @@ class FreeModelRotator:
     # Free models that support vision/multimodal input — fetched dynamically from API
     _vision_free_models_cache: list[str] | None = None
 
+    # Models that look like vision models but can't generate structured output
+    _VISION_BLOCKLIST = {
+        "nvidia/nemotron-3.5-content-safety:free",
+        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+        "nvidia/nemotron-nano-12b-v2-vl:free",
+        "openai/gpt-oss-120b:free",
+    }
+
+    # Preferred vision models — tried first if available
+    _VISION_PREFERRED = [
+        "google/gemini-2.0-flash-exp:free",
+        "google/gemma-4-31b-it:free",
+        "google/gemma-4-26b-a4b-it:free",
+        "meta-llama/llama-3.2-90b-vision-instruct:free",
+        "meta-llama/llama-4-scout:free",
+        "qwen/qwen2.5-vl-72b-instruct:free",
+        "qwen/qwen2-vl-72b-instruct:free",
+    ]
+
     def _fetch_vision_free_models(self) -> list[str]:
         """Fetch free models that support image input from OpenRouter API."""
         if self._vision_free_models_cache is not None:
@@ -121,9 +140,16 @@ class FreeModelRotator:
                         continue
                     if mid.startswith("openrouter/"):
                         continue
+                    if mid in self._VISION_BLOCKLIST:
+                        continue
                     arch = m.get("architecture", {})
                     if "image" in arch.get("input_modalities", []):
                         vision_free.append(mid)
+                # Sort: preferred models first, then the rest
+                vision_free.sort(key=lambda m: (
+                    0 if m in self._VISION_PREFERRED else 1,
+                    self._VISION_PREFERRED.index(m) if m in self._VISION_PREFERRED else 999
+                ))
                 self._vision_free_models_cache = vision_free
                 print(f"[FreeModelRotator] Discovered {len(vision_free)} free vision models: {vision_free}", flush=True)
                 return vision_free

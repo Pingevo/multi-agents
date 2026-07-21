@@ -28,6 +28,7 @@ interface ModelPickerProps {
   anchorRef?: React.RefObject<HTMLElement | null>;
   showAutoRouter?: boolean;
   pinnedModelId?: string;
+  isMediaPicker?: boolean;
 }
 
 export const getProvider = (modelId: string): string => {
@@ -78,7 +79,8 @@ const WHITELISTED_MODELS = new Set([
   'openai/gpt-5.6-luna',
 ]);
 
-const isModelAllowed = (model: ModelCatalogEntry): boolean => {
+const isModelAllowed = (model: ModelCatalogEntry, mediaPicker: boolean = false): boolean => {
+  if (mediaPicker) return true;
   return WHITELISTED_MODELS.has(model.id);
 };
 
@@ -190,6 +192,7 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
   anchorRef,
   showAutoRouter = true,
   pinnedModelId,
+  isMediaPicker = false,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<'recommended' | 'search'>('recommended');
@@ -286,7 +289,7 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
     onClose();
   };
 
-  const filteredSearchResults = activeTab === 'search' ? searchResults.filter(isModelAllowed) : [];
+  const filteredSearchResults = activeTab === 'search' ? searchResults.filter(m => isModelAllowed(m, isMediaPicker)) : [];
 
   if (!position) return null;
 
@@ -405,7 +408,7 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
               })()}
               {/* All whitelisted models — flat list, no categories */}
               {(() => {
-                const allModels = Object.values(recommended).flat().filter(isModelAllowed);
+                const allModels = Object.values(recommended).flat().filter(m => isModelAllowed(m, isMediaPicker));
                 const uniqueModels = Array.from(new Map(allModels.map(m => [m.id, m])).values());
                 return uniqueModels.map((model) => (
                   <ModelRow

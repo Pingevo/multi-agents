@@ -109,7 +109,7 @@ const roleIcon = (role: string): string => {
 
 const FeedUserMessage: React.FC<{ msg: ChatMessage }> = ({ msg }) => (
   <div className="feed-user">
-    {msg.content}
+    <MarkdownRenderer content={msg.content} />
     {(() => {
       const atts = msg.attachments || (msg.attachmentUrl ? [{ url: msg.attachmentUrl, name: msg.attachmentName || '', mime: msg.attachmentMime || '' }] : []);
       if (atts.length === 0) return null;
@@ -259,8 +259,8 @@ const ChatPlanCard: React.FC<{
   };
 
   const renderMediaModel = (label: string, mediaKey: string, modelId?: string, icon?: string, fetchKey?: string) => {
-    if (!modelId) return null;
-    const modelName = findModelName(modelId, mediaCatalog || {}, mediaSearchResults || []) || modelId;
+    if (!modelId && (!pending || !onChangeMediaModel)) return null;
+    const modelName = modelId ? (findModelName(modelId, mediaCatalog || {}, mediaSearchResults || []) || modelId) : '';
     if (!pending || !onChangeMediaModel) {
       return <span className="plan-model">{icon} {label}: {modelName}</span>;
     }
@@ -275,7 +275,7 @@ const ChatPlanCard: React.FC<{
             setEditingMedia(editingMedia === mediaKey ? null : mediaKey);
           }}
         >
-          {icon} {label}: {modelName}
+          {icon} {label}{modelName ? `: ${modelName}` : ': เลือกโมเดล'}
         </button>
         {editingMedia === mediaKey && (
           <ModelPicker
@@ -287,11 +287,81 @@ const ChatPlanCard: React.FC<{
             onClose={() => setEditingMedia(null)}
             anchorRef={{ current: mediaModelRefs.current[mediaKey] }}
             showAutoRouter={false}
+            isMediaPicker
           />
         )}
       </>
     );
   };
+
+  const renderAgentChanges = (agent: PlanAgent) => {
+    if (!agent.is_existing) return null;
+    const changes: React.ReactNode[] = [];
+
+    // Goal change
+    if (agent.original_goal && agent.goal && agent.goal !== agent.original_goal) {
+      changes.push(
+        <div key="goal" style={{ fontSize: '10px', color: 'var(--ink2)', marginTop: '2px', marginLeft: '18px' }}>
+          <span style={{ color: 'var(--amber)' }}>Goal เปลี่ยน:</span> {agent.goal.slice(0, 80)}{agent.goal.length > 80 ? '...' : ''}
+        </div>
+      );
+    }
+
+    // Tool changes
+    const tools = agent.tools || [];
+    const origTools = agent.original_tools || [];
+    const added = tools.filter(t => !origTools.includes(t));
+    const removed = origTools.filter(t => !tools.includes(t));
+    if (added.length > 0 || removed.length > 0) {
+      changes.push(
+        <div key="tools" style={{ display: 'flex', flexWrap: 'wrap', gap: '3px', marginTop: '2px', marginLeft: '18px' }}>
+          {added.map((tool, i) => (
+            <span key={`a-${i}`} style={{ fontSize: '9px', padding: '1px 5px', borderRadius: '2px', border: '1px dashed rgba(100,120,200,0.3)', color: 'var(--blue, #6678aa)', background: 'rgba(100,120,200,0.05)' }}>+{tool}</span>
+          ))}
+          {removed.map((tool, i) => (
+            <span key={`r-${i}`} style={{ fontSize: '9px', padding: '1px 5px', borderRadius: '2px', background: 'rgba(200,80,80,0.05)', color: 'rgba(200,80,80,0.5)', textDecoration: 'line-through' }}>{tool}</span>
+          ))}
+        </div>
+      );
+    }
+
+    // Persona change
+    if (agent.original_persona && agent.persona && agent.persona !== agent.original_persona) {
+      changes.push(
+        <div key="persona" style={{ fontSize: '10px', color: 'var(--ink2)', marginTop: '2px', marginLeft: '18px' }}>
+          <span style={{ color: 'var(--amber)' }}>Persona เปลี่ยน</span>
+        </div>
+      );
+    }
+
+    return changes.length > 0 ? <>{changes}</> : null;
+  };
+
+  const renderAgentStep = (agent: PlanAgent, j: number) => (
+    <div key={j} className="chat-plan-step" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', width: '100%' }}>
+        <span className="cps-ic">{roleIcon(agent.role)}</span>
+        <span style={{ flex: 1 }}>{agent.name} — {agent.goal || agent.role}</span>
+        {agent.is_existing ? (
+          <span style={{ fontSize: '9px', padding: '1px 5px', borderRadius: '2px', background: 'rgba(100,160,80,0.15)', color: 'var(--green)', flexShrink: 0 }}>Existing</span>
+        ) : (
+          <span style={{ fontSize: '9px', padding: '1px 5px', borderRadius: '2px', background: 'rgba(200,146,32,0.1)', color: 'var(--amber)', flexShrink: 0 }}>New</span>
+        )}
+        {renderAgentModel(agent)}
+      </div>
+      {agent.task_description && (
+        <div style={{ fontSize: '10px', color: 'var(--ink2)', marginTop: '2px', marginLeft: '18px' }}>
+          {agent.task_description}
+        </div>
+      )}
+      {agent.depends_on && agent.depends_on.length > 0 && (
+        <div style={{ fontSize: '10px', color: 'var(--ink3)', marginTop: '2px', marginLeft: '18px' }}>
+          Depends on: {agent.depends_on.join(', ')}
+        </div>
+      )}
+      {renderAgentChanges(agent)}
+    </div>
+  );
 
   return (
     <div className="chat-plan">
@@ -299,25 +369,13 @@ const ChatPlanCard: React.FC<{
         {waves.map((wave, i) => (
           <div key={i} className="chat-plan-wave">
             <div className="cpw-label">{wave.label}</div>
-            {wave.agents.map((agent, j) => (
-              <div key={j} className="chat-plan-step">
-                <span className="cps-ic">{roleIcon(agent.role)}</span>
-                <span>{agent.name} — {agent.goal || agent.role}</span>
-                {renderAgentModel(agent)}
-              </div>
-            ))}
+            {wave.agents.map((agent, j) => renderAgentStep(agent, j))}
           </div>
         ))}
         {remaining.length > 0 && (
           <div className="chat-plan-wave">
             <div className="cpw-label">More</div>
-            {remaining.map((agent, j) => (
-              <div key={j} className="chat-plan-step">
-                <span className="cps-ic">{roleIcon(agent.role)}</span>
-                <span>{agent.name} — {agent.goal || agent.role}</span>
-                {renderAgentModel(agent)}
-              </div>
-            ))}
+            {remaining.map((agent, j) => renderAgentStep(agent, j))}
           </div>
         )}
       </div>
@@ -325,7 +383,6 @@ const ChatPlanCard: React.FC<{
         <div className="plan-models">
           {hasImageTool && renderMediaModel('Image', 'imageModel', msg.imageModel, '🖼️', 'image')}
           {hasVideoTool && renderMediaModel('Video', 'videoModel', msg.videoModel, '🎬', 'video')}
-          {hasSearchTool && renderMediaModel('Search', 'searchModel', msg.searchModel, '🔍', 'search')}
           {hasTtsTool && renderMediaModel('TTS', 'ttsModel', msg.ttsModel, '🔊', 'tts')}
           {hasSttTool && renderMediaModel('STT', 'sttModel', msg.sttModel, '🎙️', 'stt')}
           {hasVisionTool && renderMediaModel('Vision', 'visionModel', msg.visionModel, '👁️', 'vision')}
@@ -337,10 +394,26 @@ const ChatPlanCard: React.FC<{
         {msg.planTaskDescription ? ` · ${msg.planTaskDescription}` : ''}
       </div>
       {planStatus === 'pending' && (
-        <div className="chat-plan-actions">
-          <button className="cp-btn reject" onClick={onReject}>ปฏิเสธ</button>
-          <button className="cp-btn approve" onClick={onAccept}>อนุมัติแผน</button>
-        </div>
+        (() => {
+          const missingModels: string[] = [];
+          if (hasImageTool && !msg.imageModel) missingModels.push('Image');
+          if (hasVideoTool && !msg.videoModel) missingModels.push('Video');
+          if (hasTtsTool && !msg.ttsModel) missingModels.push('TTS');
+          if (hasSttTool && !msg.sttModel) missingModels.push('STT');
+          if (hasVisionTool && !msg.visionModel) missingModels.push('Vision');
+          const canApprove = missingModels.length === 0;
+          return (
+            <div className="chat-plan-actions">
+              {missingModels.length > 0 && (
+                <div style={{ fontSize: '10px', color: 'var(--red)', fontWeight: 600, padding: '4px 8px', marginBottom: '4px' }}>
+                  กรุณาเลือกโมเดล: {missingModels.join(', ')}
+                </div>
+              )}
+              <button className="cp-btn reject" onClick={onReject}>ปฏิเสธ</button>
+              <button className="cp-btn approve" disabled={!canApprove} style={!canApprove ? { opacity: 0.4, cursor: 'not-allowed' } : {}} onClick={canApprove ? onAccept : undefined}>อนุมัติแผน</button>
+            </div>
+          );
+        })()
       )}
       {planStatus === 'approved' && (
         <div className="chat-plan-actions">
@@ -775,11 +848,11 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
     if (preloadedModelSearchResults && preloadedModelSearchResults.length > 0) {
       setModelSearchResults(prev => prev.length > 0 ? prev : preloadedModelSearchResults);
     }
-    if (preloadedMediaCatalog && Object.keys(preloadedMediaCatalog).length > 0) {
-      setMediaCatalog(prev => Object.keys(prev).length > 0 ? prev : preloadedMediaCatalog);
+    if (preloadedMediaCatalog) {
+      setMediaCatalog(preloadedMediaCatalog);
     }
-    if (preloadedMediaSearchResults && preloadedMediaSearchResults.length > 0) {
-      setMediaSearchResults(prev => prev.length > 0 ? prev : preloadedMediaSearchResults);
+    if (preloadedMediaSearchResults) {
+      setMediaSearchResults(preloadedMediaSearchResults);
     }
   }, [preloadedModelCatalog, preloadedModelSearchResults, preloadedMediaCatalog, preloadedMediaSearchResults]);
 

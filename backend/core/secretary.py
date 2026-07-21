@@ -428,7 +428,21 @@ class CentralManager:
             }
         if os.getenv("DEBUG_MODE", "false").lower() == "true":
             print(f"[DEBUG-PLAN-RAW] LLM response (first 800 chars): {response[:800]}", flush=True)
-        result = self._parse_unified_response(response, valid_model_ids, chat_only=chat_only)
+        result = self._parse_unified_response(response, valid_model_ids, chat_only=chat_only, user_input=user_input)
+
+        # If parsing failed and we're on free routing, retry with rotator
+        if result.get("action") == "chat" and "ไม่ใช่ JSON" in result.get("message", ""):
+            if self.llm_manager._is_free_routing():
+                print(f"[assess_and_plan] Response not JSON — retrying with free model rotator", flush=True)
+                try:
+                    retry_response = self.llm_manager._get_rotator().call(prompt, caller="assess_and_plan:retry")
+                    if retry_response and retry_response.strip():
+                        retry_result = self._parse_unified_response(retry_response.strip(), valid_model_ids, chat_only=chat_only, user_input=user_input)
+                        if retry_result.get("action") in ("plan", "create_agents", "ask", "tuning"):
+                            return retry_result
+                        print(f"[assess_and_plan] Rotator retry also failed to produce valid JSON", flush=True)
+                except Exception as retry_err:
+                    print(f"[assess_and_plan] Rotator retry error: {_sanitize_error(retry_err)}", flush=True)
         if chat_only and result.get("action") != "chat":
             result = {
                 "action": "chat",
@@ -437,7 +451,7 @@ class CentralManager:
         return result
 
     def _parse_unified_response(
-        self, text: str, valid_model_ids: set[str] | None = None, chat_only: bool = False
+        self, text: str, valid_model_ids: set[str] | None = None, chat_only: bool = False, user_input: str = ""
     ) -> dict:
         """Parse unified assess_and_plan response."""
         try:
@@ -478,6 +492,30 @@ class CentralManager:
                             })
                     if not agents:
                         return {"action": "chat", "message": "ไม่สามารถวางแผนได้ กรุณาลองใหม่"}
+
+                    # Post-parse validation: ensure generate_image is assigned when user requests images/posters
+                    user_input_lower = user_input.lower() if user_input else ""
+                    image_keywords = ["poster", "โปสเตอร์", "image", "รูป", "ภาพ", "picture", "photo", "ออกแบบภาพ", "สร้างภาพ", "banner", "แบนเนอร์"]
+                    needs_image = any(kw in user_input_lower for kw in image_keywords)
+                    has_image_tool = any("generate_image" in a.get("tools", []) for a in agents)
+                    if needs_image and not has_image_tool:
+                        # Find the most likely design/visual agent
+                        design_keywords = ["design", "poster", "image", "visual", "artist", "designer", "ภาพ", "ออกแบบ", "ศิลปิน", "graphic"]
+                        best_idx = -1
+                        best_score = 0
+                        for i, a in enumerate(agents):
+                            name_role = (a.get("name", "") + " " + a.get("role", "")).lower()
+                            score = sum(1 for kw in design_keywords if kw in name_role)
+                            if score > best_score:
+                                best_score = score
+                                best_idx = i
+                        if best_idx >= 0:
+                            agents[best_idx]["tools"] = list(set(agents[best_idx].get("tools", []) + ["generate_image"]))
+                            if not agents[best_idx].get("task_description", ""):
+                                agents[best_idx]["task_description"] = "Call generate_image to create the requested visual content."
+                            elif "generate_image" not in agents[best_idx]["task_description"].lower():
+                                agents[best_idx]["task_description"] += " Call generate_image to create the requested visual content."
+                            print(f"[SECRETARY] Auto-added generate_image to agent: {agents[best_idx]['name']}", flush=True)
 
                     model_assignment = {"manager": result.get("manager_model", "openrouter/free"), "workers": {}}
                     for a in agents:
@@ -891,7 +929,22 @@ class CentralManager:
                 "action": "chat",
                 "message": f"❌ โมเดล '{selected}' ส่งคำตอบกลับมาว่างเปล่า อาจไม่รองรับ multimodal input"
             }
-        result = self._parse_unified_response(response, valid_model_ids, chat_only=chat_only)
+        result = self._parse_unified_response(response, valid_model_ids, chat_only=chat_only, user_input=user_input)
+
+        # If parsing failed and we're on free routing, retry with rotator's vision models
+        if result.get("action") == "chat" and "ไม่ใช่ JSON" in result.get("message", ""):
+            if self.llm_manager._is_free_routing():
+                print(f"[assess_and_plan_multimodal] Response not JSON — retrying with rotator vision models", flush=True)
+                try:
+                    retry_response = self.llm_manager._get_rotator().call_with_multimodal(prompt, content_blocks, plugins, caller="assess_and_plan_multimodal:retry")
+                    if retry_response and retry_response.strip():
+                        retry_result = self._parse_unified_response(retry_response.strip(), valid_model_ids, chat_only=chat_only, user_input=user_input)
+                        if retry_result.get("action") in ("plan", "create_agents", "ask", "tuning"):
+                            return retry_result
+                        print(f"[assess_and_plan_multimodal] Rotator retry also failed to produce valid JSON", flush=True)
+                except Exception as retry_err:
+                    print(f"[assess_and_plan_multimodal] Rotator retry error: {_sanitize_error(retry_err)}", flush=True)
+
         if chat_only and result.get("action") != "chat":
             result = {
                 "action": "chat",

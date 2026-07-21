@@ -1,9 +1,21 @@
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+
+const URL_PATTERN = /(?<![\[(])(https?:\/\/[^\s<>"')]+)/g;
+
+function autolinkUrls(text: string): string {
+  return text.replace(URL_PATTERN, (url) => {
+    const cleanUrl = url.replace(/[.,;!?)]+$/, '');
+    return `[${cleanUrl}](${cleanUrl})`;
+  });
+}
 
 const MarkdownRenderer: React.FC<{ content: string; className?: string }> = ({ content, className = '' }) => {
+  const processed = autolinkUrls(content);
   return (
     <div className={className} style={{ fontSize: '12px', color: 'var(--ink)', lineHeight: '1.6' }}>
       <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
         components={{
           h1: ({ children }) => <h1 style={{ fontSize: '15px', fontWeight: 700, color: 'var(--ink)', margin: '8px 0 6px' }}>{children}</h1>,
           h2: ({ children }) => <h2 style={{ fontSize: '13px', fontWeight: 700, color: 'var(--ink)', margin: '8px 0 4px' }}>{children}</h2>,
@@ -37,7 +49,7 @@ const MarkdownRenderer: React.FC<{ content: string; className?: string }> = ({ c
           td: ({ children }) => <td style={{ border: '1px solid var(--line)', padding: '4px 8px' }}>{children}</td>,
         }}
       >
-        {content}
+        {processed}
       </ReactMarkdown>
     </div>
   );

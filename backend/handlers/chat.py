@@ -1065,6 +1065,13 @@ async def on_message(message: cl.Message):
         elif action_name == "delete_chat":
             session_id = payload.get("session_id", "")
             messenger.chat_store.delete_session(session_id)
+            # Delete only draft (pending) tasks from this session
+            task_store = cl.user_session.get("task_store") or TaskStore(user_id=cl.user_session.get("user_id", "default"))
+            draft_tasks = [t for t in task_store.get_tasks_by_session(session_id) if t.get("status") == "draft"]
+            for t in draft_tasks:
+                task_store.delete_task(t["id"])
+            # Detach remaining tasks from the deleted session
+            task_store.detach_tasks_by_session(session_id)
             # Switch to another session or create new
             current_team_id = cl.user_session.get("current_team_id")
             remaining = messenger.chat_store.list_sessions(team_id=current_team_id, include_unassigned=True)
@@ -1075,6 +1082,12 @@ async def on_message(message: cl.Message):
                 messenger.current_session_id = new_s["id"]
             await messenger.reply_chat_sessions(team_id=current_team_id)
             await messenger.reply_chat_history(messenger.current_session_id)
+            await messenger.update_tasks(task_store)
+            await messenger.reply_notifications(team_id=current_team_id)
+            if draft_tasks:
+                await messenger.notify(f"🗑 ลบแชทและ {len(draft_tasks)} task ที่รอดำเนินการแล้ว")
+            else:
+                await messenger.notify("🗑 ลบแชทแล้ว")
         elif action_name == "save_canvas":
             session_id = payload.get("session_id", "")
             canvas_state = payload.get("canvas_state", {})
@@ -1709,6 +1722,14 @@ async def on_message(message: cl.Message):
             )
             if messenger:
                 await messenger.reply_thinking_done(thinking_id)
+
+            # If user pressed stop while LLM was running, discard the result
+            if cl.user_session.get("cancel_generation"):
+                print(f"[DEBUG-CANCEL] Generation cancelled — discarding assess_and_plan result", flush=True)
+                cl.user_session.set("state", STATE_IDLE)
+                cl.user_session.set("cancel_generation", False)
+                return
+
             if os.getenv("DEBUG_MODE", "false").lower() == "true":
                 print(f"[DEBUG-UNIFIED] user_input='{user_input[:50]}' action={result.get('action')}", flush=True)
                 if result.get("action") == "plan":
@@ -1828,6 +1849,14 @@ async def on_message(message: cl.Message):
                 )
                 if messenger:
                     await messenger.reply_thinking_done(thinking_id)
+
+                # If user pressed stop while LLM was running, discard the result
+                if cl.user_session.get("cancel_generation"):
+                    print(f"[DEBUG-CANCEL] Generation cancelled — discarding force_proceed result", flush=True)
+                    cl.user_session.set("state", STATE_IDLE)
+                    cl.user_session.set("cancel_generation", False)
+                    return
+
                 action = result.get("action", "plan")
                 # Fall through to plan/create_agents/tuning handling below
 
@@ -2188,6 +2217,14 @@ async def on_message(message: cl.Message):
                 )
                 if messenger:
                     await messenger.reply_thinking_done(thinking_id)
+
+                # If user pressed stop while LLM was running, discard the result
+                if cl.user_session.get("cancel_generation"):
+                    print(f"[DEBUG-CANCEL] Generation cancelled — discarding reassess result", flush=True)
+                    cl.user_session.set("state", STATE_IDLE)
+                    cl.user_session.set("cancel_generation", False)
+                    return
+
                 action = result.get("action", "plan")
                 # Fall through to plan/create_agents handling below
 

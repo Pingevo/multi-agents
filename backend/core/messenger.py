@@ -199,6 +199,7 @@ class StateMessenger:
                 original_tools=a.get("original_tools", []),
                 original_goal=a.get("original_goal", ""),
                 original_persona=a.get("original_persona", ""),
+                task_description=a.get("task_description", ""),
             )
             for a in agents
         ]
@@ -229,7 +230,7 @@ class StateMessenger:
             estimatedCost=estimated_cost,
         ))
         await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
-        self.persist_message({"role": "assistant", "messageType": "plan", "planAgents": payload["payload"]["planAgents"], "planTaskDescription": task_description, "planType": plan_type, "planStatus": "pending", "imageModel": image_model, "videoModel": video_model, "searchModel": search_model, "ttsModel": tts_model, "sttModel": stt_model, "visionModel": vision_model, "managerModel": manager_model, "estimatedCost": estimated_cost, "agentSpecs": agent_specs or [], "modelAssignment": model_assignment or {}, "currentInput": current_input})
+        self.persist_message({"role": "assistant", "messageType": "plan", "planAgents": payload["payload"]["planAgents"], "planTaskDescription": task_description, "planType": plan_type, "planStatus": "pending", "imageModel": image_model, "videoModel": video_model, "searchModel": search_model, "ttsModel": tts_model, "sttModel": stt_model, "visionModel": vision_model, "hasImageTool": has_image_tool, "hasVideoTool": has_video_tool, "hasSearchTool": has_search_tool, "hasTtsTool": has_tts_tool, "hasSttTool": has_stt_tool, "hasVisionTool": has_vision_tool, "hasVisionInput": has_vision_input, "managerModel": manager_model, "estimatedCost": estimated_cost, "agentSpecs": agent_specs or [], "modelAssignment": model_assignment or {}, "currentInput": current_input})
 
     def _estimate_plan_cost(self, agents: list[dict], manager_model: str, image_model: str, video_model: str, search_model: str, tts_model: str, stt_model: str, vision_model: str) -> str:
         """Estimate cost based on model pricing. Returns a human-readable string."""
