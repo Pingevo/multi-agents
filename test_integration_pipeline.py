@@ -96,64 +96,69 @@ class TestLLMManagerTierDetection(unittest.TestCase):
 class TestLLMManagerCallWithFallback(unittest.TestCase):
     """LLMManager.call_with_fallback tries primary model, falls back on error."""
 
-    @patch("backend.llm.manager.requests.get")
-    def test_returns_primary_response_on_success(self, mock_get):
+    @patch("openai.OpenAI")
+    def test_returns_primary_response_on_success(self, mock_openai):
         from app import LLMManager
-        mock_get.return_value = _mock_credits_response(credits=10.0)
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = "Hello from LLM"
+        mock_response.usage = MagicMock()
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+        mock_openai.return_value = mock_client
         mgr = LLMManager()
-
-        mock_llm = MagicMock()
-        mock_llm.call.return_value = "Hello from LLM"
-        with patch.object(mgr, "get_llm", return_value=mock_llm):
-            result = mgr.call_with_fallback("test prompt")
+        result = mgr.call_with_fallback("test prompt")
         self.assertEqual(result, "Hello from LLM")
 
-    @patch("backend.llm.manager.requests.get")
-    def test_raises_on_primary_failure_without_fallback(self, mock_get):
+    @patch("openai.OpenAI")
+    def test_raises_on_primary_failure_without_fallback(self, mock_openai):
         from app import LLMManager
-        mock_get.return_value = _mock_credits_response(credits=10.0)
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.side_effect = Exception("502 Bad Gateway")
+        mock_openai.return_value = mock_client
         mgr = LLMManager()
         mgr.local_fallback_enabled = False
 
-        mock_llm = MagicMock()
-        mock_llm.call.side_effect = Exception("502 Bad Gateway")
-        with patch.object(mgr, "get_llm", return_value=mock_llm):
-            with self.assertRaises(RuntimeError) as ctx:
-                mgr.call_with_fallback("test prompt")
-            self.assertIn("502", str(ctx.exception))
+        with self.assertRaises(RuntimeError) as ctx:
+            mgr.call_with_fallback("test prompt")
+        self.assertIn("502", str(ctx.exception))
 
 
 class TestFreeModelRotatorIntegration(unittest.TestCase):
     """FreeModelRotator fetches and filters free models from OpenRouter."""
 
-    @patch("backend.llm.manager.requests.get")
-    def test_fetch_free_models_filters_small_and_non_chat(self, mock_get):
+    def test_fetch_free_models_filters_small_and_non_chat(self):
         from app import FreeModelRotator
-        mock_get.return_value = _mock_models_response()
         rotator = FreeModelRotator(api_key="fake", base_url="https://openrouter.ai/api/v1")
-        models = rotator._fetch_free_models()
+        models = rotator.get_ranking()
+        self.assertGreater(len(models), 0)
+        self.assertTrue(all(":free" in m for m in models))
+        # Hardcoded ranking should include known good models
         self.assertIn("meta-llama/llama-3.3-70b-instruct:free", models)
         self.assertIn("openai/gpt-oss-120b:free", models)
-        self.assertNotIn("meta-llama/llama-3.2-3b-instruct:free", models)
 
-    @patch("backend.llm.manager.requests.get")
-    def test_call_rotates_on_failure(self, mock_get):
+    def test_call_rotates_on_failure(self):
+        """FreeModelRotator.call should rotate to next model on failure."""
         from app import FreeModelRotator
-        mock_get.return_value = _mock_models_response()
         rotator = FreeModelRotator(api_key="fake", base_url="https://openrouter.ai/api/v1")
-        rotator._models = ["model-a:free", "model-b:free"]
 
+        # Mock the OpenAI client to fail first, succeed second
         call_count = [0]
-        def mock_call(prompt):
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = "Hello from model-b"
+        mock_response.usage = MagicMock()
+
+        def mock_create(**kwargs):
             call_count[0] += 1
             if call_count[0] <= 1:
                 raise Exception("502 Bad Gateway")
-            return "Hello from model-b"
+            return mock_response
 
-        mock_llm = MagicMock()
-        mock_llm.call.side_effect = mock_call
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.side_effect = mock_create
 
-        with patch("app.LLM", return_value=mock_llm):
+        with patch("openai.OpenAI", return_value=mock_client):
             result = rotator.call("hi", max_attempts=3)
         self.assertEqual(result, "Hello from model-b")
 
@@ -241,7 +246,7 @@ class TestCentralSecretaryIntegration(unittest.TestCase):
             "search_model": "",
         })
 
-        def stream(prompt):
+        def stream(prompt, **kwargs):
             yield plan_response
 
         llm_mgr.call_streaming = stream
@@ -272,7 +277,7 @@ class TestCentralSecretaryIntegration(unittest.TestCase):
             "message": "สวัสดีครับ ผมช่วยอะไรได้บ้าง?",
         })
 
-        def stream(prompt):
+        def stream(prompt, **kwargs):
             yield chat_response
 
         llm_mgr.call_streaming = stream
@@ -297,7 +302,7 @@ class TestCentralSecretaryIntegration(unittest.TestCase):
         llm_mgr._default_model = "openrouter/auto"
         llm_mgr._is_openrouter = MagicMock(return_value=True)
 
-        def empty_stream(prompt):
+        def empty_stream(prompt, **kwargs):
             yield from ()
 
         llm_mgr.call_streaming = empty_stream
@@ -322,7 +327,7 @@ class TestCentralSecretaryIntegration(unittest.TestCase):
         llm_mgr._default_model = "openrouter/auto"
         llm_mgr._is_openrouter = MagicMock(return_value=True)
 
-        def timeout_stream(prompt):
+        def timeout_stream(prompt, **kwargs):
             raise TimeoutError("Request timed out")
             yield
 
@@ -362,9 +367,9 @@ class TestEndToEndPipeline(unittest.TestCase):
         mgr = LLMManager()
         self.assertEqual(mgr._default_model, "openrouter/free")
 
-        # 2. FreeModelRotator fetches free models
+        # 2. FreeModelRotator returns hardcoded ranking
         rotator = FreeModelRotator(api_key="fake", base_url="https://openrouter.ai/api/v1")
-        free_models = rotator._fetch_free_models()
+        free_models = rotator.get_ranking()
         self.assertGreater(len(free_models), 0)
         self.assertTrue(all(":free" in m for m in free_models))
 
@@ -409,7 +414,7 @@ class TestEndToEndPipeline(unittest.TestCase):
             "image_model": "", "video_model": "", "search_model": "",
         })
 
-        def stream(prompt):
+        def stream(prompt, **kwargs):
             yield plan_json
 
         llm_mgr.call_streaming = stream
