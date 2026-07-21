@@ -36,6 +36,22 @@ class FreeModelRotator:
         """Return the hardcoded free model ranking."""
         return list(self._FREE_MODEL_RANKING)
 
+    def get_models(self) -> list[str]:
+        """Alias for get_ranking — used by ModelSelector."""
+        return self.get_ranking()
+
+    def get_model_details(self) -> list[dict]:
+        """Return model details for ModelSelector. Uses hardcoded ranking with minimal info."""
+        return [
+            {"id": mid, "context_length": 131072, "pricing": {"prompt": "0", "completion": "0"}, "description": mid}
+            for mid in self._FREE_MODEL_RANKING
+        ]
+
+    def pick_smartest_model(self) -> str:
+        """Return the smartest model from the ranking (first entry)."""
+        models = self.get_ranking()
+        return models[0] if models else ""
+
     def build_crewai_llm(self, model_id: str, max_tokens: int = 8192) -> LLM:
         """Build a CrewAI LLM object for a specific free model."""
         return LLM(

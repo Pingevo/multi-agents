@@ -6,6 +6,7 @@ import os
 import sys
 import tempfile
 import base64
+import pytest
 from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -209,6 +210,7 @@ class TestProcessUrlImage(unittest.TestCase):
 class TestProcessUrlYouTube(unittest.TestCase):
     """process_url must handle YouTube URLs without downloading."""
 
+    @pytest.mark.network
     def test_youtube_url_returns_video_url_block_with_direct_url(self):
         from app import process_url
         result = asyncio.get_event_loop().run_until_complete(
@@ -223,6 +225,7 @@ class TestProcessUrlYouTube(unittest.TestCase):
 class TestProcessUrlWebpage(unittest.TestCase):
     """process_url must scrape webpage content."""
 
+    @pytest.mark.network
     def test_webpage_url_returns_text_type_with_scraped_content(self):
         from app import process_url
         mock_response = MagicMock()
@@ -252,6 +255,7 @@ class TestDownloadWithLimit(unittest.TestCase):
 class TestCheckModelModalitySupport(unittest.TestCase):
     """check_model_modality_support must check model capabilities."""
 
+    @pytest.mark.network
     def test_model_supports_image_returns_true(self):
         from app import check_model_modality_support
         mock_model = {"id": "google/gemini-2.0-flash", "architecture": {"input_modalities": ["text", "image"]}}
@@ -533,6 +537,7 @@ class TestProcessUrlErrorHandling(unittest.TestCase):
         self.assertEqual(result["type"], "metadata")
         self.assertIn("rejected", result["context_text"].lower())
 
+    @pytest.mark.network
     def test_webpage_url_strips_script_and_style_tags(self):
         from app import process_url
         mock_response = MagicMock()

@@ -466,7 +466,7 @@ class CentralManager:
                     if not agents:
                         return {"action": "chat", "message": "ไม่สามารถวางแผนได้ กรุณาลองใหม่"}
 
-                    model_assignment = {"manager": "openrouter/free", "workers": {}}
+                    model_assignment = {"manager": result.get("manager_model", "openrouter/free"), "workers": {}}
                     for a in agents:
                         model_assignment["workers"][a["name"]] = a.get("model", "openrouter/free")
 

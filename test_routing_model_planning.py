@@ -118,7 +118,7 @@ class TestNormalResponseParsed(unittest.TestCase):
             '"image_model":"","video_model":"","search_model":""}'
         )
 
-        def non_empty_stream(prompt):
+        def non_empty_stream(prompt, **kwargs):
             yield valid_response
 
         llm_mgr.call_streaming = non_empty_stream

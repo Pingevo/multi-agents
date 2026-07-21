@@ -45,7 +45,7 @@ class TestWebSearchServerTools:
         tools = extra_body.get("tools", [])
         web_fetch_tool = [t for t in tools if t.get("type") == "openrouter:web_fetch"]
         assert len(web_fetch_tool) == 1
-        assert web_fetch_tool[0].get("parameters", {}).get("engine") == "openrouter"
+        assert web_fetch_tool[0].get("parameters", {}).get("engine") == "auto"
 
     def test_attachment_plugins_still_work_with_server_tools(self):
         """Server tools should be added alongside attachment plugins, not replacing them."""
