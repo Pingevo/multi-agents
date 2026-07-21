@@ -719,3 +719,11 @@ async def on_action_refresh_credits(action: cl.Action):
     messenger = get_messenger()
     if messenger:
         await messenger._send(trigger="refresh")
+
+
+@cl.action_callback("fetch_history")
+async def on_action_fetch_history(action: cl.Action):
+    """Send task history logs to frontend."""
+    messenger = get_messenger()
+    if messenger:
+        await messenger.reply_history()

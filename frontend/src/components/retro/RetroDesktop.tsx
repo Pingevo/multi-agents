@@ -11,8 +11,9 @@ import { ScheduleWindow } from './ScheduleWindow';
 import { SettingsWindow } from './SettingsWindow';
 import { ChatWindow } from './ChatWindow';
 import { TasksWindow } from './TasksWindow';
+import { NotificationsWindow } from './NotificationsWindow';
 import type { WindowId } from './types';
-import type { ChatMessage, ActivityEntry } from '../chatTypes';
+import type { ChatMessage, ActivityEntry, HistoryTaskLog } from '../chatTypes';
 import type { ChatSession } from '../ChatSidebar';
 import type { Agent, Plan } from '../../types/platform';
 import type { Team } from '../../types/team';
@@ -46,6 +47,8 @@ interface RetroDesktopProps {
   currentPlan: Plan | null;
   availableTools: Array<{ name: string; description: string }>;
   credits: any;
+  historyLogs: HistoryTaskLog[];
+  onFetchHistory: () => void;
   // Model catalog
   modelCatalog: Record<string, ModelCatalogEntry[]>;
   modelSearchResults: ModelCatalogEntry[];
@@ -60,6 +63,7 @@ const windowConfig: Record<WindowId, { title: string; icon: string; width: numbe
   history: { title: 'History', icon: '📜', width: 500, height: 380 },
   schedule: { title: 'Schedule', icon: '⏰', width: 500, height: 380 },
   settings: { title: 'Settings', icon: '⚙️', width: 460, height: 340 },
+  notifications: { title: 'Notifications', icon: '🔔', width: 480, height: 400 },
 };
 
 const DesktopInner: React.FC<RetroDesktopProps> = (props) => {
@@ -225,6 +229,8 @@ const DesktopInner: React.FC<RetroDesktopProps> = (props) => {
         return (
           <TasksWindow
             chatMessages={props.chatMessages}
+            onAcceptPlan={handleAcceptPlan}
+            onRejectPlan={handleRejectPlan}
             onApproveImage={(approvalId) => props.onAction('approve_image', { approval_id: approvalId })}
             onRejectImage={(approvalId) => props.onAction('reject_image', { approval_id: approvalId })}
             onRetryImage={(approvalId) => props.onAction('retry_image', { approval_id: approvalId })}
@@ -248,7 +254,7 @@ const DesktopInner: React.FC<RetroDesktopProps> = (props) => {
           />
         );
       case 'history':
-        return <HistoryWindow activityLog={props.activityLog} />;
+        return <HistoryWindow historyLogs={props.historyLogs} onFetchHistory={props.onFetchHistory} />;
       case 'schedule':
         return <ScheduleWindow />;
       case 'settings':
@@ -260,6 +266,22 @@ const DesktopInner: React.FC<RetroDesktopProps> = (props) => {
             team={props.team}
             onBack={props.onBack}
             onDeleteTeam={props.onDeleteTeam}
+          />
+        );
+      case 'notifications':
+        return (
+          <NotificationsWindow
+            chatMessages={props.chatMessages}
+            onAcceptPlan={handleAcceptPlan}
+            onRejectPlan={handleRejectPlan}
+            onApproveImage={(approvalId) => props.onAction('approve_image', { approval_id: approvalId })}
+            onRejectImage={(approvalId) => props.onAction('reject_image', { approval_id: approvalId })}
+            onRetryImage={(approvalId) => props.onAction('retry_image', { approval_id: approvalId })}
+            onApproveAgentResult={(reviewId) => props.onAction('approve_agent_result', { review_id: reviewId })}
+            onRejectAgentResult={(reviewId) => props.onAction('reject_agent_result', { review_id: reviewId })}
+            onSkipReview={(agentName) => props.onAction('skip_review', { agent_name: agentName })}
+            onConfirmTuning={handleConfirmTuning}
+            onRejectTuning={handleRejectTuning}
           />
         );
       default:
@@ -307,6 +329,7 @@ const DesktopInner: React.FC<RetroDesktopProps> = (props) => {
         open={startMenuOpen}
         onClose={() => setStartMenuOpen(false)}
         onOpenWindow={handleOpenWindow}
+        onBack={props.onBack}
       />
 
       {/* Taskbar */}
@@ -314,6 +337,13 @@ const DesktopInner: React.FC<RetroDesktopProps> = (props) => {
         startMenuOpen={startMenuOpen}
         onToggleStartMenu={() => setStartMenuOpen(prev => !prev)}
         onOpenWindow={handleOpenWindow}
+        credits={props.credits}
+        notificationCount={props.chatMessages.filter(m => 
+          (m.messageType === 'plan' && m.planStatus === 'pending') ||
+          (m.messageType === 'image_approval' && (m.approvalStatus === 'pending' || m.approvalStatus === 'error')) ||
+          (m.messageType === 'agent_review' && m.reviewStatus === 'pending') ||
+          (m.messageType === 'tuning_proposal' && m.tuningStatus !== 'confirmed' && m.tuningStatus !== 'rejected')
+        ).length}
       />
 
     </div>

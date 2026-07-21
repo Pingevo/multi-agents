@@ -1861,7 +1861,8 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
               <div className="flex items-center gap-1 mb-1.5">
                 <button
                   onClick={() => onModeChange?.('chat')}
-                  disabled={disabled}
+                  disabled={true}
+                  title="Chat mode is temporarily disabled"
                   className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium transition-colors ${
                     inputMode === 'chat'
                       ? 'bg-accent/15 text-accent-light border border-accent/30'

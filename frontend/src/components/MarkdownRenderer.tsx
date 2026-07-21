@@ -2,39 +2,39 @@ import ReactMarkdown from 'react-markdown';
 
 const MarkdownRenderer: React.FC<{ content: string; className?: string }> = ({ content, className = '' }) => {
   return (
-    <div className={`text-xs text-text leading-relaxed ${className}`}>
+    <div className={className} style={{ fontSize: '12px', color: 'var(--ink)', lineHeight: '1.6' }}>
       <ReactMarkdown
         components={{
-          h1: ({ children }) => <h1 className="text-base font-bold text-text mt-3 mb-2">{children}</h1>,
-          h2: ({ children }) => <h2 className="text-sm font-bold text-text mt-3 mb-1.5">{children}</h2>,
-          h3: ({ children }) => <h3 className="text-xs font-bold text-text mt-2 mb-1">{children}</h3>,
-          h4: ({ children }) => <h4 className="text-xs font-semibold text-text mt-2 mb-1">{children}</h4>,
-          p: ({ children }) => <p className="mb-2 leading-relaxed">{children}</p>,
-          ul: ({ children }) => <ul className="list-disc pl-4 mb-2 space-y-0.5">{children}</ul>,
-          ol: ({ children }) => <ol className="list-decimal pl-4 mb-2 space-y-0.5">{children}</ol>,
-          li: ({ children }) => <li className="leading-relaxed">{children}</li>,
-          strong: ({ children }) => <strong className="font-bold text-text">{children}</strong>,
-          em: ({ children }) => <em className="italic text-text-2">{children}</em>,
+          h1: ({ children }) => <h1 style={{ fontSize: '15px', fontWeight: 700, color: 'var(--ink)', margin: '8px 0 6px' }}>{children}</h1>,
+          h2: ({ children }) => <h2 style={{ fontSize: '13px', fontWeight: 700, color: 'var(--ink)', margin: '8px 0 4px' }}>{children}</h2>,
+          h3: ({ children }) => <h3 style={{ fontSize: '12px', fontWeight: 700, color: 'var(--ink)', margin: '6px 0 3px' }}>{children}</h3>,
+          h4: ({ children }) => <h4 style={{ fontSize: '12px', fontWeight: 600, color: 'var(--ink2)', margin: '6px 0 3px' }}>{children}</h4>,
+          p: ({ children }) => <p style={{ marginBottom: '6px', lineHeight: '1.6' }}>{children}</p>,
+          ul: ({ children }) => <ul style={{ listStyle: 'disc', paddingLeft: '16px', marginBottom: '6px' }}>{children}</ul>,
+          ol: ({ children }) => <ol style={{ listStyle: 'decimal', paddingLeft: '16px', marginBottom: '6px' }}>{children}</ol>,
+          li: ({ children }) => <li style={{ lineHeight: '1.6' }}>{children}</li>,
+          strong: ({ children }) => <strong style={{ fontWeight: 700, color: 'var(--ink)' }}>{children}</strong>,
+          em: ({ children }) => <em style={{ fontStyle: 'italic', color: 'var(--ink2)' }}>{children}</em>,
           blockquote: ({ children }) => (
-            <blockquote className="border-l-2 border-border pl-3 my-2 text-text-2 italic">{children}</blockquote>
+            <blockquote style={{ borderLeft: '2px solid var(--line)', paddingLeft: '10px', margin: '6px 0', color: 'var(--ink2)', fontStyle: 'italic' }}>{children}</blockquote>
           ),
           code: ({ children, className: codeClassName }) => {
             const isBlock = codeClassName?.includes('language-');
             if (isBlock) {
               return (
-                <pre className="bg-surface-3 rounded-md p-2 my-2 overflow-x-auto text-[10px]">
+                <pre style={{ background: 'var(--cream)', borderRadius: '3px', padding: '6px 8px', margin: '6px 0', overflowX: 'auto', fontSize: '10px' }}>
                   <code>{children}</code>
                 </pre>
               );
             }
-            return <code className="bg-surface-3 px-1 py-0.5 rounded text-[10px] text-accent">{children}</code>;
+            return <code style={{ background: 'var(--cream)', padding: '1px 4px', borderRadius: '2px', fontSize: '10px', color: 'var(--orange)' }}>{children}</code>;
           },
-          pre: ({ children }) => <pre className="bg-surface-3 rounded-md p-2 my-2 overflow-x-auto">{children}</pre>,
-          a: ({ children, href }) => <a href={href} className="text-accent underline hover:text-accent/80" target="_blank" rel="noopener noreferrer">{children}</a>,
-          hr: () => <hr className="border-border my-3" />,
-          table: ({ children }) => <table className="w-full my-2 border-collapse">{children}</table>,
-          th: ({ children }) => <th className="border border-border px-2 py-1 text-left font-semibold bg-surface-2">{children}</th>,
-          td: ({ children }) => <td className="border border-border px-2 py-1">{children}</td>,
+          pre: ({ children }) => <pre style={{ background: 'var(--cream)', borderRadius: '3px', padding: '6px 8px', margin: '6px 0', overflowX: 'auto' }}>{children}</pre>,
+          a: ({ children, href }) => <a href={href} style={{ color: 'var(--blue)', textDecoration: 'underline' }} target="_blank" rel="noopener noreferrer">{children}</a>,
+          hr: () => <hr style={{ border: 'none', borderTop: '1px solid var(--line)', margin: '8px 0' }} />,
+          table: ({ children }) => <table style={{ width: '100%', margin: '6px 0', borderCollapse: 'collapse' }}>{children}</table>,
+          th: ({ children }) => <th style={{ border: '1px solid var(--line)', padding: '4px 8px', textAlign: 'left', fontWeight: 600, background: 'var(--cream)' }}>{children}</th>,
+          td: ({ children }) => <td style={{ border: '1px solid var(--line)', padding: '4px 8px' }}>{children}</td>,
         }}
       >
         {content}

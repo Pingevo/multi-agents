@@ -11,7 +11,7 @@ export interface WindowState {
   maximized: boolean;
 }
 
-export type WindowId = 'chat' | 'tasks' | 'agents' | 'history' | 'schedule' | 'settings';
+export type WindowId = 'chat' | 'tasks' | 'agents' | 'history' | 'schedule' | 'settings' | 'notifications';
 
 export interface PlanAgentData {
   ic: string;

@@ -1,30 +1,18 @@
-import { useState, useEffect } from 'react';
 import { useWindowManager } from './WindowManager';
 import type { WindowId } from './types';
+import type { CreditsInfo } from '../../types/platform';
+import { formatResetDate } from '../../utils/credits';
 
 interface TaskbarProps {
   startMenuOpen: boolean;
   onToggleStartMenu: () => void;
   onOpenWindow: (id: WindowId) => void;
+  credits?: CreditsInfo | null;
+  notificationCount?: number;
 }
 
-export const Taskbar: React.FC<TaskbarProps> = ({ startMenuOpen, onToggleStartMenu, onOpenWindow }) => {
+export const Taskbar: React.FC<TaskbarProps> = ({ startMenuOpen, onToggleStartMenu, onOpenWindow, credits, notificationCount = 0 }) => {
   const { windows, activeWindowId, focusWindow, minimizeWindow } = useWindowManager();
-  const [time, setTime] = useState('');
-
-  useEffect(() => {
-    const update = () => {
-      const now = new Date();
-      const h = now.getHours();
-      const m = now.getMinutes().toString().padStart(2, '0');
-      const ampm = h >= 12 ? 'PM' : 'AM';
-      const h12 = h % 12 || 12;
-      setTime(`${h12}:${m} ${ampm}`);
-    };
-    update();
-    const interval = setInterval(update, 30000);
-    return () => clearInterval(interval);
-  }, []);
 
   const handleTaskClick = (id: string) => {
     const win = windows.find(w => w.id === id);
@@ -77,11 +65,22 @@ export const Taskbar: React.FC<TaskbarProps> = ({ startMenuOpen, onToggleStartMe
 
       {/* System tray */}
       <div className="flex items-center gap-2 px-2">
-        <div className="relative cursor-pointer" title="2 items need approval" onClick={() => onOpenWindow('tasks')}>
+        <div className="relative cursor-pointer" title={`${notificationCount} items need approval`} onClick={() => onOpenWindow('notifications')}>
           <span className="text-sm">🔔</span>
-          <span className="absolute -top-1 -right-1 bg-red text-white text-[8px] font-bold rounded-full w-3.5 h-3.5 flex items-center justify-center">2</span>
+          {notificationCount > 0 && (
+            <span className="absolute -top-1 -right-1 bg-red text-white text-[8px] font-bold rounded-full w-3.5 h-3.5 flex items-center justify-center">{notificationCount}</span>
+          )}
         </div>
-        <span className="text-xs font-mono text-ink-2">{time}</span>
+        {credits && credits.limit !== null && credits.limit > 0 ? (
+          <span className="text-[10px] font-mono text-ink-2" title={`Daily: $${credits.usage_daily?.toFixed(4) ?? 0} | Weekly: $${credits.usage_weekly?.toFixed(4) ?? 0} | Monthly: $${credits.usage_monthly?.toFixed(4) ?? 0}`}>
+            ${(credits.limit - (credits.limit_remaining ?? 0)).toFixed(2)} / ${credits.limit.toFixed(2)}
+            {credits.limit_reset && <span className="text-ink-3 ml-1">(Reset: {formatResetDate(credits.limit_reset)})</span>}
+          </span>
+        ) : credits && credits.is_free_tier ? (
+          <span className="text-[10px] font-mono text-orange">Free Tier</span>
+        ) : credits ? (
+          <span className="text-[10px] font-mono text-ink-2">${credits.usage?.toFixed(2) ?? '—'} used</span>
+        ) : null}
       </div>
     </div>
   );

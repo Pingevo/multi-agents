@@ -7,7 +7,7 @@ import { TeamListPage } from './components/TeamListPage';
 import { TeamCreateModal } from './components/TeamCreateModal';
 import { AICreateTeamModal } from './components/AICreateTeamModal';
 import { RetroDesktop } from './components/retro/RetroDesktop';
-import type { ChatMessage, ActivityEntry, PlanAgent } from './components/chatTypes';
+import type { ChatMessage, ActivityEntry, PlanAgent, HistoryTaskLog } from './components/chatTypes';
 import type { ChatSession } from './components/ChatSidebar';
 import type { ChatReplyEnvelope, ChatReplyPayload, ChatReplyPlan, ChatReplyAgentReview } from './schemas/messages';
 import type { Agent, Plan } from './types/platform';
@@ -349,6 +349,14 @@ const parseChatSessionMessage = (message: any): { sessions: ChatSession[]; curre
           sttModel: m.sttModel,
           visionModel: m.visionModel,
           managerModel: m.managerModel,
+          estimatedCost: m.estimatedCost,
+          hasImageTool: m.hasImageTool,
+          hasVideoTool: m.hasVideoTool,
+          hasSearchTool: m.hasSearchTool,
+          hasTtsTool: m.hasTtsTool,
+          hasSttTool: m.hasSttTool,
+          hasVisionTool: m.hasVisionTool,
+          hasVisionInput: m.hasVisionInput,
           tuningProposals: m.proposals,
           tuningStatus: m.tuningStatus,
           attachmentUrl: m.attachmentUrl,
@@ -357,6 +365,10 @@ const parseChatSessionMessage = (message: any): { sessions: ChatSession[]; curre
           attachments: m.attachments || (m.attachmentUrl ? [{ url: m.attachmentUrl, name: m.attachmentName || '', mime: m.attachmentMime || '' }] : undefined),
         }));
         return { messages, canvasState: p.canvasState || null, selectedModel: p.selectedModel || '' };
+      }
+
+      if (msgType === 'history_data') {
+        return { historyLogs: p.historyLogs || [] } as any;
       }
     }
   } catch {
@@ -373,6 +385,7 @@ function AppContent() {
   const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [activityLog, setActivityLog] = useState<ActivityEntry[]>([]);
+  const [historyLogs, setHistoryLogs] = useState<HistoryTaskLog[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [selectedModel, setSelectedModel] = useState<string>('');
   const [resolvedModel, setResolvedModel] = useState<string>('');
@@ -381,6 +394,14 @@ function AppContent() {
   const [isThinking, setIsThinking] = useState(false);
   const thinkingStartRef = useRef<number | null>(null);
   const [inputMode, setInputMode] = useState<'chat' | 'plan'>('plan');
+  // Temporarily disable chat mode: always fall back to plan
+  const handleModeChange = useCallback((mode: 'chat' | 'plan') => {
+    if (mode === 'chat') return;
+    setInputMode('plan');
+  }, []);
+  useEffect(() => {
+    if (inputMode === 'chat') setInputMode('plan');
+  }, [inputMode]);
   const [canvasStateFromBackend, setCanvasStateFromBackend] = useState<any>(null);
   const [teams, setTeams] = useState<Team[]>([]);
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
@@ -522,11 +543,25 @@ function AppContent() {
           if (sessionData.selectedModel) {
             setSelectedModel(sessionData.selectedModel);
           }
+          // Restore current_plan from last pending plan message
+          const lastPlan = [...sessionData.messages].reverse().find(m => m.messageType === 'plan' && m.planStatus === 'pending');
+          if (lastPlan && lastPlan.planAgents) {
+            updateState({
+              current_plan: {
+                agents: planAgentsToAgents(lastPlan.planAgents),
+                task_description: lastPlan.planTaskDescription || '',
+                plan_type: lastPlan.planType || 'new',
+              },
+            });
+          }
           clearActivity();
         } else if ('sessions' in sessionData) {
           // chat_sessions — update session list
           setChatSessions(sessionData.sessions);
           setActiveSessionId(sessionData.currentSessionId);
+        } else if ('historyLogs' in (sessionData as any)) {
+          // history_data — update history logs
+          setHistoryLogs((sessionData as any).historyLogs);
         }
         return;
       }
@@ -541,7 +576,11 @@ function AppContent() {
         }
         // Reset stoppedRef when receiving terminal messages (text with stop confirmation, or result)
         if (stoppedRef.current && (reply.messageType === 'text' || reply.messageType === 'result')) {
-          stoppedRef.current = false;
+          if (reply.messageType === 'text' && reply.content?.includes('หยุดการทำงาน')) {
+            // Stop confirmation — keep stoppedRef true so in-flight messages stay blocked
+          } else {
+            stoppedRef.current = false;
+          }
         }
         // Intercept template/scheduled data messages
         if (reply.messageType === 'text' && reply.content) {
@@ -1145,12 +1184,14 @@ function AppContent() {
         systemStatus={system_status}
         onSendCommand={handleSendCommand}
         onStop={handleStop}
-        onModeChange={setInputMode}
+        onModeChange={handleModeChange}
         onAction={handleAction}
         agents={agents || []}
         currentPlan={current_plan}
         availableTools={available_tools || []}
         credits={credits || null}
+        historyLogs={historyLogs}
+        onFetchHistory={() => handleAction('fetch_history')}
         modelCatalog={modelCatalogData.recommended}
         modelSearchResults={modelCatalogData.searchResults}
         mediaCatalog={modelCatalogData.mediaCatalog}

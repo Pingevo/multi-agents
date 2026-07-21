@@ -144,3 +144,17 @@ export interface ActivityEntry {
   timestamp: number;
   status: 'current' | 'completed';
 }
+
+export interface HistoryLogEntry {
+  time: string;
+  actor: string;
+  action: string;
+  target: string;
+}
+
+export interface HistoryTaskLog {
+  task_id: string;
+  task_title: string;
+  created_at: string;
+  entries: HistoryLogEntry[];
+}
