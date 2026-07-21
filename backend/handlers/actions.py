@@ -216,6 +216,7 @@ async def on_action_reject(action: cl.Action):
             conversation_history.append({"role": "user", "content": "[REJECTED] แผนนี้ถูกปฏิเสธ กรุณาพิมพ์คำสั่งใหม่หรืออธิบายสิ่งที่ต้องการแก้"})
             cl.user_session.set("conversation_history", conversation_history)
         await messenger.reply("🔄 แผนงานถูกปฏิเสธ กรุณาพิมพ์คำสั่งใหม่หรืออธิบายสิ่งที่ต้องการแก้")
+        await messenger.reply_notifications(team_id=cl.user_session.get("current_team_id"))
 
 
 @cl.action_callback("cancel_plan")
@@ -502,6 +503,7 @@ async def on_action_confirm_tuning(action: cl.Action):
             await messenger.notify(f"✅ ปรับแต่ง agent แล้ว ({applied_count} agent) — พร้อมใช้งานในครั้งถัดไป")
         else:
             await messenger.notify("⚠️ ไม่สามารถปรับแต่งได้ — ตรวจสอบ agent_id และฟิลด์อีกครั้ง")
+        await messenger.reply_notifications(team_id=cl.user_session.get("current_team_id"))
 
 
 @cl.action_callback("reject_tuning")
@@ -512,6 +514,7 @@ async def on_action_reject_tuning(action: cl.Action):
     if messenger:
         messenger.update_persisted_message("tuning_proposal", {"tuningStatus": "rejected"})
         await messenger.notify("❌ ยกเลิกการปรับแต่ง agent")
+        await messenger.reply_notifications(team_id=cl.user_session.get("current_team_id"))
 
 
 # ============================================================
@@ -719,3 +722,11 @@ async def on_action_refresh_credits(action: cl.Action):
     messenger = get_messenger()
     if messenger:
         await messenger._send(trigger="refresh")
+
+
+@cl.action_callback("fetch_history")
+async def on_action_fetch_history(action: cl.Action):
+    """Send task history logs to frontend."""
+    messenger = get_messenger()
+    if messenger:
+        await messenger.reply_history()

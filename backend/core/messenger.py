@@ -9,6 +9,7 @@ import chainlit as cl
 from backend.globals import AGENT_REGISTRY_FILE, TASK_REGISTRY_FILE, CHAT_SESSIONS_FILE
 from backend.agents.task_store import TaskStore
 from backend.agents.chat_store import ChatStore
+from backend.agents.history_store import HistoryStore
 from backend.agents.registry import AgentRegistry
 from backend.agents.tool_registry import ToolRegistry
 from backend.agents.team_registry import TeamRegistry
@@ -24,9 +25,10 @@ from schemas import (
 class StateMessenger:
     """ส่ง Platform State ให้ Custom Frontend ผ่าน JSON Messages"""
 
-    def __init__(self, task_store: TaskStore | None = None, chat_store: ChatStore | None = None):
+    def __init__(self, task_store: TaskStore | None = None, chat_store: ChatStore | None = None, history_store: HistoryStore | None = None):
         self.task_store = task_store or TaskStore()
         self.chat_store = chat_store or ChatStore()
+        self.history_store = history_store or HistoryStore()
         self.current_session_id: str | None = None
         self.state = {
             "tasks": self.task_store.list_tasks(),
@@ -508,6 +510,21 @@ class StateMessenger:
         await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
         self.persist_message({"role": "assistant", "messageType": "tuning_proposal", "proposals": proposals})
 
+    def log_history(self, task_id: str, task_title: str, actor: str, action: str, target: str = ""):
+        """Log a detailed audit entry for a task (no broadcast — fetched on-demand)."""
+        self.history_store.add_entry(task_id, task_title, actor, action, target)
+
+    async def reply_history(self, limit: int = 20):
+        """Send task history logs to frontend."""
+        payload = {
+            "type": "chat_reply",
+            "payload": {
+                "messageType": "history_data",
+                "historyLogs": self.history_store.list_history(limit),
+            },
+        }
+        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
+
     async def reply_chat_history(self, session_id: str):
         """Send full chat history for a session, including canvas state"""
         session = self.chat_store.get_session(session_id)
@@ -542,6 +559,19 @@ class StateMessenger:
                 "messageType": "chat_sessions",
                 "sessions": session_list,
                 "currentSessionId": self.current_session_id,
+            },
+        }
+        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
+
+    async def reply_notifications(self, team_id: str | None = None):
+        """Send aggregated notifications across all sessions."""
+        notifications = self.chat_store.get_all_notifications(team_id=team_id)
+        payload = {
+            "type": "chat_reply",
+            "payload": {
+                "messageType": "notifications",
+                "notifications": notifications,
+                "count": len(notifications),
             },
         }
         await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()

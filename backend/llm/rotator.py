@@ -1,4 +1,4 @@
-"""FreeModelRotator — fallback through hardcoded free model ranking when openrouter/free fails."""
+"""FreeModelRotator — fallback through free model ranking when openrouter/free fails."""
 
 import re
 import time
@@ -9,7 +9,7 @@ from backend.credit_logger import log_llm_call
 
 
 class FreeModelRotator:
-    """Rotates through hardcoded free model ranking when openrouter/free fails.
+    """Rotates through free model ranking when openrouter/free fails.
 
     Ranking is from best (smartest/largest) to worst (smallest/least capable).
     Only used when the selected model is 'openrouter/free'.
@@ -98,6 +98,117 @@ class FreeModelRotator:
                     backoff *= 2
 
         raise RuntimeError(f"All {max_attempts} free model attempts failed")
+
+    # Free models that support vision/multimodal input — fetched dynamically from API
+    _vision_free_models_cache: list[str] | None = None
+
+    def _fetch_vision_free_models(self) -> list[str]:
+        """Fetch free models that support image input from OpenRouter API."""
+        if self._vision_free_models_cache is not None:
+            return self._vision_free_models_cache
+        try:
+            resp = requests.get(
+                f"{self.base_url.rstrip('/')}/models",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                timeout=15,
+            )
+            if resp.status_code == 200:
+                all_models = resp.json().get("data", [])
+                vision_free = []
+                for m in all_models:
+                    mid = m.get("id", "")
+                    if ":free" not in mid:
+                        continue
+                    if mid.startswith("openrouter/"):
+                        continue
+                    arch = m.get("architecture", {})
+                    if "image" in arch.get("input_modalities", []):
+                        vision_free.append(mid)
+                self._vision_free_models_cache = vision_free
+                print(f"[FreeModelRotator] Discovered {len(vision_free)} free vision models: {vision_free}", flush=True)
+                return vision_free
+        except Exception as e:
+            print(f"[FreeModelRotator] Failed to fetch vision models: {_sanitize_error(e)}", flush=True)
+        # Fallback to known model if API fails
+        self._vision_free_models_cache = ["google/gemini-2.0-flash-exp:free"]
+        return self._vision_free_models_cache
+
+    def call_with_image(self, prompt: str, image_data_url: str, max_attempts: int = 3, caller: str = "rotator_vision") -> str:
+        """Try vision-capable free models for image input."""
+        from openai import OpenAI
+
+        models = self._fetch_vision_free_models()
+        if not models:
+            raise RuntimeError("No free vision models available")
+        tried: set[str] = set()
+        backoff = 0.5
+
+        for attempt in range(1, min(max_attempts, len(models)) + 1):
+            available = [m for m in models if m not in tried]
+            if not available:
+                break
+            model_id = available[0]
+            tried.add(model_id)
+
+            try:
+                client = OpenAI(base_url=self.base_url, api_key=self.api_key, max_retries=0, timeout=120)
+                response = client.chat.completions.create(
+                    model=model_id,
+                    messages=[{
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {"type": "image_url", "image_url": {"url": image_data_url}},
+                        ],
+                    }],
+                    temperature=self.temperature,
+                    max_tokens=8192,
+                )
+                log_llm_call(model_id, response.usage, caller=f"{caller}:attempt{attempt}", prompt_preview=prompt)
+                print(f"[FreeModelRotator] Vision succeeded on attempt {attempt} with {model_id}", flush=True)
+                return response.choices[0].message.content or ""
+            except Exception as e:
+                print(f"[FreeModelRotator] Vision attempt {attempt}/{max_attempts} with {model_id}: {_sanitize_error(e)}", flush=True)
+                if attempt < max_attempts:
+                    time.sleep(backoff)
+                    backoff *= 2
+
+        raise RuntimeError(f"All {max_attempts} vision model attempts failed")
+
+    def call_with_multimodal(self, prompt: str, content_blocks: list[dict], plugins: list = None, max_attempts: int = 3, caller: str = "rotator_multimodal") -> str:
+        """Try vision-capable free models for multimodal content."""
+        from openai import OpenAI
+
+        models = self._fetch_vision_free_models()
+        if not models:
+            raise RuntimeError("No free vision models available")
+        tried: set[str] = set()
+        backoff = 0.5
+
+        for attempt in range(1, min(max_attempts, len(models)) + 1):
+            available = [m for m in models if m not in tried]
+            if not available:
+                break
+            model_id = available[0]
+            tried.add(model_id)
+
+            try:
+                client = OpenAI(base_url=self.base_url, api_key=self.api_key, max_retries=0, timeout=120)
+                messages = [{"role": "user", "content": [{"type": "text", "text": prompt}] + content_blocks}]
+                kwargs = {"model": model_id, "messages": messages, "temperature": self.temperature, "max_tokens": 8192}
+                if plugins:
+                    kwargs["extra_body"] = {"plugins": plugins}
+                response = client.chat.completions.create(**kwargs)
+                log_llm_call(model_id, response.usage, caller=f"{caller}:attempt{attempt}", prompt_preview=prompt)
+                print(f"[FreeModelRotator] Multimodal succeeded on attempt {attempt} with {model_id}", flush=True)
+                return response.choices[0].message.content or ""
+            except Exception as e:
+                print(f"[FreeModelRotator] Multimodal attempt {attempt}/{max_attempts} with {model_id}: {_sanitize_error(e)}", flush=True)
+                if attempt < max_attempts:
+                    time.sleep(backoff)
+                    backoff *= 2
+
+        raise RuntimeError(f"All {max_attempts} multimodal model attempts failed")
 
     def call_streaming(self, prompt: str, max_attempts: int = 4, caller: str = "rotator"):
         """Streaming version of call() — yields text chunks as they arrive."""

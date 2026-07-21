@@ -479,12 +479,18 @@ const AgentConfigForm: React.FC<{
 // Agent Detail View (read-only display — full feature parity with AgentConfigModal view mode)
 // ============================================================
 
+const isAgentBusy = (agent: Agent) => {
+  const s = (agent.status || '').toLowerCase();
+  return s.includes('running') || s.includes('busy') || s.includes('waiting') || s.includes('review');
+};
+
 const AgentDetailView: React.FC<{
   agent: Agent;
   onEdit: () => void;
   onDelete: (agentId: string) => void;
 }> = ({ agent, onEdit, onDelete }) => {
   const mgr = isManager(agent);
+  const busy = isAgentBusy(agent);
   const expertise = (agent as any).expertise as string[] | undefined;
   const personality = (agent as any).personality as Record<string, string> | undefined;
   const brandContext = (agent as any).brand_context as Record<string, string> | undefined;
@@ -603,16 +609,24 @@ const AgentDetailView: React.FC<{
 
       {/* Actions */}
       <div className="ad-actions">
-        <button className="btn btn-warm" onClick={onEdit}>
-          <Pencil size={11} /> แก้ไข
-        </button>
-        {!mgr && (
-          <button
-            className="btn btn-no"
-            onClick={() => { if (confirm(`Delete agent "${agent.name}"?`)) onDelete(agent.id); }}
-          >
-            <Trash2 size={11} /> ลบ Agent
-          </button>
+        {busy ? (
+          <div style={{ fontSize: '10px', color: 'var(--amber)', fontStyle: 'italic' }}>
+            ⏳ Agent กำลังทำงานอยู่ — ไม่สามารถแก้ไขหรือลบได้
+          </div>
+        ) : (
+          <>
+            <button className="btn btn-warm" onClick={onEdit}>
+              <Pencil size={11} /> แก้ไข
+            </button>
+            {!mgr && (
+              <button
+                className="btn btn-no"
+                onClick={() => { if (confirm(`Delete agent "${agent.name}"?`)) onDelete(agent.id); }}
+              >
+                <Trash2 size={11} /> ลบ Agent
+              </button>
+            )}
+          </>
         )}
       </div>
     </div>

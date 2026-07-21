@@ -11,8 +11,9 @@ import { ScheduleWindow } from './ScheduleWindow';
 import { SettingsWindow } from './SettingsWindow';
 import { ChatWindow } from './ChatWindow';
 import { TasksWindow } from './TasksWindow';
+import { NotificationsWindow } from './NotificationsWindow';
 import type { WindowId } from './types';
-import type { ChatMessage, ActivityEntry } from '../chatTypes';
+import type { ChatMessage, ActivityEntry, HistoryTaskLog, NotificationItem } from '../chatTypes';
 import type { ChatSession } from '../ChatSidebar';
 import type { Agent, Plan } from '../../types/platform';
 import type { Team } from '../../types/team';
@@ -25,6 +26,7 @@ interface RetroDesktopProps {
   onDeleteTeam: (teamId: string) => void;
   // Chat
   chatMessages: ChatMessage[];
+  notifications: NotificationItem[];
   chatSessions: ChatSession[];
   activeSessionId: string | null;
   activityLog: ActivityEntry[];
@@ -46,6 +48,8 @@ interface RetroDesktopProps {
   currentPlan: Plan | null;
   availableTools: Array<{ name: string; description: string }>;
   credits: any;
+  historyLogs: HistoryTaskLog[];
+  onFetchHistory: () => void;
   // Model catalog
   modelCatalog: Record<string, ModelCatalogEntry[]>;
   modelSearchResults: ModelCatalogEntry[];
@@ -60,6 +64,7 @@ const windowConfig: Record<WindowId, { title: string; icon: string; width: numbe
   history: { title: 'History', icon: '📜', width: 500, height: 380 },
   schedule: { title: 'Schedule', icon: '⏰', width: 500, height: 380 },
   settings: { title: 'Settings', icon: '⚙️', width: 460, height: 340 },
+  notifications: { title: 'Notifications', icon: '🔔', width: 480, height: 400 },
 };
 
 const DesktopInner: React.FC<RetroDesktopProps> = (props) => {
@@ -225,11 +230,12 @@ const DesktopInner: React.FC<RetroDesktopProps> = (props) => {
         return (
           <TasksWindow
             chatMessages={props.chatMessages}
-            onApproveImage={(approvalId) => props.onAction('approve_image', { approval_id: approvalId })}
-            onRejectImage={(approvalId) => props.onAction('reject_image', { approval_id: approvalId })}
-            onRetryImage={(approvalId) => props.onAction('retry_image', { approval_id: approvalId })}
-            onEditImagePrompt={(approvalId, newPrompt) => props.onAction('retry_image', { approval_id: approvalId, prompt: newPrompt })}
-            onSkipReview={(agentName) => props.onAction('skip_review', { agent_name: agentName })}
+            notifications={props.notifications}
+            activeSessionId={props.activeSessionId}
+            onNavigate={(sessionId) => {
+              props.onAction('switch_chat', { session_id: sessionId });
+              handleOpenWindow('chat');
+            }}
           />
         );
       case 'agents':
@@ -248,7 +254,7 @@ const DesktopInner: React.FC<RetroDesktopProps> = (props) => {
           />
         );
       case 'history':
-        return <HistoryWindow activityLog={props.activityLog} />;
+        return <HistoryWindow historyLogs={props.historyLogs} onFetchHistory={props.onFetchHistory} />;
       case 'schedule':
         return <ScheduleWindow />;
       case 'settings':
@@ -260,6 +266,16 @@ const DesktopInner: React.FC<RetroDesktopProps> = (props) => {
             team={props.team}
             onBack={props.onBack}
             onDeleteTeam={props.onDeleteTeam}
+          />
+        );
+      case 'notifications':
+        return (
+          <NotificationsWindow
+            notifications={props.notifications}
+            onNavigate={(sessionId, windowId) => {
+              props.onAction('switch_chat', { session_id: sessionId });
+              handleOpenWindow(windowId);
+            }}
           />
         );
       default:
@@ -307,6 +323,7 @@ const DesktopInner: React.FC<RetroDesktopProps> = (props) => {
         open={startMenuOpen}
         onClose={() => setStartMenuOpen(false)}
         onOpenWindow={handleOpenWindow}
+        onBack={props.onBack}
       />
 
       {/* Taskbar */}
@@ -314,6 +331,13 @@ const DesktopInner: React.FC<RetroDesktopProps> = (props) => {
         startMenuOpen={startMenuOpen}
         onToggleStartMenu={() => setStartMenuOpen(prev => !prev)}
         onOpenWindow={handleOpenWindow}
+        credits={props.credits}
+        notificationCount={props.notifications.filter(n =>
+          (n.messageType === 'plan' && n.planStatus === 'pending') ||
+          (n.messageType === 'image_approval' && (n.approvalStatus === 'pending' || n.approvalStatus === 'error')) ||
+          (n.messageType === 'agent_review' && n.reviewStatus === 'pending') ||
+          (n.messageType === 'tuning_proposal' && n.tuningStatus !== 'confirmed' && n.tuningStatus !== 'rejected')
+        ).length}
       />
 
     </div>

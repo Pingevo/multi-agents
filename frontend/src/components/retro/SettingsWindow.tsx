@@ -1,5 +1,6 @@
 import type { CreditsInfo } from '../../types/platform';
 import type { Team } from '../../types/team';
+import { useAuth } from '../../context/AuthContext';
 
 interface SettingsWindowProps {
   credits: CreditsInfo | null;
@@ -13,6 +14,7 @@ interface SettingsWindowProps {
 export const SettingsWindow: React.FC<SettingsWindowProps> = ({
   credits, connectionStatus, systemStatus, team, onBack, onDeleteTeam,
 }) => {
+  const { user, logout } = useAuth();
   return (
     <div className="h-full flex flex-col">
       <div className="px-3 py-2 border-b border-line bg-cream">
@@ -86,30 +88,31 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({
           )}
         </div>
 
-        {/* Team info */}
+        {/* Account */}
         <div className="bg-paper border border-line rounded-retro p-3">
-          <div className="text-[11px] font-bold text-ink mb-2">Team</div>
-          <div className="text-[10px] text-ink-2 mb-0.5"><span className="text-ink-3">Name:</span> {team.name}</div>
+          <div className="text-[11px] font-bold text-ink mb-2">Account</div>
+          {user && (
+            <>
+              <div className="text-[10px] text-ink-2 mb-0.5"><span className="text-ink-3">User:</span> {user.username}</div>
+              <div className="text-[10px] text-ink-2 mb-0.5"><span className="text-ink-3">Email:</span> {user.email}</div>
+              <div className="text-[10px] text-ink-2 mb-2"><span className="text-ink-3">Provider:</span> {user.provider}</div>
+            </>
+          )}
+          <div className="text-[10px] text-ink-2 mb-0.5"><span className="text-ink-3">Team:</span> {team.name}</div>
           {team.description && (
             <div className="text-[10px] text-ink-2 mb-0.5"><span className="text-ink-3">Desc:</span> {team.description}</div>
           )}
           <div className="text-[10px] text-ink-2 mb-2"><span className="text-ink-3">ID:</span> <span className="font-mono">{team.id}</span></div>
-          <div className="flex gap-1.5">
+          <div className="mt-2 pt-2 border-t border-line">
             <button
-              className="text-[10px] px-2.5 py-1.5 border border-line-2 bg-paper text-ink-2 rounded-retro-sm font-bold hover:bg-cream-2 transition-colors"
-              onClick={onBack}
-            >
-              ← Back to Teams
-            </button>
-            <button
-              className="text-[10px] px-2.5 py-1.5 border border-red bg-paper text-red rounded-retro-sm font-bold hover:bg-red hover:text-white transition-colors"
+              className="text-[10px] px-2.5 py-1.5 border border-line-2 bg-paper text-ink-2 rounded-retro-sm font-bold hover:bg-cream-2 transition-colors w-full"
               onClick={() => {
-                if (confirm(`Delete team "${team.name}"? This cannot be undone.`)) {
-                  onDeleteTeam(team.id);
+                if (confirm('Logout?')) {
+                  logout();
                 }
               }}
             >
-              Delete Team
+              🚪 Logout
             </button>
           </div>
         </div>

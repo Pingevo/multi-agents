@@ -10,27 +10,8 @@ export default defineConfig({
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
         ws: true,
-        configure: (proxy, _options) => {
-          proxy.on('error', (err, _req, _res) => {
-            console.log('proxy error', err);
-          });
-          proxy.on('proxyReq', (_proxyReq, req, _res) => {
-            console.log('Sending request to the target:', req.method, req.url);
-          });
-          proxy.on('proxyRes', (proxyRes, req, _res) => {
-            console.log('Received response from the target:', proxyRes.statusCode, req.url);
-          });
-        },
       },
       '/project': {
-        target: 'http://127.0.0.1:8000',
-        changeOrigin: true,
-      },
-      '/auth': {
-        target: 'http://127.0.0.1:8000',
-        changeOrigin: true,
-      },
-      '/api': {
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
       },

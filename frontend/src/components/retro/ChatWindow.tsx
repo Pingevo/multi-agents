@@ -5,7 +5,7 @@ import {
   Cpu, ChevronDown, Square, Pencil, Trash2, Check, X,
 } from 'lucide-react';
 import type {
-  ChatMessage, ActivityEntry, ResultAgent,
+  ChatMessage, ActivityEntry, ResultAgent, PlanAgent,
   ImageApprovalStatus, AgentReviewStatus,
 } from '../chatTypes';
 import type { ChatSession } from '../ChatSidebar';
@@ -153,7 +153,6 @@ const FeedThinking: React.FC<{ model?: string }> = ({ model }) => (
     <div className="ft-av">🧠</div>
     <div className="ft-bubble">
       <span className="dots"><span></span><span></span><span></span></span>
-      {model && <span style={{ fontSize: '9px', color: 'var(--ink3)', marginLeft: '6px', fontFamily: 'var(--mono)' }}>{model}</span>}
     </div>
   </div>
 );
@@ -173,8 +172,28 @@ const ChatPlanCard: React.FC<{
   msg: ChatMessage;
   onAccept?: () => void;
   onReject?: () => void;
-}> = ({ msg, onAccept, onReject }) => {
+  isPending?: boolean;
+  onChangeAgentModel?: (agentName: string, modelId: string) => void;
+  onChangeManagerModel?: (modelId: string) => void;
+  onChangeMediaModel?: (mediaType: 'imageModel' | 'videoModel' | 'searchModel' | 'ttsModel' | 'sttModel' | 'visionModel', modelId: string) => void;
+  modelCatalog?: Record<string, ModelCatalogEntry[]>;
+  modelSearchResults?: ModelCatalogEntry[];
+  mediaCatalog?: Record<string, ModelCatalogEntry[]>;
+  mediaSearchResults?: ModelCatalogEntry[];
+  onSearchModels?: (query: string) => void;
+  onFetchModelCatalog?: () => void;
+  onFetchMediaCatalog?: (mediaType: string) => void;
+}> = ({
+  msg, onAccept, onReject, isPending,
+  onChangeAgentModel, onChangeManagerModel, onChangeMediaModel,
+  modelCatalog, modelSearchResults, mediaCatalog, mediaSearchResults,
+  onSearchModels, onFetchModelCatalog, onFetchMediaCatalog,
+}) => {
   const agents = msg.planAgents || [];
+  const [editingAgent, setEditingAgent] = useState<string | null>(null);
+  const [editingMedia, setEditingMedia] = useState<string | null>(null);
+  const agentModelRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const mediaModelRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const wave1 = agents.filter(a => !a.depends_on || a.depends_on.length === 0);
   const wave1Names = wave1.map(a => a.name);
   const wave2 = agents.filter(a => a.depends_on?.some(d => wave1Names.includes(d)) && !wave1Names.includes(a.name));
@@ -189,6 +208,90 @@ const ChatPlanCard: React.FC<{
   ].filter(w => w.agents.length > 0);
 
   const planStatus = msg.planStatus || 'pending';
+  const pending = planStatus === 'pending' && isPending;
+
+  const hasImageTool = msg.hasImageTool;
+  const hasVideoTool = msg.hasVideoTool;
+  const hasSearchTool = msg.hasSearchTool;
+  const hasTtsTool = msg.hasTtsTool;
+  const hasSttTool = msg.hasSttTool;
+  const hasVisionTool = msg.hasVisionTool;
+  const hasVisionInput = msg.hasVisionInput;
+  const hasMediaTools = hasImageTool || hasVideoTool || hasSearchTool || hasTtsTool || hasSttTool || hasVisionTool;
+
+  const renderAgentModel = (agent: PlanAgent) => {
+    const modelId = agent.model || '';
+    const modelName = modelId ? findModelName(modelId, msg.hasVisionInput ? (mediaCatalog || {}) : (modelCatalog || {}), modelSearchResults || []) : 'Auto';
+    if (!pending || !onChangeAgentModel) {
+      return <span className="plan-model">{modelName}</span>;
+    }
+    return (
+      <>
+        <button
+          ref={(el) => { agentModelRefs.current[agent.name] = el; }}
+          className="plan-model"
+          style={{ cursor: 'pointer', fontWeight: 600 }}
+          onClick={() => {
+            if (hasVisionInput) {
+              if (mediaCatalog && !mediaCatalog['vision'] && onFetchMediaCatalog) onFetchMediaCatalog('vision');
+            } else if (editingAgent !== agent.name && modelCatalog && Object.keys(modelCatalog).length === 0 && onFetchModelCatalog) {
+              onFetchModelCatalog();
+            }
+            setEditingAgent(editingAgent === agent.name ? null : agent.name);
+          }}
+        >
+          {modelName}
+        </button>
+        {editingAgent === agent.name && (
+          <ModelPicker
+            recommended={hasVisionInput ? { vision: mediaCatalog?.['vision'] || [] } : (modelCatalog || {})}
+            searchResults={modelSearchResults || []}
+            selectedModel={modelId}
+            onSelect={(mid) => { onChangeAgentModel(agent.name, mid); setEditingAgent(null); }}
+            onSearch={onSearchModels || (() => {})}
+            onClose={() => setEditingAgent(null)}
+            anchorRef={{ current: agentModelRefs.current[agent.name] }}
+            showAutoRouter={true}
+          />
+        )}
+      </>
+    );
+  };
+
+  const renderMediaModel = (label: string, mediaKey: string, modelId?: string, icon?: string, fetchKey?: string) => {
+    if (!modelId) return null;
+    const modelName = findModelName(modelId, mediaCatalog || {}, mediaSearchResults || []) || modelId;
+    if (!pending || !onChangeMediaModel) {
+      return <span className="plan-model">{icon} {label}: {modelName}</span>;
+    }
+    return (
+      <>
+        <button
+          ref={(el) => { mediaModelRefs.current[mediaKey] = el; }}
+          className="plan-model"
+          style={{ cursor: 'pointer', fontWeight: 600 }}
+          onClick={() => {
+            if (editingMedia !== mediaKey && onFetchMediaCatalog && fetchKey) onFetchMediaCatalog(fetchKey);
+            setEditingMedia(editingMedia === mediaKey ? null : mediaKey);
+          }}
+        >
+          {icon} {label}: {modelName}
+        </button>
+        {editingMedia === mediaKey && (
+          <ModelPicker
+            recommended={{ [fetchKey || mediaKey]: mediaCatalog?.[fetchKey || mediaKey] || [] }}
+            searchResults={mediaSearchResults || []}
+            selectedModel={modelId}
+            onSelect={(mid) => { onChangeMediaModel(mediaKey as any, mid); setEditingMedia(null); }}
+            onSearch={onSearchModels || (() => {})}
+            onClose={() => setEditingMedia(null)}
+            anchorRef={{ current: mediaModelRefs.current[mediaKey] }}
+            showAutoRouter={false}
+          />
+        )}
+      </>
+    );
+  };
 
   return (
     <div className="chat-plan">
@@ -200,6 +303,7 @@ const ChatPlanCard: React.FC<{
               <div key={j} className="chat-plan-step">
                 <span className="cps-ic">{roleIcon(agent.role)}</span>
                 <span>{agent.name} — {agent.goal || agent.role}</span>
+                {renderAgentModel(agent)}
               </div>
             ))}
           </div>
@@ -211,11 +315,22 @@ const ChatPlanCard: React.FC<{
               <div key={j} className="chat-plan-step">
                 <span className="cps-ic">{roleIcon(agent.role)}</span>
                 <span>{agent.name} — {agent.goal || agent.role}</span>
+                {renderAgentModel(agent)}
               </div>
             ))}
           </div>
         )}
       </div>
+      {hasMediaTools && (
+        <div className="plan-models">
+          {hasImageTool && renderMediaModel('Image', 'imageModel', msg.imageModel, '🖼️', 'image')}
+          {hasVideoTool && renderMediaModel('Video', 'videoModel', msg.videoModel, '🎬', 'video')}
+          {hasSearchTool && renderMediaModel('Search', 'searchModel', msg.searchModel, '🔍', 'search')}
+          {hasTtsTool && renderMediaModel('TTS', 'ttsModel', msg.ttsModel, '🔊', 'tts')}
+          {hasSttTool && renderMediaModel('STT', 'sttModel', msg.sttModel, '🎙️', 'stt')}
+          {hasVisionTool && renderMediaModel('Vision', 'visionModel', msg.visionModel, '👁️', 'vision')}
+        </div>
+      )}
       <div className="chat-plan-meta">
         {agents.length} agents · {waves.length} waves
         {msg.estimatedCost ? ` · ${msg.estimatedCost}` : ''}
@@ -759,24 +874,29 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
     const msgType = msg.messageType || 'text';
 
     if (msgType === 'plan' && msg.planAgents) {
-      return <ChatPlanCard key={msg.id} msg={msg} onAccept={onAcceptPlan} onReject={onRejectPlan} />;
+      return (
+        <ChatPlanCard
+          key={msg.id} msg={msg}
+          onAccept={onAcceptPlan} onReject={onRejectPlan}
+          isPending={!disabled}
+          onChangeAgentModel={onChangeAgentModel}
+          onChangeManagerModel={onChangeManagerModel}
+          onChangeMediaModel={onChangeMediaModel}
+          modelCatalog={modelCatalog}
+          modelSearchResults={modelSearchResults}
+          mediaCatalog={mediaCatalog}
+          mediaSearchResults={mediaSearchResults}
+          onSearchModels={onSearchModels}
+          onFetchModelCatalog={onFetchModelCatalog}
+          onFetchMediaCatalog={onFetchMediaCatalog}
+        />
+      );
     }
     if (msgType === 'progress') {
       return <FeedProgress key={msg.id} label={msg.progressLabel || 'กำลังทำงาน...'} onViewProgress={onViewTasks} />;
     }
     if (msgType === 'agent_progress') {
-      if (!msg.agentProgressList || msg.agentProgressList.length === 0) return null;
-      return (
-        <div key={msg.id} className="prog-agents">
-          {msg.agentProgressList.map((ap, i) => (
-            <div key={i} className="prog-agent">
-              <div className={`pa-dot ${ap.status === 'complete' ? 'ok' : ap.status === 'running' ? 'run' : ap.status === 'waiting_approval' || ap.status === 'awaiting_review' ? 'wt' : 'idle'}`} />
-              <span>{agentIcon(ap.name)} {ap.name}</span>
-              <span className="pa-stat">{ap.status === 'complete' ? 'done' : ap.status === 'running' ? `${ap.progress}%` : ap.status}</span>
-            </div>
-          ))}
-        </div>
-      );
+      return null;
     }
     if (msgType === 'result') {
       return <ResultCard key={msg.id} msg={msg} />;
@@ -819,7 +939,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
     }
     return (
       <FeedAgentMessage key={msg.id} avatar={agentIcon(msg.agentName || 'Manager')} name={msg.agentName || 'Manager'}>
-        {msg.content}
+        <MarkdownRenderer content={msg.content || ''} />
       </FeedAgentMessage>
     );
   };
@@ -957,7 +1077,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
               <ChevronDown size={12} style={{ transform: modelPickerOpen ? 'rotate(180deg)' : '' }} />
             </button>
             <div className="ci-mode">
-              <button className={`ci-mode-btn ${inputMode === 'chat' ? 'active' : ''}`} onClick={() => onModeChange?.('chat')} disabled={disabled}>💬 Chat</button>
+              <button className={`ci-mode-btn ${inputMode === 'chat' ? 'active' : ''}`} onClick={() => onModeChange?.('chat')} disabled={true} title="Chat mode is temporarily disabled">💬 Chat</button>
               <button className={`ci-mode-btn ${inputMode === 'plan' ? 'active' : ''}`} onClick={() => onModeChange?.('plan')} disabled={disabled}>✨ Plan</button>
             </div>
           </div>

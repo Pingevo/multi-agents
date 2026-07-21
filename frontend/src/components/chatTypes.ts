@@ -101,6 +101,29 @@ export interface ChatMessage {
   agentRole?: string;
 }
 
+export interface NotificationItem {
+  id: string;
+  sessionId: string;
+  sessionTitle: string;
+  timestamp: number;
+  messageType: 'plan' | 'image_approval' | 'agent_review' | 'tuning_proposal';
+  planStatus?: PlanStatus;
+  approvalStatus?: ImageApprovalStatus;
+  reviewStatus?: AgentReviewStatus;
+  tuningStatus?: 'confirmed' | 'rejected';
+  planTaskDescription?: string;
+  planAgents?: PlanAgent[];
+  planType?: string;
+  imagePrompt?: string;
+  agentName?: string;
+  agentRole?: string;
+  reviewId?: string;
+  approvalId?: string;
+  tuningProposals?: TuningProposal[];
+  imageError?: string;
+  content?: string;
+}
+
 export interface AgentProgressEntry {
   name: string;
   role: string;
@@ -143,4 +166,18 @@ export interface ActivityEntry {
   text: string;
   timestamp: number;
   status: 'current' | 'completed';
+}
+
+export interface HistoryLogEntry {
+  time: string;
+  actor: string;
+  action: string;
+  target: string;
+}
+
+export interface HistoryTaskLog {
+  task_id: string;
+  task_title: string;
+  created_at: string;
+  entries: HistoryLogEntry[];
 }

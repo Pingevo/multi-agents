@@ -6,6 +6,7 @@ import json
 import os
 import re
 import threading
+import uuid
 import traceback
 import chainlit as cl
 import litellm
@@ -324,6 +325,9 @@ class ExecutionOrchestrator:
         user_input: str,
         agent_specs: list[dict],
         pre_assigned_models: dict | None = None,
+        task_id: str | None = None,
+        task_title: str | None = None,
+        messenger: StateMessenger | None = None,
     ) -> dict:
         global _progress_callback, _media_gen_manager, _media_tool_results, _search_model
         _progress_callback = self._progress_callback
@@ -377,6 +381,21 @@ class ExecutionOrchestrator:
         self._ctx = contextvars.copy_context()
         self._register_event_listeners()
 
+        # History logging context
+        _hist_task_id = task_id or str(uuid.uuid4())[:8]
+        _hist_task_title = task_title or user_input[:80]
+        _hist_messenger = messenger
+
+        def _log_hist(actor, action, target=""):
+            if _hist_messenger:
+                try:
+                    _hist_messenger.log_history(_hist_task_id, _hist_task_title, actor, action, target)
+                except Exception:
+                    pass
+
+        # Log plan creation
+        _log_hist("Manager", f"แบ่งงาน {len(agent_specs)} agents")
+
         # Resolve actual model names: if model is "" (adaptive), find what get_llm() would pick
         for i, spec in enumerate(agent_specs):
             agent_name = spec.get("name", "")
@@ -418,6 +437,7 @@ class ExecutionOrchestrator:
                 initial = self._build_progress({})
                 for i, s in enumerate(agent_specs):
                     initial[i]["current_task"] = s.get("task_description", "")
+                    _log_hist(f"Manager → {s.get('name', f'Agent {i+1}')}", "มอบหมาย: ", s.get("task_description", "")[:200])
                 callback = self._agent_progress_callback
                 ctx = self._ctx
                 main_loop = self._main_loop
@@ -552,6 +572,18 @@ class ExecutionOrchestrator:
 
             def _send_progress_for_agent(idx, status, output_text="", review_round=None, review_summary=None, review_feedback=None, review_history=None):
                 """Send progress update for a single agent."""
+                # Log to history store
+                _agent_name = agent_specs[idx].get("name", f"Agent {idx+1}")
+                _agent_model = agent_specs[idx].get("model", "")
+                if status == "running":
+                    _log_hist(_agent_name, f"เริ่มทำงาน ({_agent_model})")
+                elif status == "complete":
+                    _summary = f" — {review_summary}" if review_summary else ""
+                    _log_hist(_agent_name, f"เสร็จสิ้น{_summary}")
+                elif status == "error":
+                    _log_hist(_agent_name, f"เกิดข้อผิดพลาด: {(output_text or '')[:200]}")
+                elif status == "awaiting_review":
+                    _log_hist(_agent_name, "รอตรวจสอบผลลัพธ์")
                 if not (self._agent_progress_callback and self._main_loop and self._ctx):
                     return
                 with self._state_lock:
@@ -755,6 +787,17 @@ class ExecutionOrchestrator:
                 done_indices = set()
 
                 while len(done_indices) < len(agents):
+                    # Check if user requested to stop generation
+                    if cl.user_session.get("cancel_generation"):
+                        print(f"[DEBUG-SCHED] Cancel requested — marking remaining agents as cancelled", flush=True)
+                        for i in range(len(agents)):
+                            if i not in done_indices:
+                                name = agent_specs[i].get("name", f"Agent {i+1}")
+                                _send_progress_for_agent(i, "error", "Cancelled by user")
+                                agent_outputs[i] = {"name": name, "role": agent_specs[i].get("role", ""), "output": "Cancelled by user"}
+                                done_indices.add(i)
+                        break
+
                     # Find agents whose deps are all approved and not yet started/done
                     launchable = []
                     for i in range(len(agents)):
@@ -782,6 +825,19 @@ class ExecutionOrchestrator:
                     # Wait for ALL running agents to complete (batch)
                     if running:
                         await asyncio.wait(running.values(), return_when=asyncio.ALL_COMPLETED)
+
+                    # Check cancel after agents completed — skip review if cancelled
+                    if cl.user_session.get("cancel_generation"):
+                        print(f"[DEBUG-SCHED] Cancel requested after wave — skipping review, approving all", flush=True)
+                        for i in list(running.keys()):
+                            if i not in done_indices and i in agent_review_state:
+                                name = agent_specs[i].get("name", f"Agent {i+1}")
+                                st = agent_review_state[i]
+                                approved_outputs[name] = st["current_output"]
+                                _send_progress_for_agent(i, "complete", st["current_output"][:8000],
+                                    review_summary="Cancelled — output approved without review")
+                                done_indices.add(i)
+                        continue
 
                     # Collect results
                     pending_review = []  # agents that completed successfully and need review
@@ -1230,6 +1286,7 @@ class ExecutionOrchestrator:
                 "agent_memories": agent_memories,
             }
         finally:
+            _log_hist("Manager", "ทีมทำงานเสร็จทั้งหมด ✅")
             _progress_callback = None
             _media_gen_manager = None
             _search_model = ""

@@ -14,6 +14,7 @@ _original_async_server_init = socketio.AsyncServer.__init__
 def _patched_async_server_init(self, *args, **kwargs):
     kwargs.setdefault("ping_timeout", 120)
     kwargs.setdefault("ping_interval", 25)
+    kwargs.setdefault("cors_allowed_origins", "*")
     return _original_async_server_init(self, *args, **kwargs)
 
 socketio.AsyncServer.__init__ = _patched_async_server_init
@@ -140,6 +141,19 @@ if os.path.exists(os.path.join(os.path.dirname(__file__), "public")):
     if not _already_mounted:
         from fastapi.staticfiles import StaticFiles
         _cl_server.app.mount(_mount_point, StaticFiles(directory=_public_dir), name="public")
+
+# Mount frontend dist if it exists (serves SPA at root)
+_frontend_dist = os.path.join(os.path.dirname(__file__), "frontend", "dist")
+if os.path.exists(_frontend_dist):
+    from fastapi.staticfiles import StaticFiles
+    from fastapi.responses import FileResponse
+
+    @_cl_server.app.get("/")
+    async def _serve_frontend_root():
+        return FileResponse(os.path.join(_frontend_dist, "index.html"))
+
+    _cl_server.app.mount("/assets", StaticFiles(directory=os.path.join(_frontend_dist, "assets")), name="frontend-assets")
+    print(f"[FRONTEND] Serving from {_frontend_dist}", flush=True)
 
 # ============================================================
 # Auth endpoints

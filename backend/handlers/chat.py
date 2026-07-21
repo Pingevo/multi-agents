@@ -635,6 +635,7 @@ async def on_chat_start():
     await messenger.reply_chat_sessions()
     await messenger.reply_team_list(team_registry)
     await messenger.reply_chat_history(current_session_id)
+    await messenger.reply_notifications()
 
     # Restore plan approval state if last message is a pending plan
     session = chat_store.get_session(current_session_id)
@@ -957,6 +958,7 @@ async def on_message(message: cl.Message):
                 messenger.update_approval_status(approval_id, "rejected")
                 await messenger.reply(f"❌ ยกเลิกการสร้างสื่อ (ID: {approval_id})")
                 cl.user_session.set(f"pending_media_{approval_id}", None)
+                await messenger.reply_notifications(team_id=cl.user_session.get("current_team_id"))
         elif action_name == "approve_agent_result":
             review_id = payload.get("review_id", "")
             print(f"[DEBUG-AGENT-REVIEW] approve: review_id={review_id}", flush=True)
@@ -974,6 +976,7 @@ async def on_message(message: cl.Message):
                 if messenger:
                     await messenger.update_agent_review_status(review_id, "approved")
                     await messenger.notify(f"✅ อนุมัติผลงานของ agent แล้ว — ส่งต่อให้ agent ตัวถัดไปได้")
+                    await messenger.reply_notifications(team_id=cl.user_session.get("current_team_id"))
             else:
                 if messenger:
                     await messenger.reply(f"⚠️ ไม่พบ review request (ID: {review_id}) อาจหมดอายุแล้ว")
@@ -993,6 +996,7 @@ async def on_message(message: cl.Message):
                 review_events[idx].set()
                 if messenger:
                     await messenger.notify(f"🔄 ส่งกลับให้ agent ทำงานใหม่พร้อม feedback ของ user")
+                    await messenger.reply_notifications(team_id=cl.user_session.get("current_team_id"))
             else:
                 if messenger:
                     await messenger.reply(f"⚠️ ไม่พบ review request (ID: {review_id}) อาจหมดอายุแล้ว")
@@ -1023,6 +1027,7 @@ async def on_message(message: cl.Message):
             cl.user_session.set("conversation_history", [])
             await messenger.reply_chat_sessions(team_id=current_team_id)
             await messenger.reply_chat_history(session["id"])
+            await messenger.reply_notifications(team_id=current_team_id)
         elif action_name == "switch_chat":
             session_id = payload.get("session_id", "")
             session = messenger.chat_store.get_session(session_id)
@@ -1038,6 +1043,7 @@ async def on_message(message: cl.Message):
                 current_team_id = cl.user_session.get("current_team_id")
                 await messenger.reply_chat_sessions(team_id=current_team_id)
                 await messenger.reply_chat_history(session_id)
+                await messenger.reply_notifications(team_id=current_team_id)
                 # Restore plan approval state if last message is a pending plan
                 msgs = session.get("messages", [])
                 if msgs and msgs[-1].get("messageType") == "plan" and msgs[-1].get("planStatus") == "pending":
@@ -1324,6 +1330,10 @@ async def on_message(message: cl.Message):
             print(f"[STOP] User requested to stop generation", flush=True)
             if messenger:
                 await messenger.reply("⏹️ หยุดการทำงานแล้ว")
+        elif action_name == "fetch_notifications":
+            current_team_id = cl.user_session.get("current_team_id")
+            if messenger:
+                await messenger.reply_notifications(team_id=current_team_id)
         elif action_name == "skip_review":
             agent_name = payload.get("agent_name", "")
             if agent_name:

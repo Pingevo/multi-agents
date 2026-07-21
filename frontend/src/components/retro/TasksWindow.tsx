@@ -1,10 +1,11 @@
 import { useState, useMemo } from 'react';
 import {
-  CheckCircle, XCircle, Loader2,
+  Loader2,
 } from 'lucide-react';
-import type { ChatMessage, AgentProgressEntry, PlanAgent, ResultAgent, PlanStatus } from '../chatTypes';
+import type { ChatMessage, AgentProgressEntry, PlanAgent, ResultAgent, PlanStatus, NotificationItem } from '../chatTypes';
 import type { Agent, PendingApproval, ImageResult } from '../../types/platform';
 import MarkdownRenderer from '../MarkdownRenderer';
+import { Dialog } from './Dialog';
 
 // ============================================================
 // Types
@@ -12,13 +13,9 @@ import MarkdownRenderer from '../MarkdownRenderer';
 
 interface TasksWindowProps {
   chatMessages: ChatMessage[];
-  onApproveImage?: (approvalId: string) => void;
-  onRejectImage?: (approvalId: string) => void;
-  onRetryImage?: (approvalId: string) => void;
-  onEditImagePrompt?: (approvalId: string, newPrompt: string) => void;
-  onRetryTask?: () => void;
-  onRateTask?: (rating: number) => void;
-  onSkipReview?: (agentName: string) => void;
+  notifications: NotificationItem[];
+  activeSessionId: string | null;
+  onNavigate: (sessionId: string) => void;
 }
 
 interface StoryboardRun {
@@ -103,12 +100,10 @@ const TaskAgentCard: React.FC<{
   progress?: AgentProgressEntry;
   pendingApprovals: PendingApproval[];
   imageResults: ImageResult[];
-  onApproveImage?: (id: string) => void;
-  onRejectImage?: (id: string) => void;
-  onRetryImage?: (id: string) => void;
-  onSkipReview?: (name: string) => void;
-}> = ({ agent, progress, pendingApprovals, imageResults, onApproveImage, onRejectImage, onRetryImage, onSkipReview }) => {
-  const [showOutput, setShowOutput] = useState(false);
+  onNavigate?: () => void;
+}> = ({ agent, progress, pendingApprovals, imageResults, onNavigate }) => {
+  const [showOutputDialog, setShowOutputDialog] = useState(false);
+  const [dialogTab, setDialogTab] = useState<'output' | 'review'>('output');
   const status = progress?.status || 'pending';
   const hasOutput = !!progress?.output;
   const isComplete = status === 'complete';
@@ -125,28 +120,6 @@ const TaskAgentCard: React.FC<{
       <div className={`kcard-av ${statClass}`}>{agentIcon(agent.name)}</div>
       <div className="kcard-name">{agent.name}</div>
       <span className={`kcard-badge ${statClass}`}>{statText}</span>
-
-      {/* Model + duration */}
-      {progress?.model && (
-        <div style={{ fontSize: '9px', color: 'var(--ink3)', fontFamily: 'var(--mono)', marginTop: '2px' }}>
-          🤖 {progress.model}
-        </div>
-      )}
-
-      {/* Current task */}
-      {progress?.current_task && !isComplete && !isError && (
-        <div style={{ fontSize: '10px', color: 'var(--ink3)', fontStyle: 'italic', marginTop: '2px' }}>{progress.current_task}</div>
-      )}
-
-      {/* Current tool */}
-      {progress?.current_tool && (
-        <div style={{ fontSize: '10px', color: 'var(--orange)', marginTop: '2px' }}>⚡ {progress.tool_description || progress.current_tool}</div>
-      )}
-
-      {/* Thinking */}
-      {progress?.thinking && (
-        <div style={{ fontSize: '10px', color: 'var(--ink3)', marginTop: '2px', fontStyle: 'italic' }}>💭 {progress.thinking}</div>
-      )}
 
       {/* Waiting for deps */}
       {(() => {
@@ -174,33 +147,32 @@ const TaskAgentCard: React.FC<{
         </div>
       )}
 
-      {/* Skip review button */}
-      {onSkipReview && hasOutput && !isComplete && !isError && (
-        <button
-          className="kcard-btn"
-          style={{ background: 'rgba(200,146,32,0.1)', color: 'var(--amber)', borderColor: 'rgba(200,146,32,0.3)' }}
-          onClick={() => onSkipReview(agent.name)}
-        >
-          หยุดตรวจ
-        </button>
+      {/* Review summary for completed agents */}
+      {isComplete && progress?.review_summary && (
+        <div style={{ fontSize: '9px', color: 'var(--ink3)', marginTop: '2px' }}>
+          {progress.review_summary.includes('หยุดโดยผู้ใช้') || progress.review_summary.includes('ยังไม่ตรวจ') || progress.review_summary.includes('Cancelled') ? (
+            <span style={{ color: 'var(--amber)' }}>{'ยังไม่ตรวจสอบ'}</span>
+          ) : (
+            <span style={{ color: 'var(--green)' }}>{'ตรวจผ่าน'}</span>
+          )}
+          {' — '}{progress.review_summary}
+        </div>
+      )}
+      {isComplete && progress?.review_history && progress.review_history.length > 1 && (
+        <div style={{ fontSize: '9px', color: 'var(--ink3)', marginTop: '1px' }}>
+          ตรวจ {progress.review_history.length} รอบ
+        </div>
       )}
 
-      {/* Completed output */}
-      {isComplete && hasOutput && (
-        <div style={{ marginTop: '4px' }}>
-          <button
-            onClick={() => setShowOutput(!showOutput)}
-            style={{ fontSize: '9px', color: 'var(--ink3)', cursor: 'pointer', background: 'none', border: 'none' }}
-          >
-            {showOutput ? '▼ ซ่อน output' : '▶ ดู output'}
-            {progress?.review_summary && <span style={{ color: 'var(--green)' }}> — {progress.review_summary}</span>}
-          </button>
-          {showOutput && (
-            <div style={{ fontSize: '10px', color: 'var(--ink2)', background: 'var(--cream)', borderRadius: '3px', padding: '6px 8px', border: '1px solid var(--line)', maxHeight: '120px', overflowY: 'auto', marginTop: '2px' }}>
-              <MarkdownRenderer content={progress?.output || ''} />
-            </div>
-          )}
-        </div>
+
+      {/* View output button — opens Dialog popup */}
+      {hasOutput && (
+        <button
+          className="kcard-btn view"
+          onClick={() => setShowOutputDialog(true)}
+        >
+          View
+        </button>
       )}
 
       {/* Progress bar */}
@@ -220,36 +192,72 @@ const TaskAgentCard: React.FC<{
         </div>
       )}
 
-      {/* Review history */}
-      {progress?.review_history && progress.review_history.length > 0 && (
-        <div style={{ marginTop: '4px', fontSize: '9px', color: 'var(--ink3)' }}>
-          {progress.review_history.map((rh, i) => (
-            <div key={i} style={{ padding: '2px 0' }}>
-              <span style={{ color: rh.status === 'approved' ? 'var(--green)' : 'var(--red)' }}>
-                รอบ {rh.round}: {rh.status === 'approved' ? '✓' : '✕'} {rh.summary}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Image approvals */}
-      {pendingApprovals.map(pa => (
-        <div key={pa.approvalId} style={{ marginTop: '4px' }}>
-          {pa.approvalStatus === 'pending' && (
-            <>
-              <div style={{ fontSize: '10px', color: 'var(--ink2)', marginBottom: '2px' }}>🖼️ {pa.prompt}</div>
-              <div style={{ display: 'flex', gap: '4px' }}>
-                <button className="kcard-btn reject" onClick={() => onRejectImage?.(pa.approvalId)}>Reject</button>
-                <button className="kcard-btn approve" onClick={() => onApproveImage?.(pa.approvalId)}>Generate</button>
+      {/* Output Dialog popup */}
+      <Dialog
+        open={showOutputDialog}
+        icon={agentIcon(agent.name)}
+        title={`${agent.name} — ${dialogTab === 'output' ? 'Output' : 'Review History'}`}
+        onClose={() => { setShowOutputDialog(false); setDialogTab('output'); }}
+        footer={
+          progress?.review_history && progress.review_history.length > 0 ? (
+            <button
+              className="kcard-btn"
+              style={{ fontSize: '10px', padding: '4px 12px' }}
+              onClick={() => setDialogTab(dialogTab === 'output' ? 'review' : 'output')}
+            >
+              {dialogTab === 'output' ? '📋 ดูประวัติการตรวจ' : '📄 ดู Output'}
+            </button>
+          ) : undefined
+        }
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          {/* Output tab */}
+          {dialogTab === 'output' && progress?.output && (
+            <div>
+              <div style={{ fontSize: '10px', color: 'var(--ink3)', marginBottom: '4px', fontWeight: 600 }}>
+                Output{progress?.review_summary && <span style={{ color: 'var(--green)' }}> — {progress.review_summary}</span>}
               </div>
-            </>
+              <div style={{ fontSize: '11px', color: 'var(--ink2)', background: 'var(--cream)', borderRadius: '3px', padding: '8px 10px', border: '1px solid var(--line)', maxHeight: '400px', overflowY: 'auto' }}>
+                <MarkdownRenderer content={progress.output} />
+              </div>
+            </div>
+          )}
+
+          {/* Review History tab */}
+          {dialogTab === 'review' && progress?.review_history && progress.review_history.length > 0 && (
+            <div>
+              {progress.review_history.map((rh, i) => (
+                <div key={i} style={{ border: '1px solid var(--line)', borderRadius: '3px', padding: '6px 8px', marginBottom: '6px', background: 'var(--paper)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                    <span style={{ fontSize: '8px', padding: '1px 4px', borderRadius: '2px', fontWeight: 700, background: rh.status === 'approved' ? 'rgba(90,122,74,0.15)' : 'rgba(160,48,32,0.15)', color: rh.status === 'approved' ? 'var(--green)' : 'var(--red)' }}>
+                      {rh.status === 'approved' ? 'PASS' : 'FAIL'}
+                    </span>
+                    <span style={{ fontSize: '10px', color: 'var(--ink2)', fontWeight: 500 }}>รอบที่ {rh.round}</span>
+                  </div>
+                  <div style={{ fontSize: '10px', color: 'var(--ink3)', marginBottom: '2px' }}>{rh.summary}</div>
+                  {rh.feedback && (
+                    <div style={{ fontSize: '10px', color: 'var(--red)', marginBottom: '2px' }}>Feedback: {rh.feedback}</div>
+                  )}
+                  {rh.output_preview && (
+                    <div style={{ fontSize: '9px', color: 'var(--ink3)', background: 'var(--cream)', borderRadius: '2px', padding: '4px 6px', border: '1px solid var(--line)', maxHeight: '100px', overflowY: 'auto', marginTop: '4px', whiteSpace: 'pre-wrap' }}>
+                      {rh.output_preview}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </Dialog>
+
+      {/* Image approvals — click to navigate to chat */}
+      {pendingApprovals.map(pa => (
+        <div key={pa.approvalId} style={{ marginTop: '4px', cursor: 'pointer' }} onClick={() => onNavigate?.()}>
+          {pa.approvalStatus === 'pending' && (
+            <div style={{ fontSize: '10px', color: 'var(--ink2)', marginBottom: '2px' }}>🖼️ {pa.prompt} — <span style={{ color: 'var(--purple)' }}>คลิกเพื่ออนุมัติใน Chat</span></div>
           )}
           {pa.approvalStatus === 'error' && (
-            <>
-              <div style={{ fontSize: '10px', color: 'var(--red)', marginBottom: '2px' }}>⚠ {pa.imageError}</div>
-              <button className="kcard-btn" style={{ background: 'rgba(200,146,32,0.1)', color: 'var(--amber)' }} onClick={() => onRetryImage?.(pa.approvalId)}>🔄 Retry</button>
-            </>
+            <div style={{ fontSize: '10px', color: 'var(--red)', marginBottom: '2px' }}>⚠ {pa.imageError} — <span style={{ color: 'var(--amber)' }}>คลิกเพื่อ Retry ใน Chat</span></div>
           )}
           {pa.approvalStatus === 'approved' && (
             <div style={{ fontSize: '10px', color: 'var(--green)' }}>✓ Approved — generating...</div>
@@ -278,12 +286,8 @@ const TaskAgentCard: React.FC<{
 
 const PlanFrame: React.FC<{
   run: StoryboardRun;
-  onApproveImage?: (id: string) => void;
-  onRejectImage?: (id: string) => void;
-  onRetryImage?: (id: string) => void;
-  onEditImagePrompt?: (id: string, p: string) => void;
-  onSkipReview?: (name: string) => void;
-}> = ({ run, onApproveImage, onRejectImage, onRetryImage, onSkipReview }) => {
+  onNavigate?: () => void;
+}> = ({ run, onNavigate }) => {
   const [collapsed, setCollapsed] = useState(false);
 
   const planAgentsAsAgents: Agent[] = useMemo(() =>
@@ -330,11 +334,10 @@ const PlanFrame: React.FC<{
       </div>
       {!collapsed && (
         <div className="plan-frame-body">
-          {/* Pending plan actions */}
+          {/* Pending plan — click to navigate to chat */}
           {run.planStatus === 'pending' && (
-            <div className="kcard-plan-actions">
-              <button className="kcard-btn reject">Reject</button>
-              <button className="kcard-btn approve">Approve Plan</button>
+            <div className="kcard-plan-actions" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '6px 10px', border: '1px solid rgba(200,146,32,0.3)', background: 'rgba(200,146,32,0.05)', borderRadius: '3px', fontSize: '11px', color: 'var(--amber)' }} onClick={() => onNavigate?.()}>
+              คลิกเพื่ออนุมัติแผนใน Chat
             </div>
           )}
 
@@ -355,10 +358,7 @@ const PlanFrame: React.FC<{
                 progress={nodeProgress}
                 pendingApprovals={agentApprovals}
                 imageResults={agentImages}
-                onApproveImage={onApproveImage}
-                onRejectImage={onRejectImage}
-                onRetryImage={onRetryImage}
-                onSkipReview={onSkipReview}
+                onNavigate={onNavigate}
               />
             );
           })}
@@ -383,34 +383,6 @@ const PlanFrame: React.FC<{
               <Loader2 size={12} className="animate-spin" /> Combining all agent outputs...
             </div>
           )}
-
-          {/* Final result */}
-          {run.result && (
-            <div className="card" style={{ borderLeft: `4px solid ${run.result.error ? 'var(--red)' : 'var(--green)'}` }}>
-              <div className="card-hdr">
-                {run.result.error ? <XCircle size={14} style={{ color: 'var(--red)' }} /> : <CheckCircle size={14} style={{ color: 'var(--green)' }} />}
-                <span>{run.result.error ? 'Error' : 'Completed'}</span>
-              </div>
-              <div className="card-body">
-                <MarkdownRenderer content={run.result.summary} />
-              </div>
-              {run.result.agents.length > 0 && (
-                <div className="result-agents">
-                  {run.result.agents.map((agent, i) => (
-                    <div key={i} className="result-agent">
-                      <div className="ra-hdr">
-                        <div className="ra-av">{agentIcon(agent.name)}</div>
-                        <span>{agent.name}</span>
-                      </div>
-                      <div className="ra-body open">
-                        <MarkdownRenderer content={agent.output} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
         </div>
       )}
     </div>
@@ -421,14 +393,67 @@ const PlanFrame: React.FC<{
 // Main TasksWindow
 // ============================================================
 
+const isPending = (n: NotificationItem): boolean => {
+  if (n.messageType === 'plan') return n.planStatus === 'pending';
+  if (n.messageType === 'image_approval') return n.approvalStatus === 'pending' || n.approvalStatus === 'error';
+  if (n.messageType === 'agent_review') return n.reviewStatus === 'pending';
+  if (n.messageType === 'tuning_proposal') return n.tuningStatus !== 'confirmed' && n.tuningStatus !== 'rejected';
+  return false;
+};
+
+const getNotifIcon = (n: NotificationItem): string => {
+  if (n.messageType === 'plan') return '📋';
+  if (n.messageType === 'image_approval') return '🖼️';
+  if (n.messageType === 'agent_review') return '🔍';
+  if (n.messageType === 'tuning_proposal') return '🔧';
+  return '🔔';
+};
+
+const getNotifTitle = (n: NotificationItem): string => {
+  if (n.messageType === 'plan') return 'Plan Approval';
+  if (n.messageType === 'image_approval') return 'Image Generation';
+  if (n.messageType === 'agent_review') return 'Agent Review';
+  if (n.messageType === 'tuning_proposal') return 'Tuning Proposal';
+  return 'Notification';
+};
+
+const getNotifDesc = (n: NotificationItem): string => {
+  if (n.messageType === 'plan') return n.planTaskDescription || n.content?.slice(0, 80) || 'Plan awaiting approval';
+  if (n.messageType === 'image_approval') return n.imagePrompt || 'Image generation request';
+  if (n.messageType === 'agent_review') return `Agent: ${n.agentName || '—'}`;
+  if (n.messageType === 'tuning_proposal') return n.tuningProposals ? `${n.tuningProposals.length} change(s) for ${n.tuningProposals[0]?.agent_name || 'agent'}` : 'Tuning proposal';
+  return n.content?.slice(0, 80) || '';
+};
+
 export const TasksWindow: React.FC<TasksWindowProps> = ({
   chatMessages,
-  onApproveImage, onRejectImage, onRetryImage, onEditImagePrompt,
-  onSkipReview,
+  notifications,
+  activeSessionId,
+  onNavigate,
 }) => {
   const runs = useMemo(() => buildRuns(chatMessages), [chatMessages]);
 
-  if (runs.length === 0) {
+  // Pending notifications from OTHER sessions
+  const otherSessionPending = useMemo(() =>
+    notifications.filter(n => isPending(n) && n.sessionId !== activeSessionId),
+    [notifications, activeSessionId]
+  );
+
+  // Group by session
+  const otherSessions = useMemo(() => {
+    const map = new Map<string, { title: string; items: NotificationItem[] }>();
+    for (const n of otherSessionPending) {
+      if (!map.has(n.sessionId)) {
+        map.set(n.sessionId, { title: n.sessionTitle || 'Unknown', items: [] });
+      }
+      map.get(n.sessionId)!.items.push(n);
+    }
+    return Array.from(map.entries());
+  }, [otherSessionPending]);
+
+  const hasContent = runs.length > 0 || otherSessions.length > 0;
+
+  if (!hasContent) {
     return (
       <div className="tasks-list">
         <div className="kcard-empty">
@@ -440,17 +465,51 @@ export const TasksWindow: React.FC<TasksWindowProps> = ({
   }
 
   return (
-    <div className="tasks-list">
-      {runs.map(run => (
-        <PlanFrame
-          key={run.runIndex}
-          run={run}
-          onApproveImage={onApproveImage}
-          onRejectImage={onRejectImage}
-          onRetryImage={onRetryImage}
-          onEditImagePrompt={onEditImagePrompt}
-          onSkipReview={onSkipReview}
-        />
+    <div className="tasks-list" style={{ overflowY: 'auto', maxHeight: '100%' }}>
+      {/* Current session tasks */}
+      {runs.length > 0 && (
+        <div style={{ marginBottom: '8px' }}>
+          <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--ink3)', marginBottom: '6px', padding: '2px 4px', borderBottom: '1px solid var(--line)' }}>
+            📌 เซสชันปัจจุบัน
+          </div>
+          {runs.map(run => (
+            <PlanFrame
+              key={run.runIndex}
+              run={run}
+              onNavigate={() => onNavigate(activeSessionId || '')}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Other sessions pending */}
+      {otherSessions.map(([sessionId, group]) => (
+        <div key={sessionId} style={{ marginBottom: '8px' }}>
+          <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--ink3)', marginBottom: '6px', padding: '2px 4px', borderBottom: '1px solid var(--line)' }}>
+            💬 {group.title}
+          </div>
+          {group.items.map(n => (
+            <div
+              key={n.id}
+              className="plan-frame pending"
+              style={{ cursor: 'pointer', marginBottom: '6px' }}
+              onClick={() => onNavigate(sessionId)}
+            >
+              <div className="plan-frame-hdr">
+                <span className="pf-ic">{getNotifIcon(n)}</span>
+                <div className="pf-info">
+                  <div className="pf-title">{getNotifTitle(n)}</div>
+                  <div className="pf-bar"><div className="pf-bar-fill" style={{ width: '0%' }} /></div>
+                </div>
+                <span className="pf-badge">รอดำเนินการ</span>
+              </div>
+              <div className="plan-frame-body" style={{ padding: '6px 10px' }}>
+                <div style={{ fontSize: '10px', color: 'var(--ink2)' }}>{getNotifDesc(n)}</div>
+                <div style={{ fontSize: '10px', color: 'var(--amber)', marginTop: '4px' }}>คลิกเพื่อไปยัง Chat</div>
+              </div>
+            </div>
+          ))}
+        </div>
       ))}
     </div>
   );

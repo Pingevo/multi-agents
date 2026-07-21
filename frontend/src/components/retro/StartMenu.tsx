@@ -4,6 +4,7 @@ interface StartMenuProps {
   open: boolean;
   onClose: () => void;
   onOpenWindow: (id: WindowId) => void;
+  onBack?: () => void;
 }
 
 const menuItems: { id: WindowId; icon: string; label: string }[] = [
@@ -15,7 +16,7 @@ const menuItems: { id: WindowId; icon: string; label: string }[] = [
   { id: 'settings', icon: '⚙️', label: 'Settings' },
 ];
 
-export const StartMenu: React.FC<StartMenuProps> = ({ open, onClose, onOpenWindow }) => {
+export const StartMenu: React.FC<StartMenuProps> = ({ open, onClose, onOpenWindow, onBack }) => {
   if (!open) return null;
 
   const handleClick = (id: WindowId) => {
@@ -43,12 +44,17 @@ export const StartMenu: React.FC<StartMenuProps> = ({ open, onClose, onOpenWindo
             </button>
           ))}
         </div>
-        <div className="border-t border-line p-1.5">
-          <button className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-retro-sm text-[12px] text-ink-2 hover:bg-cream transition-colors text-left">
-            <span className="text-base">🔌</span>
-            <span>Disconnect</span>
-          </button>
-        </div>
+        {onBack && (
+          <div className="border-t border-line p-1.5">
+            <button
+              className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-retro-sm text-[12px] text-ink-2 hover:bg-cream transition-colors text-left"
+              onClick={() => { onBack(); onClose(); }}
+            >
+              <span className="text-base">�</span>
+              <span>Back to team</span>
+            </button>
+          </div>
+        )}
       </div>
     </>
   );
