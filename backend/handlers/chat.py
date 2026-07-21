@@ -29,6 +29,7 @@ from backend.agents.task_store import TaskStore
 from backend.agents.chat_store import ChatStore
 from backend.agents.tool_registry import ToolRegistry
 from backend.agents.team_registry import TeamRegistry
+from backend.agents.history_store import HistoryStore
 from backend.agents.template_store import TaskTemplateStore
 from backend.agents.schedule_store import ScheduledTaskStore
 from backend.core.scheduler import get_scheduler
@@ -85,6 +86,8 @@ async def execute_multi_agent_task(
     if messenger:
         agent_names = ", ".join(s.get("name", "Agent") for s in agent_specs)
         await messenger.add_task(task_id, user_input, agent_names)
+        messenger.log_history(task_id, user_input[:80], "User", "สั่งงาน: ", user_input[:200])
+        messenger.log_history(task_id, user_input[:80], "Manager", "รับคำสั่ง สร้าง plan")
         initial_agents = [
             {
                 "name": s.get("name", "Agent"),
@@ -130,6 +133,7 @@ async def execute_multi_agent_task(
         orchestrator = ExecutionOrchestrator(llm_manager, tool_registry, update_progress, update_agent_progress)
         cl.user_session.set("orchestrator", orchestrator)
         pre_assigned = cl.user_session.get("pre_assigned_models")
+        print(f"[DEBUG-EXEC] Starting with {len(agent_specs)} agents, pre_assigned={pre_assigned}", flush=True)
         for spec in agent_specs:
             name = spec.get("name", "")
             if pre_assigned and name and pre_assigned.get("workers", {}).get(name):
@@ -140,7 +144,9 @@ async def execute_multi_agent_task(
             await messenger.notify(f"⚙️ กำลังกำหนด model ให้ {len(agent_specs)} agents...")
         if messenger:
             await messenger.notify("🔥 Crew เริ่มทำงานแล้ว — รอผลลัพธ์...")
-        result = await orchestrator.run_async(user_input, agent_specs, pre_assigned_models=pre_assigned)
+        print(f"[DEBUG-EXEC] Calling orchestrator.run_async...", flush=True)
+        result = await orchestrator.run_async(user_input, agent_specs, pre_assigned_models=pre_assigned, task_id=task_id, task_title=user_input[:80], messenger=messenger)
+        print(f"[DEBUG-EXEC] orchestrator.run_async completed successfully", flush=True)
         cl.user_session.set("pre_assigned_models", None)
 
         raw_output = result.get("raw", str(result))
@@ -338,7 +344,8 @@ async def execute_multi_agent_task(
                 cl.user_session.set("agent_overrides", None)
     except Exception as e:
         tb = traceback.format_exc()
-        print(f"[CREW ERROR] {_sanitize_error(e)}")
+        print(f"[CREW ERROR] {_sanitize_error(e)}", flush=True)
+        print(f"[CREW ERROR] Type: {type(e).__name__}, Args: {e.args}", flush=True)
         _debug(f"[TRACEBACK] {tb}", flush=True)
         # Store failed task context for retry
         cl.user_session.set("last_failed_task", {
@@ -425,6 +432,8 @@ async def execute_task_with_agent(
 
     if messenger:
         await messenger.add_task(task_id, user_input, agent_name)
+        messenger.log_history(task_id, user_input[:80], "User", "สั่งงาน: ", user_input[:200])
+        messenger.log_history(task_id, user_input[:80], "Manager", "รับคำสั่ง สร้าง plan")
 
     if registry_id:
         registry.update_status(registry_id, "Busy")
@@ -448,7 +457,7 @@ async def execute_task_with_agent(
         llm_manager = LLMManager()
         tool_registry = ToolRegistry()
         orchestrator = ExecutionOrchestrator(llm_manager, tool_registry, update_progress)
-        result = await orchestrator.run_async(user_input, [agent_spec])
+        result = await orchestrator.run_async(user_input, [agent_spec], task_id=task_id, task_title=user_input[:80], messenger=messenger)
         task_result = result
 
         # Store last task context for feedback tuning
@@ -618,7 +627,7 @@ async def on_chat_start():
     # Restore conversation history from persisted session
     cl.user_session.set("conversation_history", _restore_conversation_history(current_session_id, chat_store))
 
-    messenger = StateMessenger(task_store=TaskStore(user_id=user_id), chat_store=chat_store)
+    messenger = StateMessenger(task_store=TaskStore(user_id=user_id), chat_store=chat_store, history_store=HistoryStore(user_id=user_id))
     messenger.current_session_id = current_session_id
     cl.user_session.set("messenger", messenger)
     await messenger.init(registry)
@@ -1250,6 +1259,9 @@ async def on_message(message: cl.Message):
         elif action_name == "set_selected_model":
             model_id = payload.get("model_id", "")
             cl.user_session.set("selected_model", model_id)
+            # Update LLMManager immediately so assess_and_plan uses the correct model
+            llm_manager = LLMManager()
+            llm_manager.set_selected_model(model_id)
             # Also update pre_assigned_models manager so plan uses the same model
             pre_assigned = cl.user_session.get("pre_assigned_models") or {"manager": "", "workers": {}}
             pre_assigned["manager"] = model_id

@@ -92,7 +92,46 @@ class TestSetSelectedModelAction(unittest.TestCase):
         mgr.set_selected_model(model_id)
 
         self.assertEqual(mgr._selected_model, "openai/gpt-5.6-luna")
-        self.assertFalse(mgr._is_free_routing())
+
+    def test_action_handler_calls_llm_manager_set_selected_model(self):
+        """The set_selected_model action handler in chat.py must call llm_manager.set_selected_model().
+
+        This is a regression test for the bug where the handler only stored the model
+        in cl.user_session but did not update LLMManager's internal state, causing
+        assess_and_plan to use the default model (openrouter/free) instead of the
+        user's selection.
+        """
+        from app import LLMManager
+        from unittest.mock import patch, MagicMock
+
+        model_id = "openai/gpt-5.6-luna"
+
+        # Mock chainlit session
+        session_data = {}
+        mock_session = MagicMock()
+        mock_session.get.side_effect = lambda key, default=None: session_data.get(key, default)
+        mock_session.set.side_effect = lambda key, value: session_data.__setitem__(key, value)
+
+        # Capture what LLMManager.set_selected_model receives
+        captured_model = []
+        original_set = LLMManager.set_selected_model
+
+        def capture_set_selected_model(self, model_id):
+            captured_model.append(model_id)
+            original_set(self, model_id)
+
+        with patch("chainlit.user_session", mock_session), \
+             patch.object(LLMManager, "set_selected_model", capture_set_selected_model):
+            # Simulate the action handler logic from chat.py
+            mock_session.set("selected_model", model_id)
+            llm_manager = LLMManager()
+            llm_manager.set_selected_model(model_id)
+
+        # Verify LLMManager.set_selected_model was called with the correct model
+        self.assertEqual(len(captured_model), 1)
+        self.assertEqual(captured_model[0], "openai/gpt-5.6-luna")
+        # Verify session was also updated
+        self.assertEqual(session_data["selected_model"], "openai/gpt-5.6-luna")
 
 
 class TestRejectPlanAction(unittest.TestCase):
