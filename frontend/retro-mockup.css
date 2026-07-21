@@ -179,7 +179,7 @@ html,body{height:100%;overflow:hidden;font-family:var(--font);font-size:13px;col
 
 /* Agent reply — left bubble */
 .feed-agent{
-  display:flex;gap:8px;align-items:flex-start;max-width:100%;min-width:0
+  display:flex;gap:8px;align-items:flex-start;max-width:100%
 }
 .feed-agent .fa-av{
   width:32px;height:32px;border-radius:50%;flex-shrink:0;
@@ -190,7 +190,7 @@ html,body{height:100%;overflow:hidden;font-family:var(--font);font-size:13px;col
   background:var(--paper);border:1px solid var(--line);
   border-radius:4px 14px 14px 14px;
   padding:8px 14px;font-size:12px;line-height:1.5;color:var(--ink);
-  overflow-wrap:anywhere;min-width:0;flex:1
+  overflow-wrap:anywhere;flex:1;min-width:200px
 }
 .feed-agent .fa-name{font-weight:700;color:var(--ink);font-size:11px;margin-bottom:2px;display:block}
 

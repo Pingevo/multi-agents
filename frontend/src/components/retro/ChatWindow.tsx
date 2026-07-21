@@ -434,36 +434,22 @@ const ResultCard: React.FC<{ msg: ChatMessage }> = ({ msg }) => {
   const isError = msg.resultError;
   const agents = msg.resultAgents || [];
   return (
-    <div className="card" style={{ borderLeft: `4px solid ${isError ? 'var(--red)' : 'var(--green)'}` }}>
-      <div className="card-hdr">
-        {isError ? <XCircle size={14} style={{ color: 'var(--red)' }} /> : <CheckCircle size={14} style={{ color: 'var(--green)' }} />}
-        <span>{isError ? 'Error' : 'Completed'}</span>
-      </div>
-      <div className="card-body">
-        <MarkdownRenderer content={msg.resultSummary || 'Done'} />
-      </div>
-      {agents.length > 0 && (
-        <div className="result-agents">
-          {agents.map((agent, i) => <ResultAgentCard key={i} agent={agent} index={i} />)}
+    <>
+      <div className="card" style={{ borderLeft: `4px solid ${isError ? 'var(--red)' : 'var(--green)'}` }}>
+        <div className="card-hdr">
+          {isError ? <XCircle size={14} style={{ color: 'var(--red)' }} /> : <CheckCircle size={14} style={{ color: 'var(--green)' }} />}
+          <span>{isError ? 'Error' : 'Completed'}</span>
         </div>
-      )}
-    </div>
-  );
-};
-
-const ResultAgentCard: React.FC<{ agent: ResultAgent; index: number }> = ({ agent }) => {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="result-agent">
-      <div className="ra-hdr" onClick={() => setOpen(!open)}>
-        <div className="ra-av">{agentIcon(agent.name)}</div>
-        <span>{agent.name}</span>
-        <span className="ra-toggle">{open ? '▲' : '▼'}</span>
+        <div className="card-body">
+          <MarkdownRenderer content={msg.resultSummary || 'Done'} />
+        </div>
       </div>
-      <div className={`ra-body ${open ? 'open' : ''}`}>
-        <MarkdownRenderer content={agent.output} />
-      </div>
-    </div>
+      {agents.map((agent, i) => (
+        <FeedAgentMessage key={i} avatar={agentIcon(agent.name)} name={agent.name}>
+          <MarkdownRenderer content={agent.output} />
+        </FeedAgentMessage>
+      ))}
+    </>
   );
 };
 

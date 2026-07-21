@@ -78,14 +78,20 @@ async def execute_multi_agent_task(
     """รัน Task กับหลาย Agent พร้อมกันใน Crew เดียว"""
     cl.user_session.set("state", STATE_EXECUTING)
     messenger = get_messenger()
-    task_id = str(uuid.uuid4())[:8]
+    task_store = cl.user_session.get("task_store")
+    task_id = cl.user_session.get("current_task_id") or str(uuid.uuid4())[:8]
     from backend.globals import _thread_local, user_prompt_ctx
     _thread_local.user_prompt = user_input[:200]
     user_prompt_ctx.set(user_input[:200])
 
     if messenger:
         agent_names = ", ".join(s.get("name", "Agent") for s in agent_specs)
-        await messenger.add_task(task_id, user_input, agent_names)
+        existing_task = task_store.get_task(task_id) if task_store else None
+        if existing_task:
+            task_store.update_task(task_id, status="running", progress=0, agent=agent_names)
+        else:
+            await messenger.add_task(task_id, user_input, agent_names)
+        await messenger.update_tasks(task_store)
         messenger.log_history(task_id, user_input[:80], "User", "สั่งงาน: ", user_input[:200])
         messenger.log_history(task_id, user_input[:80], "Manager", "รับคำสั่ง สร้าง plan")
         initial_agents = [
@@ -99,6 +105,7 @@ async def execute_multi_agent_task(
             for s in agent_specs
         ]
         await messenger.reply_agent_progress(task_id, initial_agents)
+        await messenger.reply_progress(0, "กำลังทำงาน...", progress_id=task_id)
 
     for spec in agent_specs:
         rid = spec.get("registry_id")
@@ -182,6 +189,12 @@ async def execute_multi_agent_task(
                     "model": "",
                 })
             await messenger.reply_agent_progress(task_id, final_agents)
+
+            for i, spec in enumerate(agent_specs):
+                out = agent_outputs[i] if i < len(agent_outputs) else {}
+                agent_name = spec.get("name", f"Agent {i+1}")
+                output_preview = (out.get("output", "") or "")[:200]
+                messenger.log_history(task_id, user_input[:80], agent_name, "ทำงานเสร็จ: ", output_preview)
 
             cl.run_sync(
                 messenger.update_task(
@@ -300,6 +313,14 @@ async def execute_multi_agent_task(
                     img_match = re.search(r'```\s*\n([A-Za-z][^`]{20,})\n```', output_text)
                     if not img_match:
                         img_match = re.search(r'Prompt[:\s]+([A-Za-z][^\n]{20,})', output_text)
+                    if not img_match:
+                        img_match = re.search(r'[Ii]mage [Pp]rompt[:\s]+([A-Za-z][^\n]{20,})', output_text)
+                    if not img_match:
+                        img_match = re.search(r'"([A-Z][^"]{30,})"', output_text)
+                    if not img_match:
+                        img_match = re.search(r'\*\*([A-Z][^*]{30,})\*\*', output_text)
+                    if not img_match:
+                        img_match = re.search(r'generate_image\([^)]*"([^"]{20,})"', output_text)
                     if img_match:
                         img_prompt = img_match.group(1).strip()
                         image_model = cl.user_session.get("ai_image_model") or ""
@@ -329,10 +350,12 @@ async def execute_multi_agent_task(
             # Send AI response first, then approval cards
             if raw_output and len(raw_output) > 20 and not raw_output.strip().startswith("{"):
                 await messenger.reply(raw_output[:4000])
+                messenger.log_history(task_id, user_input[:80], "Manager", "สรุปผล: ", raw_output[:200])
 
             # Now send approval cards after AI response
             for media_result, idx in pending_approval_cards:
                 await _send_approval_card(media_result, idx)
+                messenger.log_history(task_id, user_input[:80], media_result.get("agent_name", "Agent"), f"ส่ง approval card ({media_result.get('type', 'image')}): ", media_result.get("prompt", "")[:200])
 
             # Update task status to review (user can review results)
             task_store = cl.user_session.get("task_store")

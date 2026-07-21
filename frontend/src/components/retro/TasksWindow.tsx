@@ -199,24 +199,23 @@ const TaskAgentCard: React.FC<{
         icon={agentIcon(agent.name)}
         title={`${agent.name} — ${dialogTab === 'output' ? 'Output' : 'Review History'}`}
         onClose={() => { setShowOutputDialog(false); setDialogTab('output'); }}
-        footer={
-          progress?.review_history && progress.review_history.length > 0 ? (
-            <button
-              className="kcard-btn"
-              style={{ fontSize: '10px', padding: '4px 12px' }}
-              onClick={() => setDialogTab(dialogTab === 'output' ? 'review' : 'output')}
-            >
-              {dialogTab === 'output' ? '📋 ดูประวัติการตรวจ' : '📄 ดู Output'}
-            </button>
-          ) : undefined
-        }
+        footer={undefined}
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           {/* Output tab */}
           {dialogTab === 'output' && progress?.output && (
             <div>
-              <div style={{ fontSize: '10px', color: 'var(--ink3)', marginBottom: '4px', fontWeight: 600 }}>
+              <div style={{ fontSize: '10px', color: 'var(--ink3)', marginBottom: '4px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
                 Output{progress?.review_summary && <span style={{ color: 'var(--green)' }}> — {progress.review_summary}</span>}
+                {progress?.review_history && progress.review_history.length > 0 && (
+                  <button
+                    className="kcard-btn"
+                    style={{ fontSize: '10px', padding: '4px 12px' }}
+                    onClick={() => setDialogTab('review')}
+                  >
+                    📋 ดูประวัติการตรวจ
+                  </button>
+                )}
               </div>
               <div style={{ fontSize: '11px', color: 'var(--ink2)', background: 'var(--cream)', borderRadius: '3px', padding: '8px 10px', border: '1px solid var(--line)', maxHeight: '400px', overflowY: 'auto' }}>
                 <MarkdownRenderer content={progress.output} />
@@ -227,6 +226,15 @@ const TaskAgentCard: React.FC<{
           {/* Review History tab */}
           {dialogTab === 'review' && progress?.review_history && progress.review_history.length > 0 && (
             <div>
+              <div style={{ marginBottom: '8px' }}>
+                <button
+                  className="kcard-btn"
+                  style={{ fontSize: '10px', padding: '4px 12px' }}
+                  onClick={() => setDialogTab('output')}
+                >
+                  📄 ดู Output
+                </button>
+              </div>
               {progress.review_history.map((rh, i) => (
                 <div key={i} style={{ border: '1px solid var(--line)', borderRadius: '3px', padding: '6px 8px', marginBottom: '6px', background: 'var(--paper)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
