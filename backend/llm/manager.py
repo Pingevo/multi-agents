@@ -137,26 +137,38 @@ class LLMManager:
         return await loop.run_in_executor(None, self._call_with_image, prompt, image_data_url, caller)
 
     def _call_with_image(self, prompt: str, image_data_url: str, caller: str = "call_with_image") -> str:
-        """Call OpenRouter with multimodal content (text + image_url)."""
+        """Call OpenRouter with multimodal content (text + image_url).
+        Tries the current model first; if empty response, falls back to rotator's vision models.
+        """
         from openai import OpenAI
         model_id = self._selected_model or self._default_model
         if not model_id:
             raise RuntimeError("No model available for vision call")
         client = OpenAI(base_url=self.base_url, api_key=self.api_key, max_retries=0, timeout=120)
-        response = client.chat.completions.create(
-            model=model_id,
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {"url": image_data_url}},
-                ],
-            }],
-            temperature=self.temperature,
-            max_tokens=self._get_max_tokens(model_id),
-        )
-        log_llm_call(model_id, response.usage, caller=caller, prompt_preview=prompt)
-        return response.choices[0].message.content or ""
+        try:
+            response = client.chat.completions.create(
+                model=model_id,
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": image_data_url}},
+                    ],
+                }],
+                temperature=self.temperature,
+                max_tokens=self._get_max_tokens(model_id),
+            )
+            log_llm_call(model_id, response.usage, caller=caller, prompt_preview=prompt)
+            content = response.choices[0].message.content or ""
+            if content.strip():
+                return content
+            print(f"[LLMManager] Vision call returned empty with {model_id} — trying rotator", flush=True)
+        except Exception as e:
+            print(f"[LLMManager] Vision call failed with {model_id}: {_sanitize_error(e)} — trying rotator", flush=True)
+        # Fallback to rotator's vision-capable free models
+        if self._is_free_routing():
+            return self._get_rotator().call_with_image(prompt, image_data_url, caller=caller)
+        raise RuntimeError(f"Vision call failed with {model_id} and no rotator fallback available")
 
     async def call_with_multimodal_async(self, prompt: str, content_blocks: list[dict], plugins: list = None, caller: str = "call_with_multimodal") -> str:
         """Call LLM with text + multimodal content blocks (image, PDF, audio, video)."""
@@ -164,7 +176,9 @@ class LLMManager:
         return await loop.run_in_executor(None, self._call_with_multimodal, prompt, content_blocks, plugins, caller)
 
     def _call_with_multimodal(self, prompt: str, content_blocks: list[dict], plugins: list = None, caller: str = "call_with_multimodal") -> str:
-        """Call OpenRouter with multimodal content blocks."""
+        """Call OpenRouter with multimodal content blocks.
+        Tries the current model first; if empty response, falls back to rotator's vision models.
+        """
         from openai import OpenAI
         model_id = self._selected_model or self._default_model
         if not model_id:
@@ -174,12 +188,24 @@ class LLMManager:
         kwargs = {"model": model_id, "messages": messages, "temperature": self.temperature, "max_tokens": self._get_max_tokens(model_id)}
         if plugins:
             kwargs["extra_body"] = {"plugins": plugins}
-        response = client.chat.completions.create(**kwargs)
-        log_llm_call(model_id, response.usage, caller=caller, prompt_preview=prompt)
-        return response.choices[0].message.content or ""
+        try:
+            response = client.chat.completions.create(**kwargs)
+            log_llm_call(model_id, response.usage, caller=caller, prompt_preview=prompt)
+            content = response.choices[0].message.content or ""
+            if content.strip():
+                return content
+            print(f"[LLMManager] Multimodal call returned empty with {model_id} — trying rotator", flush=True)
+        except Exception as e:
+            print(f"[LLMManager] Multimodal call failed with {model_id}: {_sanitize_error(e)} — trying rotator", flush=True)
+        # Fallback to rotator's vision-capable free models
+        if self._is_free_routing():
+            return self._get_rotator().call_with_multimodal(prompt, content_blocks, plugins, caller=caller)
+        raise RuntimeError(f"Multimodal call failed with {model_id} and no rotator fallback available")
 
     def call_with_multimodal_streaming(self, prompt: str, content_blocks: list[dict], plugins: list = None, caller: str = "call_with_multimodal_streaming"):
-        """Streaming version of multimodal call — yields text chunks."""
+        """Streaming version of multimodal call — yields text chunks.
+        Tries the current model first; if it fails, falls back to rotator's vision models.
+        """
         from openai import OpenAI
         model_id = self._selected_model or self._default_model
         if not model_id:
@@ -189,15 +215,30 @@ class LLMManager:
         kwargs = {"model": model_id, "messages": messages, "temperature": self.temperature, "max_tokens": self._get_max_tokens(model_id), "stream": True, "stream_options": {"include_usage": True}}
         if plugins:
             kwargs["extra_body"] = {"plugins": plugins}
-        stream = client.chat.completions.create(**kwargs)
-        usage_data = None
-        for chunk in stream:
-            if chunk.usage:
-                usage_data = chunk.usage
-            if chunk.choices and chunk.choices[0].delta.content:
-                yield chunk.choices[0].delta.content
-        if usage_data:
-            log_llm_call(model_id, usage_data, caller=caller, prompt_preview=prompt)
+        try:
+            stream = client.chat.completions.create(**kwargs)
+            usage_data = None
+            has_content = False
+            for chunk in stream:
+                if chunk.usage:
+                    usage_data = chunk.usage
+                if chunk.choices and chunk.choices[0].delta.content:
+                    has_content = True
+                    yield chunk.choices[0].delta.content
+            if usage_data:
+                log_llm_call(model_id, usage_data, caller=caller, prompt_preview=prompt)
+            if has_content:
+                return
+            print(f"[LLMManager] Multimodal stream returned empty with {model_id} — trying rotator", flush=True)
+        except Exception as e:
+            print(f"[LLMManager] Multimodal stream failed with {model_id}: {_sanitize_error(e)} — trying rotator", flush=True)
+        # Fallback to rotator's vision-capable free models (non-streaming)
+        if self._is_free_routing():
+            result = self._get_rotator().call_with_multimodal(prompt, content_blocks, plugins, caller=caller)
+            if result:
+                yield result
+            return
+        raise RuntimeError(f"Multimodal streaming failed with {model_id} and no rotator fallback available")
 
     def call_streaming(self, prompt: str, caller: str = "call_streaming"):
         """Streaming version of call_with_fallback — yields text chunks."""

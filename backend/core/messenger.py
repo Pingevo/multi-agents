@@ -563,6 +563,19 @@ class StateMessenger:
         }
         await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
 
+    async def reply_notifications(self, team_id: str | None = None):
+        """Send aggregated notifications across all sessions."""
+        notifications = self.chat_store.get_all_notifications(team_id=team_id)
+        payload = {
+            "type": "chat_reply",
+            "payload": {
+                "messageType": "notifications",
+                "notifications": notifications,
+                "count": len(notifications),
+            },
+        }
+        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
+
     def persist_message(self, message: dict):
         """Persist a message to the current chat session"""
         if self.current_session_id:

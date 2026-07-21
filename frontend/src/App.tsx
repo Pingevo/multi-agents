@@ -7,7 +7,7 @@ import { TeamListPage } from './components/TeamListPage';
 import { TeamCreateModal } from './components/TeamCreateModal';
 import { AICreateTeamModal } from './components/AICreateTeamModal';
 import { RetroDesktop } from './components/retro/RetroDesktop';
-import type { ChatMessage, ActivityEntry, PlanAgent, HistoryTaskLog } from './components/chatTypes';
+import type { ChatMessage, ActivityEntry, PlanAgent, HistoryTaskLog, NotificationItem } from './components/chatTypes';
 import type { ChatSession } from './components/ChatSidebar';
 import type { ChatReplyEnvelope, ChatReplyPayload, ChatReplyPlan, ChatReplyAgentReview } from './schemas/messages';
 import type { Agent, Plan } from './types/platform';
@@ -289,7 +289,7 @@ const parseTeamList = (message: any): Team[] | null => {
   return null;
 };
 
-const parseChatSessionMessage = (message: any): { sessions: ChatSession[]; currentSessionId: string } | { messages: ChatMessage[]; canvasState: any; selectedModel?: string } | null => {
+const parseChatSessionMessage = (message: any): { sessions: ChatSession[]; currentSessionId: string } | { messages: ChatMessage[]; canvasState: any; selectedModel?: string } | { notifications: NotificationItem[] } | null => {
   const text = message?.output || message?.content || '';
   if (!text) return null;
   try {
@@ -370,6 +370,32 @@ const parseChatSessionMessage = (message: any): { sessions: ChatSession[]; curre
       if (msgType === 'history_data') {
         return { historyLogs: p.historyLogs || [] } as any;
       }
+
+      if (msgType === 'notifications') {
+        const notifs = (p.notifications || []).map((n: any) => ({
+          id: n.id || generateUUIDv4(),
+          sessionId: n.sessionId || '',
+          sessionTitle: n.sessionTitle || '',
+          timestamp: typeof n.timestamp === 'string' ? new Date(n.timestamp).getTime() : (n.timestamp || Date.now()),
+          messageType: n.messageType || 'plan',
+          planStatus: n.planStatus,
+          approvalStatus: n.approvalStatus,
+          reviewStatus: n.reviewStatus,
+          tuningStatus: n.tuningStatus,
+          planTaskDescription: n.planTaskDescription,
+          planAgents: n.planAgents,
+          planType: n.planType,
+          imagePrompt: n.imagePrompt,
+          agentName: n.agentName,
+          agentRole: n.agentRole,
+          reviewId: n.reviewId,
+          approvalId: n.approvalId,
+          tuningProposals: n.tuningProposals,
+          imageError: n.imageError,
+          content: n.content,
+        })) as NotificationItem[];
+        return { notifications: notifs };
+      }
     }
   } catch {
     return null;
@@ -382,6 +408,7 @@ function AppContent() {
   const { isAuthenticated, token, isLoading: authLoading } = useAuth();
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [activityLog, setActivityLog] = useState<ActivityEntry[]>([]);
@@ -562,6 +589,9 @@ function AppContent() {
         } else if ('historyLogs' in (sessionData as any)) {
           // history_data — update history logs
           setHistoryLogs((sessionData as any).historyLogs);
+        } else if ('notifications' in sessionData) {
+          // notifications — update cross-session notification list
+          setNotifications(sessionData.notifications);
         }
         return;
       }
@@ -1170,6 +1200,7 @@ function AppContent() {
         }}
         onDeleteTeam={(teamId) => handleAction('delete_team', { team_id: teamId })}
         chatMessages={chatMessages}
+        notifications={notifications}
         chatSessions={chatSessions}
         activeSessionId={activeSessionId}
         activityLog={activityLog}

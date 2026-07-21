@@ -122,4 +122,48 @@ class ChatStore:
             return session.get("settings", {})
         return {}
 
+    _NOTIFICATION_TYPES = {"plan", "image_approval", "agent_review", "tuning_proposal"}
+    _NOTIFICATION_MAX_AGE_DAYS = 15
+
+    def get_all_notifications(self, team_id: str | None = None) -> list[dict]:
+        """Get all notification-worthy messages across sessions.
+
+        Returns messages with messageType in: plan, image_approval, agent_review, tuning_proposal.
+        Each includes: session_id, session_title, timestamp, and all message fields.
+        Filters out messages older than 15 days.
+        """
+        from datetime import timedelta
+        cutoff = datetime.now() - timedelta(days=self._NOTIFICATION_MAX_AGE_DAYS)
+        results: list[dict] = []
+
+        sessions = self.list_sessions(team_id=team_id, include_unassigned=True) if team_id else self.list_sessions()
+        for session in sessions:
+            sid = session.get("id", "")
+            stitle = session.get("title", "")
+            for msg in session.get("messages", []):
+                msg_type = msg.get("messageType", "")
+                if msg_type not in self._NOTIFICATION_TYPES:
+                    continue
+                # Parse timestamp — try multiple fields
+                ts_str = msg.get("timestamp") or msg.get("createdAt") or ""
+                if isinstance(ts_str, (int, float)):
+                    ts = datetime.fromtimestamp(ts_str / 1000 if ts_str > 1e12 else ts_str)
+                elif isinstance(ts_str, str) and ts_str:
+                    try:
+                        ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00").replace("+00:00", ""))
+                    except ValueError:
+                        ts = datetime.now()
+                else:
+                    ts = datetime.now()
+                if ts < cutoff:
+                    continue
+                entry = dict(msg)
+                entry["sessionId"] = sid
+                entry["sessionTitle"] = stitle
+                entry["timestamp"] = ts.isoformat()
+                results.append(entry)
+
+        results.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+        return results
+
 

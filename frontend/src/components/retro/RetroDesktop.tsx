@@ -13,7 +13,7 @@ import { ChatWindow } from './ChatWindow';
 import { TasksWindow } from './TasksWindow';
 import { NotificationsWindow } from './NotificationsWindow';
 import type { WindowId } from './types';
-import type { ChatMessage, ActivityEntry, HistoryTaskLog } from '../chatTypes';
+import type { ChatMessage, ActivityEntry, HistoryTaskLog, NotificationItem } from '../chatTypes';
 import type { ChatSession } from '../ChatSidebar';
 import type { Agent, Plan } from '../../types/platform';
 import type { Team } from '../../types/team';
@@ -26,6 +26,7 @@ interface RetroDesktopProps {
   onDeleteTeam: (teamId: string) => void;
   // Chat
   chatMessages: ChatMessage[];
+  notifications: NotificationItem[];
   chatSessions: ChatSession[];
   activeSessionId: string | null;
   activityLog: ActivityEntry[];
@@ -271,17 +272,11 @@ const DesktopInner: React.FC<RetroDesktopProps> = (props) => {
       case 'notifications':
         return (
           <NotificationsWindow
-            chatMessages={props.chatMessages}
-            onAcceptPlan={handleAcceptPlan}
-            onRejectPlan={handleRejectPlan}
-            onApproveImage={(approvalId) => props.onAction('approve_image', { approval_id: approvalId })}
-            onRejectImage={(approvalId) => props.onAction('reject_image', { approval_id: approvalId })}
-            onRetryImage={(approvalId) => props.onAction('retry_image', { approval_id: approvalId })}
-            onApproveAgentResult={(reviewId) => props.onAction('approve_agent_result', { review_id: reviewId })}
-            onRejectAgentResult={(reviewId) => props.onAction('reject_agent_result', { review_id: reviewId })}
-            onSkipReview={(agentName) => props.onAction('skip_review', { agent_name: agentName })}
-            onConfirmTuning={handleConfirmTuning}
-            onRejectTuning={handleRejectTuning}
+            notifications={props.notifications}
+            onNavigate={(sessionId, windowId) => {
+              props.onAction('switch_chat', { session_id: sessionId });
+              handleOpenWindow(windowId);
+            }}
           />
         );
       default:
@@ -338,11 +333,11 @@ const DesktopInner: React.FC<RetroDesktopProps> = (props) => {
         onToggleStartMenu={() => setStartMenuOpen(prev => !prev)}
         onOpenWindow={handleOpenWindow}
         credits={props.credits}
-        notificationCount={props.chatMessages.filter(m => 
-          (m.messageType === 'plan' && m.planStatus === 'pending') ||
-          (m.messageType === 'image_approval' && (m.approvalStatus === 'pending' || m.approvalStatus === 'error')) ||
-          (m.messageType === 'agent_review' && m.reviewStatus === 'pending') ||
-          (m.messageType === 'tuning_proposal' && m.tuningStatus !== 'confirmed' && m.tuningStatus !== 'rejected')
+        notificationCount={props.notifications.filter(n =>
+          (n.messageType === 'plan' && n.planStatus === 'pending') ||
+          (n.messageType === 'image_approval' && (n.approvalStatus === 'pending' || n.approvalStatus === 'error')) ||
+          (n.messageType === 'agent_review' && n.reviewStatus === 'pending') ||
+          (n.messageType === 'tuning_proposal' && n.tuningStatus !== 'confirmed' && n.tuningStatus !== 'rejected')
         ).length}
       />
 
