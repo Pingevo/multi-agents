@@ -136,7 +136,7 @@ class ChatStore:
         cutoff = datetime.now() - timedelta(days=self._NOTIFICATION_MAX_AGE_DAYS)
         results: list[dict] = []
 
-        sessions = self.list_sessions(team_id=team_id, include_unassigned=True) if team_id else self.list_sessions()
+        sessions = self.list_sessions(team_id=team_id) if team_id else self.list_sessions()
         for session in sessions:
             sid = session.get("id", "")
             stitle = session.get("title", "")

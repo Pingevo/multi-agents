@@ -954,13 +954,13 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
       );
     }
     if (msgType === 'progress') {
-      return <FeedProgress key={msg.id} label={msg.progressLabel || 'กำลังทำงาน...'} onViewProgress={onViewTasks} />;
+      return null;
     }
     if (msgType === 'agent_progress') {
       return null;
     }
     if (msgType === 'result') {
-      return <ResultCard key={msg.id} msg={msg} />;
+      return null;
     }
     if (msgType === 'image_approval') {
       return (

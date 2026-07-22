@@ -337,7 +337,7 @@ class StateMessenger:
                 self.chat_store._save()
 
     async def reply_result(self, summary: str, agents: list[dict] | None = None, is_error: bool = False):
-        """Send a result card as a chat message, with per-agent collapsible outputs"""
+        """Persist a result card for Storyboard/TasksWindow — no longer sent to chat."""
         result_agents = [
             ResultAgentItem(
                 name=a.get("name", ""),
@@ -346,14 +346,6 @@ class StateMessenger:
             )
             for a in (agents or [])
         ]
-        payload = chat_reply(ChatReplyResult(
-            resultSummary=summary,
-            resultError=is_error,
-            resultAgents=result_agents,
-        ))
-        print(f"[DEBUG-synth] reply_result: sending result message, agents={len(result_agents)}, summary={summary[:60]}", flush=True)
-        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
-        print(f"[DEBUG-synth] reply_result: message sent successfully", flush=True)
         self.persist_message({"role": "assistant", "messageType": "result", "resultSummary": summary, "resultError": is_error, "resultAgents": [a.model_dump() for a in result_agents]})
 
     async def reply_image_approval(self, prompt: str, approval_id: str, agent_name: str = "", media_type: str = "image", duration: int = 0, model: str = "", approval_status: str = "pending", image_error: str = ""):
@@ -536,29 +528,29 @@ class StateMessenger:
         await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
         self.persist_message({"role": "assistant", "messageType": "tuning_proposal", "proposals": proposals})
 
-    def log_history(self, task_id: str, task_title: str, actor: str, action: str, target: str = ""):
+    def log_history(self, task_id: str, task_title: str, actor: str, action: str, target: str = "", team_id: str = ""):
         """Log a detailed audit entry and broadcast to frontend in real-time."""
-        self.history_store.add_entry(task_id, task_title, actor, action, target)
-        self._broadcast_history()
+        self.history_store.add_entry(task_id, task_title, actor, action, target, team_id=team_id)
+        self._broadcast_history(team_id=team_id)
 
-    def _broadcast_history(self):
+    def _broadcast_history(self, team_id: str = ""):
         """Schedule a reply_history() call on the event loop (works from async or thread context)."""
         try:
             loop = asyncio.get_running_loop()
-            asyncio.ensure_future(self.reply_history())
+            asyncio.ensure_future(self.reply_history(team_id=team_id or None))
         except RuntimeError:
             if self._main_loop and self._main_loop.is_running():
                 self._main_loop.call_soon_threadsafe(
-                    lambda: asyncio.ensure_future(self.reply_history())
+                    lambda: asyncio.ensure_future(self.reply_history(team_id=team_id or None))
                 )
 
-    async def reply_history(self, limit: int = 20):
+    async def reply_history(self, limit: int = 20, team_id: str | None = None):
         """Send task history logs to frontend."""
         payload = {
             "type": "chat_reply",
             "payload": {
                 "messageType": "history_data",
-                "historyLogs": self.history_store.list_history(limit),
+                "historyLogs": self.history_store.list_history(limit, team_id=team_id),
             },
         }
         await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
@@ -718,23 +710,23 @@ class StateMessenger:
         await self._send()
         return task
 
-    async def update_task(self, task_id: str, **kwargs):
+    async def update_task(self, task_id: str, team_id: str | None = None, **kwargs):
         self.task_store.update_task(task_id, **kwargs)
-        self.state["tasks"] = self.task_store.list_tasks()
+        self.state["tasks"] = self.task_store.get_tasks_by_team(team_id) if team_id else self.task_store.list_tasks()
         await self._send()
 
-    async def update_task_image(self, task_id: str, image_url: str, image_prompt: str, media_type: str = "image"):
+    async def update_task_image(self, task_id: str, image_url: str, image_prompt: str, media_type: str = "image", team_id: str | None = None):
         """Append a generated image to its originating task's image list."""
         task = self.task_store.get_task(task_id)
         images = task.get("images", []) if task else []
         images.append({"url": image_url, "prompt": image_prompt, "media_type": media_type})
         self.task_store.update_task(task_id, image_url=image_url, image_prompt=image_prompt, images=images)
-        self.state["tasks"] = self.task_store.list_tasks()
+        self.state["tasks"] = self.task_store.get_tasks_by_team(team_id) if team_id else self.task_store.list_tasks()
         await self._send()
 
-    async def delete_task(self, task_id: str):
+    async def delete_task(self, task_id: str, team_id: str | None = None):
         self.task_store.delete_task(task_id)
-        self.state["tasks"] = self.task_store.list_tasks()
+        self.state["tasks"] = self.task_store.get_tasks_by_team(team_id) if team_id else self.task_store.list_tasks()
         await self._send()
 
     async def reply_team_list(self, team_registry: TeamRegistry):

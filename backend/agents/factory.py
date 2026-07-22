@@ -122,22 +122,33 @@ class AgentFactory:
             if resolution and resolution["type"] == "tool":
                 if cap_name == "generate_image":
                     tool_instructions += (
-                        "\n\nIMPORTANT: You MUST call the generate_image tool with a detailed English prompt "
+                        "\n\nCRITICAL: You MUST call the generate_image tool with a detailed English prompt "
                         "that describes the visual you want to create. "
+                        "Do NOT write SVG, HTML, or any code/markup directly in your response — this is a FAILURE. "
                         "Do NOT just describe the image in text — actually CALL the tool. "
                         "The prompt should be in English and visually descriptive. "
                         "Call the tool once per image you need to create — do not repeat the same call. "
-                        "The user will review your prompt before generation happens — this is by design to control API costs."
+                        "The user will review your prompt before generation happens — this is by design to control API costs. "
+                        "If you write SVG, HTML, or any markup instead of calling the tool, your output will be rejected."
                     )
                 elif cap_name == "generate_video":
                     tool_instructions += (
-                        "\n\nIMPORTANT: You MUST call the generate_video tool with a detailed English prompt "
+                        "\n\nCRITICAL: You MUST call the generate_video tool with a detailed English prompt "
                         "that describes the scene, camera movement, lighting, and mood. "
+                        "Do NOT write any code/markup directly in your response — this is a FAILURE. "
                         "Do NOT just describe the video in text — actually CALL the tool. "
                         "The prompt should be in English and cinematically descriptive. "
                         "Use duration parameter (2-15 seconds) to set clip length. "
                         "Call the tool once per video you need to create — do not repeat the same call. "
-                        "The user will review your prompt before generation happens — this is by design to control API costs."
+                        "The user will review your prompt before generation happens — this is by design to control API costs. "
+                        "If you write any markup instead of calling the tool, your output will be rejected."
+                    )
+                elif cap_name == "generate_document":
+                    tool_instructions += (
+                        "\n\nIMPORTANT: You MUST call the generate_document tool to produce a downloadable file. "
+                        "Do NOT paste long document content directly in your response text. "
+                        "Pass the full content as the 'content' parameter and a filename as the 'filename' parameter. "
+                        "The user will download the file — do not dump it in chat."
                     )
 
         attachment_ctx = cl.user_session.get("attachment_context")

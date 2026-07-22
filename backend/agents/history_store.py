@@ -24,7 +24,7 @@ class HistoryStore:
         with open(self.filepath, "w", encoding="utf-8") as f:
             json.dump(self.logs, f, ensure_ascii=False, indent=2)
 
-    def add_entry(self, task_id: str, task_title: str, actor: str, action: str, target: str = "") -> dict:
+    def add_entry(self, task_id: str, task_title: str, actor: str, action: str, target: str = "", team_id: str = "") -> dict:
         entry = {
             "time": datetime.now().strftime("%H:%M"),
             "actor": actor,
@@ -39,13 +39,17 @@ class HistoryStore:
         self.logs.append({
             "task_id": task_id,
             "task_title": task_title,
+            "team_id": team_id,
             "created_at": datetime.now().isoformat(),
             "entries": [entry],
         })
         self._save()
         return entry
 
-    def list_history(self, limit: int = 20) -> list[dict]:
+    def list_history(self, limit: int = 20, team_id: str | None = None) -> list[dict]:
+        if team_id:
+            filtered = [log for log in self.logs if log.get("team_id") == team_id]
+            return filtered[-limit:]
         return self.logs[-limit:]
 
     def clear_all(self):

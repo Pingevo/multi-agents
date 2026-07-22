@@ -154,6 +154,7 @@ async def on_action_accept(action: cl.Action):
         await messenger.update_agents(registry, team_id=_tid)
         print(f"[DEBUG-ACCEPT] update_agents sent, registry has {len(registry.list_agents())} agents", flush=True)
         await messenger.clear_plan()
+        await messenger.reply_notifications(team_id=_tid)
 
     # Update task status to running
     task_store = cl.user_session.get("task_store")
@@ -801,4 +802,4 @@ async def on_action_fetch_history(action: cl.Action):
     """Send task history logs to frontend."""
     messenger = get_messenger()
     if messenger:
-        await messenger.reply_history()
+        await messenger.reply_history(team_id=cl.user_session.get("current_team_id"))

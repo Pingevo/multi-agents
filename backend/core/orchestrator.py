@@ -385,13 +385,14 @@ class ExecutionOrchestrator:
         _hist_task_id = task_id or str(uuid.uuid4())[:8]
         _hist_task_title = task_title or user_input[:80]
         _hist_messenger = messenger
+        _hist_team_id = cl.user_session.get("current_team_id") or ""
         if _hist_messenger:
             _hist_messenger._main_loop = self._main_loop
 
         def _log_hist(actor, action, target=""):
             if _hist_messenger:
                 try:
-                    _hist_messenger.log_history(_hist_task_id, _hist_task_title, actor, action, target)
+                    _hist_messenger.log_history(_hist_task_id, _hist_task_title, actor, action, target, team_id=_hist_team_id)
                 except Exception:
                     pass
 

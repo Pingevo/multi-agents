@@ -94,8 +94,8 @@ async def execute_multi_agent_task(
         else:
             await messenger.add_task(task_id, user_input, agent_names, team_id=cl.user_session.get("current_team_id"))
         await messenger.update_tasks(task_store, team_id=cl.user_session.get("current_team_id"))
-        messenger.log_history(task_id, user_input[:80], "User", "สั่งงาน: ", user_input[:200])
-        messenger.log_history(task_id, user_input[:80], "Manager", "รับคำสั่ง สร้าง plan")
+        messenger.log_history(task_id, user_input[:80], "User", "สั่งงาน: ", user_input[:200], team_id=cl.user_session.get("current_team_id") or "")
+        messenger.log_history(task_id, user_input[:80], "Manager", "รับคำสั่ง สร้าง plan", team_id=cl.user_session.get("current_team_id") or "")
         initial_agents = [
             {
                 "name": s.get("name", "Agent"),
@@ -107,7 +107,6 @@ async def execute_multi_agent_task(
             for s in agent_specs
         ]
         await messenger.reply_agent_progress(task_id, initial_agents)
-        await messenger.reply_progress(0, "กำลังทำงาน...", progress_id=task_id)
 
     for spec in agent_specs:
         rid = spec.get("registry_id")
@@ -125,7 +124,7 @@ async def execute_multi_agent_task(
         if messenger:
             def _schedule():
                 _exec_loop.create_task(
-                    messenger.update_task(task_id, progress=percent, result=status),
+                    messenger.update_task(task_id, team_id=cl.user_session.get("current_team_id"), progress=percent, result=status),
                     context=_exec_ctx,
                 )
             _exec_loop.call_soon_threadsafe(_schedule)
@@ -197,11 +196,12 @@ async def execute_multi_agent_task(
                 out = agent_outputs[i] if i < len(agent_outputs) else {}
                 agent_name = spec.get("name", f"Agent {i+1}")
                 output_preview = (out.get("output", "") or "")[:200]
-                messenger.log_history(task_id, user_input[:80], agent_name, "ทำงานเสร็จ: ", output_preview)
+                messenger.log_history(task_id, user_input[:80], agent_name, "ทำงานเสร็จ: ", output_preview, team_id=cl.user_session.get("current_team_id") or "")
 
             cl.run_sync(
                 messenger.update_task(
                     task_id,
+                    team_id=cl.user_session.get("current_team_id"),
                     progress=100,
                     status="complete",
                     result=raw_output,
@@ -287,54 +287,18 @@ async def execute_multi_agent_task(
             for idx, media_result in enumerate(sorted_results):
                 pending_approval_cards.append((media_result, idx))
 
-            if not any(r.get("type") == "video" for r in _g._media_tool_results):
-                for i, agent_out in enumerate(agent_outputs):
-                    agent_spec = agent_specs[i] if i < len(agent_specs) else {}
-                    if "generate_video" not in agent_spec.get("tools", []):
-                        continue
-                    output_text = agent_out.get("output", "")
-                    vid_match = re.search(
-                        r'"name"\s*:\s*"generate_video"\s*,\s*"arguments"\s*:\s*\{[^}]*"prompt"\s*:\s*"([^"]+)"',
-                        output_text
-                    )
-                    if vid_match:
-                        vid_prompt = vid_match.group(1)
-                        _debug(f"[DEBUG-FALLBACK] Extracted video prompt from agent output: {vid_prompt[:80]}...", flush=True)
-                        media_entry = {
-                            "type": "video", "prompt": vid_prompt,
-                            "duration": 5, "agent_name": agent_out.get("name", ""),
-                        }
-                        _g._media_tool_results.append(media_entry)
-                        pending_approval_cards.append((media_entry, len(_g._media_tool_results) - 1))
+            # Post-execution validation: ensure agents used their assigned tools
+            from backend.core.tool_validator import validate_tool_usage
+            image_model = cl.user_session.get("ai_image_model") or ""
+            validate_tool_usage(agent_specs, agent_outputs, _g._media_tool_results, image_model=image_model)
 
-            if not any(r.get("type") == "image" for r in _g._media_tool_results):
-                for i, agent_out in enumerate(agent_outputs):
-                    agent_spec = agent_specs[i] if i < len(agent_specs) else {}
-                    if "generate_image" not in agent_spec.get("tools", []):
-                        continue
-                    output_text = agent_out.get("output", "")
-                    img_match = re.search(r'```\s*\n([A-Za-z][^`]{20,})\n```', output_text)
-                    if not img_match:
-                        img_match = re.search(r'Prompt[:\s]+([A-Za-z][^\n]{20,})', output_text)
-                    if not img_match:
-                        img_match = re.search(r'[Ii]mage [Pp]rompt[:\s]+([A-Za-z][^\n]{20,})', output_text)
-                    if not img_match:
-                        img_match = re.search(r'"([A-Z][^"]{30,})"', output_text)
-                    if not img_match:
-                        img_match = re.search(r'\*\*([A-Z][^*]{30,})\*\*', output_text)
-                    if not img_match:
-                        img_match = re.search(r'generate_image\([^)]*"([^"]{20,})"', output_text)
-                    if img_match:
-                        img_prompt = img_match.group(1).strip()
-                        image_model = cl.user_session.get("ai_image_model") or ""
-                        _debug(f"[DEBUG-FALLBACK] Extracted image prompt from agent output: {img_prompt[:80]}...", flush=True)
-                        media_entry = {
-                            "type": "image", "prompt": img_prompt,
-                            "agent_name": agent_out.get("name", ""),
-                            "model": image_model,
-                        }
-                        _g._media_tool_results.append(media_entry)
-                        pending_approval_cards.append((media_entry, len(_g._media_tool_results) - 1))
+            # Re-sort after validation may have added new results
+            sorted_results = sorted(_g._media_tool_results, key=lambda r: (0 if r.get("type") == "image" else 1, _day_sort_key(r)))
+
+            # Add any new results from validation to pending approval cards
+            for idx, media_result in enumerate(sorted_results):
+                if (media_result, idx) not in pending_approval_cards:
+                    pending_approval_cards.append((media_result, idx))
 
             has_pending_approvals = len(_g._media_tool_results) > 0
             print(f"[DEBUG-RESULT] media_tool_results={len(_g._media_tool_results)}, has_pending={has_pending_approvals}", flush=True)
@@ -354,12 +318,12 @@ async def execute_multi_agent_task(
             has_manager_in_outputs = any(a.get("name") == "Manager" for a in agent_outputs)
             if raw_output and len(raw_output) > 20 and not raw_output.strip().startswith("{") and not has_manager_in_outputs:
                 await messenger.reply(raw_output[:4000])
-                messenger.log_history(task_id, user_input[:80], "Manager", "สรุปผล: ", raw_output[:200])
+                messenger.log_history(task_id, user_input[:80], "Manager", "สรุปผล: ", raw_output[:200], team_id=cl.user_session.get("current_team_id") or "")
 
             # Now send approval cards after AI response
             for media_result, idx in pending_approval_cards:
                 await _send_approval_card(media_result, idx)
-                messenger.log_history(task_id, user_input[:80], media_result.get("agent_name", "Agent"), f"ส่ง approval card ({media_result.get('type', 'image')}): ", media_result.get("prompt", "")[:200])
+                messenger.log_history(task_id, user_input[:80], media_result.get("agent_name", "Agent"), f"ส่ง approval card ({media_result.get('type', 'image')}): ", media_result.get("prompt", "")[:200], team_id=cl.user_session.get("current_team_id") or "")
 
             # Update task status to review (user can review results)
             task_store = cl.user_session.get("task_store")
@@ -391,12 +355,12 @@ async def execute_multi_agent_task(
             cl.run_sync(
                 messenger.update_task(
                     task_id,
+                    team_id=cl.user_session.get("current_team_id"),
                     progress=100,
                     status="error",
                     result=f"❌ เกิดข้อผิดพลาด: {str(e)}\n\n```\n{tb[:1000]}\n```",
                 )
             )
-            await messenger.reply_progress(100, "❌ งานล้มเหลว", progress_id=task_id)
             await messenger.reply_result(
                 "❌ งานล้มเหลว",
                 [{"name": "Error", "role": "", "output": f"{str(e)}\n\n{tb[:500]}"}],
@@ -458,8 +422,8 @@ async def execute_task_with_agent(
 
     if messenger:
         await messenger.add_task(task_id, user_input, agent_name, team_id=cl.user_session.get("current_team_id"))
-        messenger.log_history(task_id, user_input[:80], "User", "สั่งงาน: ", user_input[:200])
-        messenger.log_history(task_id, user_input[:80], "Manager", "รับคำสั่ง สร้าง plan")
+        messenger.log_history(task_id, user_input[:80], "User", "สั่งงาน: ", user_input[:200], team_id=cl.user_session.get("current_team_id") or "")
+        messenger.log_history(task_id, user_input[:80], "Manager", "รับคำสั่ง สร้าง plan", team_id=cl.user_session.get("current_team_id") or "")
 
     if registry_id:
         registry.update_status(registry_id, "Busy")
@@ -475,7 +439,7 @@ async def execute_task_with_agent(
         if messenger:
             def _schedule():
                 _exec_loop.create_task(
-                    messenger.update_task(task_id, progress=percent, result=status),
+                    messenger.update_task(task_id, team_id=cl.user_session.get("current_team_id"), progress=percent, result=status),
                     context=_exec_ctx,
                 )
             _exec_loop.call_soon_threadsafe(_schedule)
@@ -496,6 +460,7 @@ async def execute_task_with_agent(
             cl.run_sync(
                 messenger.update_task(
                     task_id,
+                    team_id=cl.user_session.get("current_team_id"),
                     progress=100,
                     status="complete",
                     result=str(result),
@@ -522,6 +487,7 @@ async def execute_task_with_agent(
             cl.run_sync(
                 messenger.update_task(
                     task_id,
+                    team_id=cl.user_session.get("current_team_id"),
                     progress=100,
                     status="error",
                     result=f"❌ เกิดข้อผิดพลาด: {str(e)}\n\n```\n{tb[:1000]}\n```",
@@ -877,7 +843,7 @@ async def on_message(message: cl.Message):
         elif action_name == "delete_task":
             task_id = payload.get("task_id", "")
             if messenger and task_id:
-                await messenger.delete_task(task_id)
+                await messenger.delete_task(task_id, team_id=cl.user_session.get("current_team_id"))
         elif action_name == "refresh_credits":
             if messenger:
                 await messenger._send(trigger="refresh")
@@ -931,7 +897,7 @@ async def on_message(message: cl.Message):
                         await messenger.reply_image_result(result, prompt, approval_id, task_id=task_id, media_type=media_type, agent_name=pending.get('agent_name', ''))
                         print(f"[APPROVE] reply_image_result sent", flush=True)
                         if task_id:
-                            await messenger.update_task_image(task_id, result, prompt, media_type=media_type)
+                            await messenger.update_task_image(task_id, result, prompt, media_type=media_type, team_id=cl.user_session.get("current_team_id"))
                         # Keep pending_media for regenerate after success
                 except Exception as e:
                     _debug(f"[DEBUG-APPROVE] Error: {_sanitize_error(e)}", flush=True)
@@ -975,7 +941,7 @@ async def on_message(message: cl.Message):
                     else:
                         await messenger.reply_image_result(result, prompt, approval_id, task_id=task_id, media_type=media_type, agent_name=pending.get('agent_name', ''))
                         if task_id:
-                            await messenger.update_task_image(task_id, result, prompt, media_type=media_type)
+                            await messenger.update_task_image(task_id, result, prompt, media_type=media_type, team_id=cl.user_session.get("current_team_id"))
                         # Keep pending_media for regenerate after success
                 except Exception as e:
                     _debug(f"[DEBUG-RETRY] Error: {_sanitize_error(e)}", flush=True)
