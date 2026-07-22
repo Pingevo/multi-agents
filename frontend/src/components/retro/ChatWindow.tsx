@@ -1066,7 +1066,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
       </div>
 
       {/* Chat area */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0 }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 200, minHeight: 0 }}>
         {/* Feed */}
         <div ref={scrollRef} onScroll={handleScroll} className="chat-feed">
           {messages.length === 0 && activityLog.length === 0 && !isProcessing ? (
