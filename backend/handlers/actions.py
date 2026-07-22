@@ -60,7 +60,8 @@ async def on_action_create_agent(action: cl.Action):
     cl.user_session.set("state", STATE_AWAITING_APPROVAL)
 
     if messenger:
-        await messenger.update_agents(registry)
+        _tid = cl.user_session.get("current_team_id")
+        await messenger.update_agents(registry, team_id=_tid)
         await messenger.set_plan(
             messenger._agents_for_ui([new_agent])[0],
             merged_spec.get("task_description", user_input),
@@ -149,7 +150,8 @@ async def on_action_accept(action: cl.Action):
 
     if messenger:
         messenger.update_plan_status("approved")
-        await messenger.update_agents(registry)
+        _tid = cl.user_session.get("current_team_id")
+        await messenger.update_agents(registry, team_id=_tid)
         print(f"[DEBUG-ACCEPT] update_agents sent, registry has {len(registry.list_agents())} agents", flush=True)
         await messenger.clear_plan()
 
@@ -285,7 +287,8 @@ async def on_action_add_agent_form(action: cl.Action):
                     await messenger.reply_team_list(team_registry)
 
         if messenger:
-            await messenger.update_agents(registry)
+            _tid = cl.user_session.get("current_team_id")
+            await messenger.update_agents(registry, team_id=_tid)
             await messenger.notify(f"✅ สร้าง Agent {new_agent['name']} สำเร็จ")
     except Exception as e:
         if messenger:
@@ -326,7 +329,8 @@ async def on_action_edit_agent_form(action: cl.Action):
     try:
         registry.update_agent(agent_id, spec)
         if messenger:
-            await messenger.update_agents(registry)
+            _tid = cl.user_session.get("current_team_id")
+            await messenger.update_agents(registry, team_id=_tid)
             await messenger.notify(f"✅ แก้ไข Agent {agent_id} สำเร็จ")
     except Exception as e:
         if messenger:
@@ -354,7 +358,8 @@ async def on_action_delete_agent(action: cl.Action):
 
     registry.delete_agent(agent_id)
     if messenger:
-        await messenger.update_agents(registry)
+        _tid = cl.user_session.get("current_team_id")
+        await messenger.update_agents(registry, team_id=_tid)
 
 
 @cl.action_callback("assign_task_form")
@@ -523,7 +528,8 @@ async def on_action_confirm_tuning(action: cl.Action):
     cl.user_session.set("pending_tuning_proposal", None)
 
     if messenger:
-        await messenger.update_agents(registry)
+        _tid = cl.user_session.get("current_team_id")
+        await messenger.update_agents(registry, team_id=_tid)
         messenger.update_persisted_message("tuning_proposal", {"tuningStatus": "confirmed"})
         if applied_count > 0:
             await messenger.notify(f"✅ ปรับแต่ง agent แล้ว ({applied_count} agent) — พร้อมใช้งานในครั้งถัดไป")
@@ -617,7 +623,8 @@ async def on_action_create_team(action: cl.Action):
 
     if messenger:
         await messenger.reply_team_list(team_registry)
-        await messenger.update_agents(registry)
+        _tid = cl.user_session.get("current_team_id")
+        await messenger.update_agents(registry, team_id=_tid)
         agent_count = len(created_agent_names)
         if agent_count > 0:
             await messenger.notify(f"✅ สร้างทีม {team['name']} สำเร็จ — Manager + {agent_count} agent(s): {', '.join(created_agent_names)}")
@@ -697,7 +704,8 @@ async def on_action_delete_team(action: cl.Action):
     cl.user_session.set("registry", registry)
 
     if messenger:
-        await messenger.update_agents(registry)
+        _tid = cl.user_session.get("current_team_id")
+        await messenger.update_agents(registry, team_id=_tid)
         await messenger.reply_team_list(team_registry)
         await messenger.notify(f"🗑 ลบทีม {team.get('name', '')} และ agent, chat, task, งานตั้งเวลา ทั้งหมดแล้ว")
 
@@ -774,7 +782,8 @@ async def on_action_config_agent(action: cl.Action):
     if fields:
         registry.update_agent(agent_id, fields)
         if messenger:
-            await messenger.update_agents(registry)
+            _tid = cl.user_session.get("current_team_id")
+            await messenger.update_agents(registry, team_id=_tid)
             await messenger.notify(f"✅ อัปเดต {agent.get('name', 'Agent')} แล้ว")
 
 

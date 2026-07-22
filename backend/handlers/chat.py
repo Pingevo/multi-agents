@@ -114,7 +114,8 @@ async def execute_multi_agent_task(
         if rid:
             registry.update_status(rid, "Busy")
     if messenger:
-        await messenger.update_agents(registry)
+        _tid = cl.user_session.get("current_team_id")
+        await messenger.update_agents(registry, team_id=_tid)
 
     _exec_loop = asyncio.get_event_loop()
     _exec_ctx = contextvars.copy_context()
@@ -430,7 +431,8 @@ async def execute_multi_agent_task(
                             "timestamp": datetime.now().isoformat(),
                         })
         if messenger:
-            await messenger.update_agents(registry)
+            _tid = cl.user_session.get("current_team_id")
+            await messenger.update_agents(registry, team_id=_tid)
         cl.user_session.set("state", STATE_IDLE)
         cl.user_session.set("current_agent_specs", None)
         cl.user_session.set("current_input", None)
@@ -462,7 +464,8 @@ async def execute_task_with_agent(
     if registry_id:
         registry.update_status(registry_id, "Busy")
         if messenger:
-            await messenger.update_agents(registry)
+            _tid = cl.user_session.get("current_team_id")
+            await messenger.update_agents(registry, team_id=_tid)
 
     _exec_loop = asyncio.get_event_loop()
     _exec_ctx = contextvars.copy_context()
@@ -537,7 +540,8 @@ async def execute_task_with_agent(
                     "timestamp": datetime.now().isoformat(),
                 })
             if messenger:
-                await messenger.update_agents(registry)
+                _tid = cl.user_session.get("current_team_id")
+                await messenger.update_agents(registry, team_id=_tid)
         cl.user_session.set("state", STATE_IDLE)
         cl.user_session.set("current_agent_specs", None)
         cl.user_session.set("current_input", None)
@@ -1327,7 +1331,8 @@ async def on_message(message: cl.Message):
                 # Push updated agent list to frontend
                 messenger = cl.user_session.get("messenger")
                 if messenger:
-                    await messenger.update_agents(registry)
+                    _tid = cl.user_session.get("current_team_id")
+                    await messenger.update_agents(registry, team_id=_tid)
             # Persist settings to chat store so they survive refresh
             messenger = cl.user_session.get("messenger")
             if messenger and messenger.current_session_id:
@@ -1467,7 +1472,7 @@ async def on_message(message: cl.Message):
                         cl.user_session.set("registry", registry)
                     team_agents = registry.list_agents(team_id=team_id)
                     if messenger:
-                        await messenger.update_agents(registry)
+                        await messenger.update_agents(registry, team_id=team_id)
                         task_store = cl.user_session.get("task_store")
                         if task_store:
                             await messenger.update_tasks(task_store, team_id=team_id)
@@ -2109,7 +2114,8 @@ async def on_message(message: cl.Message):
                 plan_has_vision_tool = any("vision" in str(t).lower() for t in all_tools)
 
                 if messenger:
-                    await messenger.update_agents(registry)
+                    _tid = cl.user_session.get("current_team_id")
+                    await messenger.update_agents(registry, team_id=_tid)
                     plan_type = "existing" if has_existing else "new"
                     _plan_title = resolved_specs[0].get("task_description", user_input) if resolved_specs else user_input
                     await messenger.set_multi_agent_plan(
@@ -2352,7 +2358,8 @@ async def on_message(message: cl.Message):
                 plan2_has_vision = any("vision" in str(t).lower() for t in plan2_all_tools)
 
                 if messenger:
-                    await messenger.update_agents(registry)
+                    _tid = cl.user_session.get("current_team_id")
+                    await messenger.update_agents(registry, team_id=_tid)
                     plan_type = "existing" if has_existing else "new"
                     _plan_title = resolved_specs[0].get("task_description", combined_input) if resolved_specs else combined_input
                     await messenger.set_multi_agent_plan(

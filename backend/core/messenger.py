@@ -116,12 +116,12 @@ class StateMessenger:
         await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
 
     async def init(self, registry: AgentRegistry, team_id: str | None = None):
-        self.state["agents"] = self._agents_for_ui(registry.list_agents())
+        self.state["agents"] = self._agents_for_ui(registry.list_agents(team_id))
         self.state["tasks"] = self.task_store.get_tasks_by_team(team_id) if team_id else self.task_store.list_tasks()
         await self._send()
 
-    async def update_agents(self, registry: AgentRegistry):
-        self.state["agents"] = self._agents_for_ui(registry.list_agents())
+    async def update_agents(self, registry: AgentRegistry, team_id: str | None = None):
+        self.state["agents"] = self._agents_for_ui(registry.list_agents(team_id))
         await self._send()
 
     async def update_tasks(self, task_store: TaskStore, team_id: str | None = None):
