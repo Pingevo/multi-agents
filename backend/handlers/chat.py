@@ -1464,8 +1464,10 @@ async def on_message(message: cl.Message):
             if team_id:
                 team = team_registry.get_team(team_id)
                 if team and messenger:
-                    # List sessions for this team (include legacy unassigned sessions)
-                    sessions = messenger.chat_store.list_sessions(team_id=team_id, include_unassigned=True)
+                    # List sessions for this team only — do NOT include unassigned
+                    # sessions, as they may contain messages from another team's
+                    # earlier use of the default session and would leak across teams.
+                    sessions = messenger.chat_store.list_sessions(team_id=team_id)
                     # If no sessions exist for this team, create a fresh one
                     if not sessions:
                         new_s = messenger.chat_store.create_session("New Chat", team_id=team_id)

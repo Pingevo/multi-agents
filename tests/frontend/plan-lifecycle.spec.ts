@@ -31,10 +31,13 @@ test.describe('Plan Lifecycle', () => {
     // Open the Tasks window and verify a task appears
     await openDesktopWindow(page, 'tasks');
 
-    // The tasks list should show task content (not the empty state)
-    // Wait for task items to appear — they contain agent names like "Worker1"
+    // The tasks list should be visible
     await expect(page.locator('.tasks-list')).toBeVisible({ timeout: 5000 });
-    await expect(page.locator('.tasks-list').locator('text=Worker1').first()).toBeVisible({ timeout: 15000 });
+
+    // After plan approval, the Tasks window should show the run with agent info
+    // The tasks list shows the user message text and agent names like "Worker1"
+    const taskContent = page.locator('.tasks-list').locator('text=Worker1').first();
+    await expect(taskContent).toBeVisible({ timeout: 15000 });
 
     // Verify a notification appeared — check the notification badge (🔔) in the taskbar
     // After plan approval, a notification should be generated

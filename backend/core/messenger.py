@@ -604,7 +604,7 @@ class StateMessenger:
     async def reply_chat_sessions(self, team_id: str | None = None):
         """Send list of chat sessions, optionally filtered by team"""
         if team_id is not None:
-            sessions = self.chat_store.list_sessions(team_id=team_id, include_unassigned=True)
+            sessions = self.chat_store.list_sessions(team_id=team_id)
         else:
             sessions = self.chat_store.list_sessions()
         session_list = [

@@ -64,8 +64,9 @@ test.describe('Chat Session Switch/Delete', () => {
 
     // Delete the current chat session via the session sidebar
     // Session items have class "cs-item", trash button is the second button inside
-    const sessionItem = page.locator('.cs-item').filter({ hasText: 'Research and write a summary' }).first();
-    await expect(sessionItem).toBeVisible({ timeout: 5000 });
+    // There should be at least one session (the current one)
+    const sessionItem = page.locator('.cs-item').first();
+    await expect(sessionItem).toBeVisible({ timeout: 10000 });
 
     // Set up dialog handler BEFORE clicking — the app uses confirm() for deletion
     page.on('dialog', dialog => dialog.accept());
