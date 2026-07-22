@@ -27,7 +27,7 @@ TEAM_REGISTRY_FILE = os.path.join(_PROJECT_ROOT, "team_registry.json")
 # ============================================================
 # Per-User Data Directory
 # ============================================================
-DATA_DIR = os.path.join(_PROJECT_ROOT, "data")
+DATA_DIR = os.environ.get("AGENT_APP_DATA_DIR", os.path.join(_PROJECT_ROOT, "data"))
 
 
 def user_data_dir(user_id: str) -> str:
