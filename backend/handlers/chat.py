@@ -755,13 +755,15 @@ async def on_chat_start():
                     prompt_price = _convert(pricing.get("prompt", "?"))
                     comp_price = _convert(pricing.get("completion", "?"))
                     image_price = _convert(pricing.get("image", "?"))
+                    image_output_price = _convert(pricing.get("image_output", "?"))
                     video_price = _convert(pricing.get("video", "?"))
+                    video_output_price = _convert(pricing.get("video_output", "?"))
                     audio_price = _convert(pricing.get("audio", "?"))
                     web_search_price = _convert(pricing.get("web_search", "?"))
-                    all_prices = [prompt_price, comp_price, image_price, video_price, audio_price, web_search_price]
+                    all_prices = [prompt_price, comp_price, image_price, image_output_price, video_price, video_output_price, audio_price, web_search_price]
                     known_prices = [p for p in all_prices if isinstance(p, (int, float))]
                     # For media models, the media-specific price must be known and 0 to be free
-                    media_price_map = {"image": image_price, "video": video_price, "search": web_search_price, "tts": audio_price, "stt": audio_price, "vision": None}
+                    media_price_map = {"image": image_price if isinstance(image_price, (int, float)) else image_output_price, "video": video_price if isinstance(video_price, (int, float)) else video_output_price, "search": web_search_price, "tts": audio_price, "stt": audio_price, "vision": None}
                     media_price = media_price_map.get(media_type)
                     if media_price is not None:
                         is_free = isinstance(media_price, (int, float)) and media_price == 0 and all(p == 0 for p in known_prices)
@@ -774,7 +776,9 @@ async def on_chat_start():
                         "prompt_price": prompt_price,
                         "completion_price": comp_price,
                         "image_price": image_price,
+                        "image_output_price": image_output_price,
                         "video_price": video_price,
+                        "video_output_price": video_output_price,
                         "audio_price": audio_price,
                         "web_search_price": web_search_price,
                         "categories": [media_type],
@@ -1278,13 +1282,15 @@ async def on_message(message: cl.Message):
                     prompt_price = _convert_media(pricing.get("prompt", "?"))
                     comp_price = _convert_media(pricing.get("completion", "?"))
                     image_price = _convert_media(pricing.get("image", "?"))
+                    image_output_price = _convert_media(pricing.get("image_output", "?"))
                     video_price = _convert_media(pricing.get("video", "?"))
+                    video_output_price = _convert_media(pricing.get("video_output", "?"))
                     audio_price = _convert_media(pricing.get("audio", "?"))
                     web_search_price = _convert_media(pricing.get("web_search", "?"))
-                    all_prices = [prompt_price, comp_price, image_price, video_price, audio_price, web_search_price]
+                    all_prices = [prompt_price, comp_price, image_price, image_output_price, video_price, video_output_price, audio_price, web_search_price]
                     known_prices = [p for p in all_prices if isinstance(p, (int, float))]
                     # For media models, the media-specific price must be known and 0 to be free
-                    media_price_map = {"image": image_price, "video": video_price, "search": web_search_price, "tts": audio_price, "stt": audio_price, "vision": None}
+                    media_price_map = {"image": image_price if isinstance(image_price, (int, float)) else image_output_price, "video": video_price if isinstance(video_price, (int, float)) else video_output_price, "search": web_search_price, "tts": audio_price, "stt": audio_price, "vision": None}
                     media_price = media_price_map.get(media_type)
                     if media_price is not None:
                         is_free = isinstance(media_price, (int, float)) and media_price == 0 and all(p == 0 for p in known_prices)
@@ -1297,7 +1303,9 @@ async def on_message(message: cl.Message):
                         "prompt_price": prompt_price,
                         "completion_price": comp_price,
                         "image_price": image_price,
+                        "image_output_price": image_output_price,
                         "video_price": video_price,
+                        "video_output_price": video_output_price,
                         "audio_price": audio_price,
                         "web_search_price": web_search_price,
                         "categories": [media_type],

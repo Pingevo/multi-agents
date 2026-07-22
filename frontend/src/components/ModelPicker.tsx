@@ -9,7 +9,9 @@ export interface ModelCatalogEntry {
   prompt_price: any;
   completion_price: any;
   image_price?: any;
+  image_output_price?: any;
   video_price?: any;
+  video_output_price?: any;
   audio_price?: any;
   web_search_price?: any;
   categories: string[];
@@ -58,16 +60,30 @@ const formatPrice = (price: any): string => {
   return `$${num.toFixed(2)}`;
 };
 
-const getMaxPrice = (model: ModelCatalogEntry): number => {
-  const prices = [
-    parsePrice(model.prompt_price),
-    parsePrice(model.completion_price),
-    parsePrice(model.image_price),
-    parsePrice(model.video_price),
-    parsePrice(model.audio_price),
-    parsePrice(model.web_search_price),
-  ].filter((p): p is number => p !== null && p > 0);
-  return prices.length > 0 ? Math.max(...prices) : 0;
+const getRelevantPriceFields = (model: ModelCatalogEntry, mediaType?: string): { label: string; value: any }[] => {
+  const fields: { label: string; value: any }[] = [
+    { label: 'Input', value: model.prompt_price },
+    { label: 'Output', value: model.completion_price },
+  ];
+  if (mediaType === 'image') {
+    if (model.image_price !== undefined && model.image_price !== '?') fields.push({ label: 'Image', value: model.image_price });
+    if (model.image_output_price !== undefined && model.image_output_price !== '?') fields.push({ label: 'Image Output', value: model.image_output_price });
+  } else if (mediaType === 'video') {
+    if (model.video_price !== undefined && model.video_price !== '?') fields.push({ label: 'Video', value: model.video_price });
+    if (model.video_output_price !== undefined && model.video_output_price !== '?') fields.push({ label: 'Video Output', value: model.video_output_price });
+  } else if (mediaType === 'search') {
+    if (model.web_search_price !== undefined && model.web_search_price !== '?') fields.push({ label: 'Web Search', value: model.web_search_price });
+  } else if (mediaType === 'tts' || mediaType === 'stt') {
+    if (model.audio_price !== undefined && model.audio_price !== '?') fields.push({ label: 'Audio', value: model.audio_price });
+  }
+  return fields;
+};
+
+const getMaxPrice = (model: ModelCatalogEntry, mediaType?: string): number => {
+  const relevantPrices = getRelevantPriceFields(model, mediaType)
+    .map((f) => parsePrice(f.value))
+    .filter((p): p is number => p !== null && p > 0);
+  return relevantPrices.length > 0 ? Math.max(...relevantPrices) : 0;
 };
 
 const ROUTING_MODELS = ['openrouter/free'];
@@ -93,7 +109,9 @@ const isModelFree = (model: ModelCatalogEntry, mediaType?: string): boolean => {
     parsePrice(model.prompt_price),
     parsePrice(model.completion_price),
     parsePrice(model.image_price),
+    parsePrice(model.image_output_price),
     parsePrice(model.video_price),
+    parsePrice(model.video_output_price),
     parsePrice(model.audio_price),
     parsePrice(model.web_search_price),
   ];
@@ -104,8 +122,8 @@ const isModelFree = (model: ModelCatalogEntry, mediaType?: string): boolean => {
   // For media models, the media-specific price must also be known and 0
   if (mediaType) {
     const mediaPriceMap: Record<string, any> = {
-      image: model.image_price,
-      video: model.video_price,
+      image: model.image_price ?? model.image_output_price,
+      video: model.video_price ?? model.video_output_price,
       search: model.web_search_price,
       tts: model.audio_price,
       stt: model.audio_price,
@@ -171,17 +189,12 @@ export const findModelName = (
   return parts.length > 1 ? parts[parts.length - 1].split(':')[0] : modelId;
 };
 
-const getModelCostTier = (model: ModelCatalogEntry): 'free' | 'low' | 'mid' | 'high' | 'unknown' => {
+const getModelCostTier = (model: ModelCatalogEntry, mediaType?: string): 'free' | 'low' | 'mid' | 'high' | 'unknown' => {
   if (isRoutingModel(model)) return 'unknown';
-  const maxPrice = getMaxPrice(model);
+  const maxPrice = getMaxPrice(model, mediaType);
   if (maxPrice === 0) {
-    // Check if all prices are explicitly 0 (truly free) or all unknown
-    const prices = [
-      parsePrice(model.prompt_price),
-      parsePrice(model.completion_price),
-      parsePrice(model.image_price),
-      parsePrice(model.video_price),
-    ];
+    const prices = getRelevantPriceFields(model, mediaType)
+      .map((f) => parsePrice(f.value));
     const hasKnown = prices.some((p) => p !== null);
     return hasKnown ? 'free' : 'unknown';
   }
@@ -488,38 +501,12 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
               <div>
                 <div style={{ fontSize: '8px', color: 'var(--ink3)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '2px' }}>Cost / 1M tokens</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '10px' }}>
-                    <span style={{ color: 'var(--ink3)' }}>Input</span>
-                    <span style={{ color: 'var(--ink)' }}>{formatPrice(previewModel.prompt_price)}</span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '10px' }}>
-                    <span style={{ color: 'var(--ink3)' }}>Output</span>
-                    <span style={{ color: 'var(--ink)' }}>{formatPrice(previewModel.completion_price)}</span>
-                  </div>
-                  {parsePrice(previewModel.image_price) !== null && parsePrice(previewModel.image_price)! > 0 && (
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '10px' }}>
-                      <span style={{ color: 'var(--ink3)' }}>Image</span>
-                      <span style={{ color: 'var(--ink)' }}>{formatPrice(previewModel.image_price)}</span>
+                  {getRelevantPriceFields(previewModel, mediaType).map(({ label, value }) => (
+                    <div key={label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '10px' }}>
+                      <span style={{ color: 'var(--ink3)' }}>{label}</span>
+                      <span style={{ color: 'var(--ink)' }}>{formatPrice(value)}</span>
                     </div>
-                  )}
-                  {parsePrice(previewModel.video_price) !== null && parsePrice(previewModel.video_price)! > 0 && (
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '10px' }}>
-                      <span style={{ color: 'var(--ink3)' }}>Video</span>
-                      <span style={{ color: 'var(--ink)' }}>{formatPrice(previewModel.video_price)}</span>
-                    </div>
-                  )}
-                  {parsePrice(previewModel.audio_price) !== null && parsePrice(previewModel.audio_price)! > 0 && (
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '10px' }}>
-                      <span style={{ color: 'var(--ink3)' }}>Audio</span>
-                      <span style={{ color: 'var(--ink)' }}>{formatPrice(previewModel.audio_price)}</span>
-                    </div>
-                  )}
-                  {parsePrice(previewModel.web_search_price) !== null && parsePrice(previewModel.web_search_price)! > 0 && (
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '10px' }}>
-                      <span style={{ color: 'var(--ink3)' }}>Web Search</span>
-                      <span style={{ color: 'var(--ink)' }}>{formatPrice(previewModel.web_search_price)}</span>
-                    </div>
-                  )}
+                  ))}
                 </div>
                 {/* Cost tier bar */}
                 <div style={{ fontSize: '8px', color: 'var(--ink3)', marginBottom: '2px' }}>Cost tier</div>
@@ -529,12 +516,12 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
                       style={{
                         height: '100%',
                         borderRadius: '2px',
-                        width: `${getModelCostTier(previewModel) === 'free' ? 100 : getModelCostTier(previewModel) === 'low' ? 75 : getModelCostTier(previewModel) === 'mid' ? 45 : getModelCostTier(previewModel) === 'unknown' ? 30 : 20}%`,
-                        backgroundColor: COST_TIER_COLORS[getModelCostTier(previewModel)],
+                        width: `${getModelCostTier(previewModel, mediaType) === 'free' ? 100 : getModelCostTier(previewModel, mediaType) === 'low' ? 75 : getModelCostTier(previewModel, mediaType) === 'mid' ? 45 : getModelCostTier(previewModel, mediaType) === 'unknown' ? 30 : 20}%`,
+                        backgroundColor: COST_TIER_COLORS[getModelCostTier(previewModel, mediaType)],
                       }}
                     />
                   </div>
-                  <span style={{ fontSize: '8px', color: 'var(--ink3)', textTransform: 'capitalize', flexShrink: 0 }}>{getModelCostTier(previewModel)}</span>
+                  <span style={{ fontSize: '8px', color: 'var(--ink3)', textTransform: 'capitalize', flexShrink: 0 }}>{getModelCostTier(previewModel, mediaType)}</span>
                 </div>
               </div>
 
@@ -605,8 +592,8 @@ const ModelRow: React.FC<{
       )}
       <span style={{ fontSize: '10px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{stripProviderPrefix(model.name)}</span>
       <div
-        style={{ width: '5px', height: '5px', borderRadius: '50%', flexShrink: 0, backgroundColor: COST_TIER_COLORS[getModelCostTier(model)] }}
-        title={`Cost: ${isModelFree(model, mediaType) ? 'Free' : formatPrice(getMaxPrice(model))}/1M`}
+        style={{ width: '5px', height: '5px', borderRadius: '50%', flexShrink: 0, backgroundColor: COST_TIER_COLORS[getModelCostTier(model, mediaType)] }}
+        title={`Cost: ${isModelFree(model, mediaType) ? 'Free' : formatPrice(getMaxPrice(model, mediaType))}/1M`}
       />
       {isSelected && <Check size={11} style={{ color: 'var(--orange)', flexShrink: 0 }} />}
     </button>
