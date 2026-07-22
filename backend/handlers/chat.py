@@ -2186,6 +2186,7 @@ async def on_message(message: cl.Message):
                     })
                     cl.user_session.set("current_task_id", task_entry["id"])
                     await messenger.update_tasks(task_store, team_id=cl.user_session.get("current_team_id"))
+                    await messenger.reply_notifications(team_id=cl.user_session.get("current_team_id"))
 
         except Exception as e:
             cl.user_session.set("state", STATE_IDLE)
@@ -2429,6 +2430,7 @@ async def on_message(message: cl.Message):
                     })
                     cl.user_session.set("current_task_id", task_entry["id"])
                     await messenger.update_tasks(task_store, team_id=cl.user_session.get("current_team_id"))
+                    await messenger.reply_notifications(team_id=cl.user_session.get("current_team_id"))
                 return
 
             # Fallback: treat as chat
