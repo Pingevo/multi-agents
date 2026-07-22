@@ -349,8 +349,9 @@ async def execute_multi_agent_task(
                     agent_outputs,
                 )
 
-            # Send AI response first, then approval cards
-            if raw_output and len(raw_output) > 20 and not raw_output.strip().startswith("{"):
+            # Send AI response only if Manager is NOT already in agent_outputs (avoid duplicate)
+            has_manager_in_outputs = any(a.get("name") == "Manager" for a in agent_outputs)
+            if raw_output and len(raw_output) > 20 and not raw_output.strip().startswith("{") and not has_manager_in_outputs:
                 await messenger.reply(raw_output[:4000])
                 messenger.log_history(task_id, user_input[:80], "Manager", "สรุปผล: ", raw_output[:200])
 

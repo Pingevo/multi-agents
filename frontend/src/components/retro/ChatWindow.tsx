@@ -341,7 +341,7 @@ const ChatPlanCard: React.FC<{
     <div key={j} className="chat-plan-step" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '4px', width: '100%' }}>
         <span className="cps-ic">{roleIcon(agent.role)}</span>
-        <span style={{ flex: 1 }}>{agent.name} — {agent.goal || agent.role}</span>
+        <span style={{ fontWeight: 600, flexShrink: 0 }}>{agent.name}</span>
         {agent.is_existing ? (
           <span style={{ fontSize: '9px', padding: '1px 5px', borderRadius: '2px', background: 'rgba(100,160,80,0.15)', color: 'var(--green)', flexShrink: 0 }}>Existing</span>
         ) : (
@@ -349,8 +349,11 @@ const ChatPlanCard: React.FC<{
         )}
         {renderAgentModel(agent)}
       </div>
-      {agent.task_description && (
-        <div style={{ fontSize: '10px', color: 'var(--ink2)', marginTop: '2px', marginLeft: '18px' }}>
+      <div style={{ fontSize: '10px', color: 'var(--ink2)', marginTop: '2px', marginLeft: '18px' }}>
+        {agent.goal || agent.role}
+      </div>
+      {agent.task_description && agent.task_description !== agent.goal && (
+        <div style={{ fontSize: '10px', color: 'var(--ink3)', marginTop: '2px', marginLeft: '18px' }}>
           {agent.task_description}
         </div>
       )}
@@ -390,7 +393,6 @@ const ChatPlanCard: React.FC<{
       )}
       <div className="chat-plan-meta">
         {agents.length} agents · {waves.length} waves
-        {msg.estimatedCost ? ` · ${msg.estimatedCost}` : ''}
         {msg.planTaskDescription ? ` · ${msg.planTaskDescription}` : ''}
       </div>
       {planStatus === 'pending' && (
