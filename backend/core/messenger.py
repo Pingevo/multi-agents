@@ -698,6 +698,7 @@ class StateMessenger:
         task = {
             "id": task_id,
             "title": title,
+            "input": title,
             "agent": agent_name,
             "status": "running",
             "progress": 0,

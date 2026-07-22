@@ -55,7 +55,11 @@ class TaskStore:
         return self.tasks
 
     def get_tasks_by_team(self, team_id: str) -> list[dict]:
-        return [t for t in self.tasks if t.get("team_id") == team_id]
+        return [
+            t for t in self.tasks
+            if t.get("team_id") == team_id
+            and not (not t.get("session_id") and t.get("status") in ("complete", "done"))
+        ]
 
     def get_tasks_by_session(self, session_id: str) -> list[dict]:
         return [t for t in self.tasks if t.get("session_id") == session_id]

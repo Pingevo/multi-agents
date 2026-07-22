@@ -352,20 +352,22 @@ async def execute_multi_agent_task(
                 else:
                     await messenger.reply("⚠️ ติดลิมิตการใช้ OpenRouter — กรุณารอสักครู่แล้วลองใหม่ (Local fallback ปิดอยู่)")
         if messenger:
+            _tid = cl.user_session.get("current_team_id")
             cl.run_sync(
                 messenger.update_task(
                     task_id,
-                    team_id=cl.user_session.get("current_team_id"),
+                    team_id=_tid,
                     progress=100,
                     status="error",
                     result=f"❌ เกิดข้อผิดพลาด: {str(e)}\n\n```\n{tb[:1000]}\n```",
                 )
             )
-            await messenger.reply_result(
-                "❌ งานล้มเหลว",
-                [{"name": "Error", "role": "", "output": f"{str(e)}\n\n{tb[:500]}"}],
-                is_error=True,
+            await messenger.reply_agent_progress(
+                task_id,
+                [{"name": s.get("name", "Agent"), "role": s.get("role", ""), "status": "error", "progress": 100, "model": s.get("model", "")} for s in agent_specs],
             )
+            await messenger.reply(f"❌ งานล้มเหลว: {str(e)[:500]}")
+            messenger.log_history(task_id, user_input[:80], "System", "เกิดข้อผิดพลาด: ", str(e)[:200], team_id=_tid or "")
     finally:
         for spec in agent_specs:
             rid = spec.get("registry_id")
@@ -484,16 +486,18 @@ async def execute_task_with_agent(
             if messenger:
                 await messenger.notify("⚠️ ติดลิมิต AI ฝรั่ง สลับไป Local LLM ชั่วคราว (60 วินาที)")
         if messenger:
+            _tid = cl.user_session.get("current_team_id")
             cl.run_sync(
                 messenger.update_task(
                     task_id,
-                    team_id=cl.user_session.get("current_team_id"),
+                    team_id=_tid,
                     progress=100,
                     status="error",
                     result=f"❌ เกิดข้อผิดพลาด: {str(e)}\n\n```\n{tb[:1000]}\n```",
                 )
             )
-            await messenger.notify(f"❌ งานของ {agent_name} ล้มเหลว")
+            await messenger.reply(f"❌ งานของ {agent_name} ล้มเหลว: {str(e)[:500]}")
+            messenger.log_history(task_id, user_input[:80], "System", "เกิดข้อผิดพลาด: ", str(e)[:200], team_id=_tid or "")
     finally:
         if registry_id:
             registry.update_status(registry_id, "Idle")
@@ -687,6 +691,7 @@ async def on_chat_start():
             # Also fetch and send media catalogs (image + video + search)
             selector = ModelSelector(llm_mgr.api_key, llm_mgr.base_url)
             all_models = await loop.run_in_executor(None, selector._fetch_all_models)
+            LLMManager.populate_multimodal_cache(all_models)
             for media_type in ("image", "video", "search", "vision"):
                 filtered = []
                 for m in all_models:

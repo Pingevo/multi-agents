@@ -494,7 +494,7 @@ export const TasksWindow: React.FC<TasksWindowProps> = ({
             <div className="plan-frame-hdr">
               <span className="pf-ic">📋</span>
               <div className="pf-info">
-                <div className="pf-title">{task.input?.slice(0, 60) || task.id}</div>
+                <div className="pf-title">{task.input?.slice(0, 60) || task.title?.slice(0, 60) || 'งานไม่มีชื่อ'}</div>
                 <div className="pf-bar"><div className="pf-bar-fill" style={{ width: `${task.progress || 0}%` }} /></div>
               </div>
               <span className="pf-badge" style={{
@@ -522,7 +522,7 @@ export const TasksWindow: React.FC<TasksWindowProps> = ({
             <div className="plan-frame-hdr">
               <span className="pf-ic">�</span>
               <div className="pf-info">
-                <div className="pf-title">{task.input?.slice(0, 60) || task.id}</div>
+                <div className="pf-title">{task.input?.slice(0, 60) || task.title?.slice(0, 60) || 'งานไม่มีชื่อ'}</div>
                 <div className="pf-bar"><div className="pf-bar-fill" style={{ width: `${task.progress || 0}%` }} /></div>
               </div>
               <span className="pf-badge" style={{

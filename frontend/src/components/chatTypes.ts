@@ -187,6 +187,7 @@ export interface TaskItem {
   id: string;
   team_id?: string;
   session_id?: string;
+  title?: string;
   status: 'draft' | 'running' | 'review' | 'done' | string;
   plan_agents?: Array<{ name: string; role: string }>;
   plan_type?: string;

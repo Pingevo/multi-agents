@@ -19,6 +19,8 @@ class LLMManager:
     4. error  — ใช้ไม่ได้เลย
     """
 
+    _multimodal_cache: dict[str, bool] = {}
+
     def __init__(self):
         self.provider = os.getenv("LLM_PROVIDER", "local").lower()
         self.model = os.getenv("LLM_MODEL", "qwen2.5:7b")
@@ -46,6 +48,27 @@ class LLMManager:
 
         # Free model rotator (used only when model is openrouter/free)
         self._rotator: FreeModelRotator | None = None
+
+    @classmethod
+    def populate_multimodal_cache(cls, catalog: list[dict]):
+        """Populate multimodal cache from OpenRouter model catalog.
+
+        Called once at startup (on_chat_start) to avoid per-LLM API calls.
+        """
+        for m in catalog:
+            mid = m.get("id", "")
+            if not mid:
+                continue
+            modalities = m.get("architecture", {}).get("input_modalities", [])
+            cls._multimodal_cache[mid] = "image" in modalities
+
+    @classmethod
+    def _check_multimodal(cls, model_id: str) -> bool | None:
+        """Check if a model supports multimodal input from cache.
+
+        Returns True/False if cached, None if not in cache.
+        """
+        return cls._multimodal_cache.get(model_id)
 
     def _get_rotator(self) -> FreeModelRotator:
         """Get or create the FreeModelRotator instance."""
@@ -337,7 +360,7 @@ class LLMManager:
             if not is_free:
                 print(f"[LLMManager] WARNING: _build_llm using PAID model: {model!r} (full={full_model!r})", flush=True)
             print(f"[LLMManager] _build_llm: provider={provider}, model={model!r}, full_model={full_model!r}", flush=True)
-            return LLM(
+            llm = LLM(
                 model=full_model,
                 base_url=base_url,
                 api_key=api_key,
@@ -347,6 +370,13 @@ class LLMManager:
                 max_tokens=self._get_max_tokens(model),
                 additional_params=additional_params,
             )
+            # Override supports_multimodal using OpenRouter catalog cache
+            # CrewAI's OpenAICompatibleCompletion uses a hardcoded prefix list that
+            # doesn't match models like 'openai/gpt-5.6-luna' (starts with 'openai/')
+            cached = self._check_multimodal(model)
+            if cached is not None:
+                llm.supports_multimodal = lambda: cached
+            return llm
         if provider == "google":
             os.environ["GEMINI_API_KEY"] = api_key
             return LLM(
