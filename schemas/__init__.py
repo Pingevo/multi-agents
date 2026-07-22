@@ -200,6 +200,12 @@ class ModelCatalogItem(BaseModel):
     context_length: Any = "?"
     prompt_price: Any = "?"
     completion_price: Any = "?"
+    image_price: Any = "?"
+    image_output_price: Any = "?"
+    video_price: Any = "?"
+    video_output_price: Any = "?"
+    audio_price: Any = "?"
+    web_search_price: Any = "?"
     categories: list[str] = []
     is_free: bool = False
 
