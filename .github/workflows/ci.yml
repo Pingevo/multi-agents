@@ -65,17 +65,27 @@ jobs:
         run: npm run build
 
   frontend-e2e:
-    name: Frontend E2E (Playwright)
+    name: Full-Stack E2E (Playwright + Backend + Fake LLM)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
       - name: Install root dependencies
         run: npm install
@@ -87,7 +97,13 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install chromium --with-deps
 
-      - name: Run Playwright tests
+      - name: Run Playwright E2E tests (full-stack)
         run: npx playwright test
         env:
           CI: "true"
+          LLM_PROVIDER: openrouter
+          LLM_API_KEY: test-key-fake
+          LLM_BASE_URL: http://127.0.0.1:11435
+          LOCAL_LLM_FALLBACK: "false"
+          USE_DEV_LOGIN: "true"
+          AGENT_APP_DATA_DIR: /tmp/agent-e2e-data

@@ -93,6 +93,9 @@ const WHITELISTED_MODELS = new Set([
   'google/gemini-3.5-flash',
   'anthropic/claude-sonnet-5',
   'openai/gpt-5.6-luna',
+  'test/text-model:free',
+  'test/image-model:free',
+  'test/search-model:free',
 ]);
 
 const isModelAllowed = (model: ModelCatalogEntry, mediaPicker: boolean = false): boolean => {

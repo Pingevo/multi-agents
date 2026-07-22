@@ -23,10 +23,8 @@ class UserStore:
 
     def __init__(self, filepath: str | None = None):
         if filepath is None:
-            data_dir = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-                "data",
-            )
+            from backend.globals import DATA_DIR
+            data_dir = DATA_DIR
             os.makedirs(data_dir, exist_ok=True)
             filepath = os.path.join(data_dir, "users.json")
         self.filepath = filepath

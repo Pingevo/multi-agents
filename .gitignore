@@ -44,3 +44,4 @@ Thumbs.db
 .idea/
 data/
 llm-call-log.jsonl
+test-results/

@@ -1152,6 +1152,9 @@ function AppContent() {
           onAICreateTeam={() => setShowAICreateModal(true)}
           onSelectTeam={(teamId) => {
             setSelectedTeamId(teamId);
+            setChatMessages([]);
+            setNotifications([]);
+            updateState({ tasks: [], current_plan: null });
             handleAction('select_team', { team_id: teamId });
           }}
           onDeleteTeam={(teamId) => handleAction('delete_team', { team_id: teamId })}
