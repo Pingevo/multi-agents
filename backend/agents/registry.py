@@ -81,10 +81,12 @@ class AgentRegistry:
         self._save()
         return agent
 
-    def find_idle_agent(self, required_role: str, required_tools: list[str]) -> dict | None:
+    def find_idle_agent(self, required_role: str, required_tools: list[str], team_id: str | None = None) -> dict | None:
         required_role_lower = required_role.lower() if required_role else ""
         for agent in self.agents:
             if agent.get("is_manager"):
+                continue
+            if team_id is not None and agent.get("team_id") != team_id:
                 continue
             # 1) Exact tools match has highest priority
             if required_tools and all(t in agent.get("tools", []) for t in required_tools):
@@ -100,13 +102,15 @@ class AgentRegistry:
                 return agent
         return None
 
-    def find_by_name(self, name: str) -> dict | None:
+    def find_by_name(self, name: str, team_id: str | None = None) -> dict | None:
         """Find agent by name (case-insensitive). Returns None if not found."""
         if not name:
             return None
         name_lower = name.strip().lower()
         for agent in self.agents:
             if agent.get("is_manager"):
+                continue
+            if team_id is not None and agent.get("team_id") != team_id:
                 continue
             if agent.get("name", "").strip().lower() == name_lower:
                 if agent.get("status") == "Busy":

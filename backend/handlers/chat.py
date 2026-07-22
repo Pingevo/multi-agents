@@ -2028,7 +2028,7 @@ async def on_message(message: cl.Message):
                 has_existing = False
                 used_agent_ids = set()
                 for spec in agent_specs:
-                    resource = manager.check_resources(spec, registry)
+                    resource = manager.check_resources(spec, registry, team_id=cl.user_session.get("current_team_id"))
                     _debug(f"[DEBUG-PLAN] spec={spec.get('name','?')} role={spec.get('role','?')} resource_type={resource.get('type','?')}", flush=True)
                     if resource.get("type") == "existing":
                         _debug(f"[DEBUG-PLAN] existing match: {resource['agent'].get('name','?')} id={resource['agent'].get('id','?')} is_manager={resource['agent'].get('is_manager',False)} already_used={resource['agent'].get('id','?') in used_agent_ids}", flush=True)
@@ -2299,7 +2299,7 @@ async def on_message(message: cl.Message):
                 agents_for_plan = []
                 has_existing = False
                 for spec in agent_specs:
-                    resource = manager.check_resources(spec, registry)
+                    resource = manager.check_resources(spec, registry, team_id=cl.user_session.get("current_team_id"))
                     if resource["type"] == "existing":
                         existing_agent = resource["agent"]
                         merged = registry.to_spec(existing_agent)

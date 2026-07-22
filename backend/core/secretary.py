@@ -1022,7 +1022,7 @@ class CentralManager:
         return self._parse_agent_specs(response, user_input)
 
     def check_resources(
-        self, agent_spec: dict, registry: AgentRegistry
+        self, agent_spec: dict, registry: AgentRegistry, team_id: str | None = None
     ) -> dict:
         """
         เช็ค Registry ว่ามี Agent ที่ตรงกับ spec หรือไม่
@@ -1038,7 +1038,7 @@ class CentralManager:
 
         # 1) If LLM says reuse_existing, try name match only — no fallback
         if reuse_existing and spec_name:
-            existing = registry.find_by_name(spec_name)
+            existing = registry.find_by_name(spec_name, team_id=team_id)
             if existing and not existing.get("is_manager"):
                 return {"type": "existing", "agent": existing}
             # Not found by name — don't fallback to role/tools, create new
@@ -1046,13 +1046,13 @@ class CentralManager:
 
         # 2) If name matches an existing agent — only when reuse_existing is not explicitly False
         if spec_name and reuse_existing is not False:
-            existing = registry.find_by_name(spec_name)
+            existing = registry.find_by_name(spec_name, team_id=team_id)
             if existing and not existing.get("is_manager"):
                 return {"type": "existing", "agent": existing}
 
         # 3) Fallback: role/tools match (only when reuse_existing is False)
         existing = registry.find_idle_agent(
-            agent_spec.get("role", ""), agent_spec.get("tools", [])
+            agent_spec.get("role", ""), agent_spec.get("tools", []), team_id=team_id
         )
         if existing and not existing.get("is_manager"):
             return {"type": "existing", "agent": existing}
