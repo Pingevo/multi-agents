@@ -654,27 +654,8 @@ async def on_chat_start():
     messenger.current_session_id = current_session_id
     messenger._main_loop = asyncio.get_event_loop()
     cl.user_session.set("messenger", messenger)
-    await messenger.init(registry)
-    await messenger.set_status("Ready")
-    await messenger.reply_chat_sessions()
-    await messenger.reply_team_list(team_registry)
-    await messenger.reply_chat_history(current_session_id)
-    await messenger.reply_notifications()
 
-    # Restore plan approval state if last message is a pending plan
-    session = chat_store.get_session(current_session_id)
-    if session and session.get("messages"):
-        last_msg = session["messages"][-1]
-        if last_msg.get("messageType") == "plan" and last_msg.get("planStatus") == "pending":
-            cl.user_session.set("state", STATE_AWAITING_APPROVAL)
-            cl.user_session.set("current_agent_specs", last_msg.get("agentSpecs", []))
-            cl.user_session.set("current_input", last_msg.get("currentInput", ""))
-            pre_assigned = last_msg.get("modelAssignment", {})
-            if pre_assigned:
-                cl.user_session.set("pre_assigned_models", pre_assigned)
-            print(f"[DEBUG-RESTORE] Restored STATE_AWAITING_APPROVAL from pending plan", flush=True)
-
-    # Restore user settings from persisted session
+    # Restore user settings from persisted session (before init so team_id is available)
     settings = chat_store.get_settings(current_session_id)
     if settings.get("current_team_id"):
         cl.user_session.set("current_team_id", settings["current_team_id"])
@@ -692,6 +673,28 @@ async def on_chat_start():
     for key in ("ai_image_model", "ai_video_model", "ai_search_model", "ai_tts_model", "ai_stt_model", "ai_vision_model"):
         if settings.get(key):
             cl.user_session.set(key, settings[key])
+
+    # Now send initial state with team_id filtering
+    current_team_id = cl.user_session.get("current_team_id")
+    await messenger.init(registry, team_id=current_team_id)
+    await messenger.set_status("Ready")
+    await messenger.reply_chat_sessions(team_id=current_team_id)
+    await messenger.reply_team_list(team_registry)
+    await messenger.reply_chat_history(current_session_id)
+    await messenger.reply_notifications(team_id=current_team_id)
+
+    # Restore plan approval state if last message is a pending plan
+    session = chat_store.get_session(current_session_id)
+    if session and session.get("messages"):
+        last_msg = session["messages"][-1]
+        if last_msg.get("messageType") == "plan" and last_msg.get("planStatus") == "pending":
+            cl.user_session.set("state", STATE_AWAITING_APPROVAL)
+            cl.user_session.set("current_agent_specs", last_msg.get("agentSpecs", []))
+            cl.user_session.set("current_input", last_msg.get("currentInput", ""))
+            pre_assigned = last_msg.get("modelAssignment", {})
+            if pre_assigned:
+                cl.user_session.set("pre_assigned_models", pre_assigned)
+            print(f"[DEBUG-RESTORE] Restored STATE_AWAITING_APPROVAL from pending plan", flush=True)
 
     # Start background scheduler for recurring tasks
     scheduler = get_scheduler()
@@ -1051,6 +1054,7 @@ async def on_message(message: cl.Message):
             cl.user_session.set("conversation_history", [])
             await messenger.reply_chat_sessions(team_id=current_team_id)
             await messenger.reply_chat_history(session["id"])
+            await messenger.update_tasks(task_store, team_id=current_team_id)
             await messenger.reply_notifications(team_id=current_team_id)
         elif action_name == "switch_chat":
             session_id = payload.get("session_id", "")
@@ -1067,6 +1071,7 @@ async def on_message(message: cl.Message):
                 current_team_id = cl.user_session.get("current_team_id")
                 await messenger.reply_chat_sessions(team_id=current_team_id)
                 await messenger.reply_chat_history(session_id)
+                await messenger.update_tasks(task_store, team_id=current_team_id)
                 await messenger.reply_notifications(team_id=current_team_id)
                 # Restore plan approval state if last message is a pending plan
                 msgs = session.get("messages", [])
@@ -1108,7 +1113,7 @@ async def on_message(message: cl.Message):
                 messenger.current_session_id = new_s["id"]
             await messenger.reply_chat_sessions(team_id=current_team_id)
             await messenger.reply_chat_history(messenger.current_session_id)
-            await messenger.update_tasks(task_store)
+            await messenger.update_tasks(task_store, team_id=current_team_id)
             await messenger.reply_notifications(team_id=current_team_id)
             if draft_tasks:
                 await messenger.notify(f"🗑 ลบแชทและ {len(draft_tasks)} task ที่รอดำเนินการแล้ว")
@@ -1462,6 +1467,10 @@ async def on_message(message: cl.Message):
                     team_agents = registry.list_agents(team_id=team_id)
                     if messenger:
                         await messenger.update_agents(registry)
+                        task_store = cl.user_session.get("task_store")
+                        if task_store:
+                            await messenger.update_tasks(task_store, team_id=team_id)
+                        await messenger.reply_notifications(team_id=team_id)
             else:
                 # Going back to team list — show all sessions
                 if messenger:
