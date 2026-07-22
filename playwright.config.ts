@@ -44,13 +44,13 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: `${process.env.PYTHON_PATH || 'venv/bin/python'} tests/fake_llm_server.py --port ${fakeLlmPort}`,
+      command: `${process.env.PYTHON_PATH || 'python3'} tests/fake_llm_server.py --port ${fakeLlmPort}`,
       port: Number(fakeLlmPort),
       timeout: 10000,
       reuseExistingServer: true,
     },
     {
-      command: `${process.env.CHAINLIT_PATH || 'venv/bin/chainlit'} run app.py --port ${backendPort} --host 0.0.0.0`,
+      command: `${process.env.CHAINLIT_PATH || 'chainlit'} run app.py --port ${backendPort} --host 0.0.0.0`,
       port: Number(backendPort),
       timeout: 30000,
       reuseExistingServer: true,
