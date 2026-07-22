@@ -868,7 +868,7 @@ function AppContent() {
             });
             const data = await res.json();
             if (data.url) {
-              uploadedAttachments.push({ url: `${BACKEND_URL}${data.url}`, name: att.name, mime: att.mime });
+              uploadedAttachments.push({ url: data.url, name: att.name, mime: att.mime });
             } else {
               console.error('Upload failed:', data.error);
               uploadedAttachments.push(att);

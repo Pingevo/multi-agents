@@ -557,17 +557,37 @@ class StateMessenger:
         messages = session["messages"] if session else []
         canvas_state = self.chat_store.get_canvas_state(session_id) if session else None
         settings = self.chat_store.get_settings(session_id) if session else {}
+        migrated = [self._migrate_msg_urls(m) for m in messages]
         payload = {
             "type": "chat_reply",
             "payload": {
                 "messageType": "chat_history",
                 "sessionId": session_id,
-                "messages": messages,
+                "messages": migrated,
                 "canvasState": canvas_state,
                 "selectedModel": settings.get("selected_model", ""),
             },
         }
         await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
+
+    @staticmethod
+    def _migrate_msg_urls(msg: dict) -> dict:
+        """Convert absolute URLs in persisted messages to relative paths."""
+        import re
+        m = dict(msg)
+        url_fields = ("attachmentUrl", "imageUrl", "videoUrl", "audioUrl", "fileUrl")
+        for field in url_fields:
+            val = m.get(field)
+            if val and isinstance(val, str):
+                m[field] = re.sub(r'^https?://[^/]+(/public/.+)', r'\1', val)
+        atts = m.get("attachments")
+        if atts and isinstance(atts, list):
+            m["attachments"] = [
+                {**a, "url": re.sub(r'^https?://[^/]+(/public/.+)', r'\1', a["url"])}
+                if a.get("url") and isinstance(a["url"], str) else a
+                for a in atts
+            ]
+        return m
 
     async def reply_chat_sessions(self, team_id: str | None = None):
         """Send list of chat sessions, optionally filtered by team"""

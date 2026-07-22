@@ -310,7 +310,7 @@ html,body{height:100%;overflow:hidden;font-family:var(--font);font-size:13px;col
 .card{
   background:var(--paper);border:1px solid var(--line);
   border-radius:var(--r);margin-top:6px;overflow:hidden;
-  max-width:100%;min-width:0
+  max-width:100%;min-width:200px
 }
 .card-hdr{
   display:flex;align-items:center;gap:6px;
@@ -323,7 +323,7 @@ html,body{height:100%;overflow:hidden;font-family:var(--font);font-size:13px;col
   border-radius:var(--r-sm);font-weight:600;
   background:var(--cream2);color:var(--ink2)
 }
-.card-body{padding:8px 10px;font-size:11px;line-height:1.5;color:var(--ink2);overflow-wrap:anywhere;min-width:0}
+.card-body{padding:8px 10px;font-size:11px;line-height:1.5;color:var(--ink2);overflow-wrap:anywhere;min-width:200px}
 .card-footer{display:flex;gap:6px;padding:6px 10px;border-top:1px solid var(--line)}
 
 /* Buttons */
