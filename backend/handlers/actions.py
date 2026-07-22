@@ -160,7 +160,7 @@ async def on_action_accept(action: cl.Action):
     current_task_id = cl.user_session.get("current_task_id")
     if task_store and current_task_id:
         task_store.update_task(current_task_id, status="running")
-        await messenger.update_tasks(task_store)
+        await messenger.update_tasks(task_store, team_id=cl.user_session.get("current_team_id"))
 
     # Check if this is a create_agents plan (only create agents, don't run task)
     plan_type = cl.user_session.get("current_plan_type") or ""
@@ -215,7 +215,7 @@ async def on_action_reject(action: cl.Action):
         task_store.delete_task(current_task_id)
         cl.user_session.set("current_task_id", None)
         if messenger:
-            await messenger.update_tasks(task_store)
+            await messenger.update_tasks(task_store, team_id=cl.user_session.get("current_team_id"))
 
     if messenger:
         messenger.update_plan_status("rejected")
@@ -732,9 +732,10 @@ async def on_action_delete_chat_session(action: cl.Action):
     task_store.detach_tasks_by_session(session_id)
 
     if messenger:
-        await messenger.reply_chat_sessions()
-        await messenger.update_tasks(task_store)
-        await messenger.reply_notifications()
+        _tid = cl.user_session.get("current_team_id")
+        await messenger.reply_chat_sessions(team_id=_tid)
+        await messenger.update_tasks(task_store, team_id=_tid)
+        await messenger.reply_notifications(team_id=_tid)
         # Switch to another session
         current_team_id = cl.user_session.get("current_team_id")
         remaining = chat_store.list_sessions(team_id=current_team_id, include_unassigned=True) if current_team_id else chat_store.list_sessions()

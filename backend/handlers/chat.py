@@ -93,7 +93,7 @@ async def execute_multi_agent_task(
             task_store.update_task(task_id, status="running", progress=0, agent=agent_names)
         else:
             await messenger.add_task(task_id, user_input, agent_names)
-        await messenger.update_tasks(task_store)
+        await messenger.update_tasks(task_store, team_id=cl.user_session.get("current_team_id"))
         messenger.log_history(task_id, user_input[:80], "User", "สั่งงาน: ", user_input[:200])
         messenger.log_history(task_id, user_input[:80], "Manager", "รับคำสั่ง สร้าง plan")
         initial_agents = [
@@ -366,7 +366,7 @@ async def execute_multi_agent_task(
             current_task_id = cl.user_session.get("current_task_id")
             if task_store and current_task_id:
                 task_store.update_task(current_task_id, status="review", progress=100)
-                await messenger.update_tasks(task_store)
+                await messenger.update_tasks(task_store, team_id=cl.user_session.get("current_team_id"))
     except Exception as e:
         tb = traceback.format_exc()
         print(f"[CREW ERROR] {_sanitize_error(e)}", flush=True)
@@ -668,7 +668,8 @@ async def on_chat_start():
         cl.user_session.set("selected_model", settings["selected_model"])
     else:
         # Fall back to manager agent's model from registry
-        for a in registry.list_agents():
+        _tid = cl.user_session.get("current_team_id")
+        for a in registry.list_agents(team_id=_tid):
             if a.get("is_manager") or a.get("role", "").lower() == "manager":
                 mgr_model = a.get("model", "")
                 if mgr_model:
@@ -1323,7 +1324,8 @@ async def on_message(message: cl.Message):
             # Sync: update manager agent's model in registry
             registry = cl.user_session.get("registry")
             if registry:
-                for a in registry.list_agents():
+                _tid = cl.user_session.get("current_team_id")
+                for a in registry.list_agents(team_id=_tid):
                     if a.get("is_manager") or a.get("role", "").lower() == "manager":
                         registry.update_agent(a["id"], {"model": model_id})
                         print(f"[DEBUG-MODEL-SYNC] Updated manager agent '{a.get('name')}' model → {model_id}", flush=True)
@@ -1798,7 +1800,7 @@ async def on_message(message: cl.Message):
                 # Use last task agents if available, otherwise use all registry agents
                 last_specs = cl.user_session.get("last_agent_specs") or []
                 last_result = cl.user_session.get("last_task_result") or ""
-                all_agents = registry.list_agents()
+                all_agents = registry.list_agents(team_id=cl.user_session.get("current_team_id"))
 
                 # Build agent list for analysis: prefer last task agents, fallback to registry
                 if last_specs:
@@ -2161,7 +2163,7 @@ async def on_message(message: cl.Message):
                         "images": [],
                     })
                     cl.user_session.set("current_task_id", task_entry["id"])
-                    await messenger.update_tasks(task_store)
+                    await messenger.update_tasks(task_store, team_id=cl.user_session.get("current_team_id"))
 
         except Exception as e:
             cl.user_session.set("state", STATE_IDLE)
@@ -2404,7 +2406,7 @@ async def on_message(message: cl.Message):
                         "images": [],
                     })
                     cl.user_session.set("current_task_id", task_entry["id"])
-                    await messenger.update_tasks(task_store)
+                    await messenger.update_tasks(task_store, team_id=cl.user_session.get("current_team_id"))
                 return
 
             # Fallback: treat as chat
