@@ -655,7 +655,9 @@ async def on_chat_start():
     # Restore conversation history from persisted session
     cl.user_session.set("conversation_history", _restore_conversation_history(current_session_id, chat_store))
 
-    messenger = StateMessenger(task_store=TaskStore(user_id=user_id), chat_store=chat_store, history_store=HistoryStore(user_id=user_id))
+    task_store = TaskStore(user_id=user_id)
+    cl.user_session.set("task_store", task_store)
+    messenger = StateMessenger(task_store=task_store, chat_store=chat_store, history_store=HistoryStore(user_id=user_id))
     messenger.current_session_id = current_session_id
     messenger._main_loop = asyncio.get_event_loop()
     cl.user_session.set("messenger", messenger)
