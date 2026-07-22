@@ -78,6 +78,8 @@ async def execute_multi_agent_task(
     """รัน Task กับหลาย Agent พร้อมกันใน Crew เดียว"""
     cl.user_session.set("state", STATE_EXECUTING)
     messenger = get_messenger()
+    if messenger:
+        messenger._main_loop = asyncio.get_event_loop()
     task_store = cl.user_session.get("task_store")
     task_id = cl.user_session.get("current_task_id") or str(uuid.uuid4())[:8]
     from backend.globals import _thread_local, user_prompt_ctx
@@ -650,6 +652,7 @@ async def on_chat_start():
 
     messenger = StateMessenger(task_store=TaskStore(user_id=user_id), chat_store=chat_store, history_store=HistoryStore(user_id=user_id))
     messenger.current_session_id = current_session_id
+    messenger._main_loop = asyncio.get_event_loop()
     cl.user_session.set("messenger", messenger)
     await messenger.init(registry)
     await messenger.set_status("Ready")

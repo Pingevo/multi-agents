@@ -1,5 +1,6 @@
 """StateMessenger — sends platform state to frontend via JSON messages."""
 
+import asyncio
 import json
 import os
 import requests
@@ -30,6 +31,7 @@ class StateMessenger:
         self.chat_store = chat_store or ChatStore()
         self.history_store = history_store or HistoryStore()
         self.current_session_id: str | None = None
+        self._main_loop: asyncio.AbstractEventLoop | None = None
         self.state = {
             "tasks": self.task_store.list_tasks(),
             "current_plan": None,
@@ -523,8 +525,20 @@ class StateMessenger:
         self.persist_message({"role": "assistant", "messageType": "tuning_proposal", "proposals": proposals})
 
     def log_history(self, task_id: str, task_title: str, actor: str, action: str, target: str = ""):
-        """Log a detailed audit entry for a task (no broadcast — fetched on-demand)."""
+        """Log a detailed audit entry and broadcast to frontend in real-time."""
         self.history_store.add_entry(task_id, task_title, actor, action, target)
+        self._broadcast_history()
+
+    def _broadcast_history(self):
+        """Schedule a reply_history() call on the event loop (works from async or thread context)."""
+        try:
+            loop = asyncio.get_running_loop()
+            asyncio.ensure_future(self.reply_history())
+        except RuntimeError:
+            if self._main_loop and self._main_loop.is_running():
+                self._main_loop.call_soon_threadsafe(
+                    lambda: asyncio.ensure_future(self.reply_history())
+                )
 
     async def reply_history(self, limit: int = 20):
         """Send task history logs to frontend."""
