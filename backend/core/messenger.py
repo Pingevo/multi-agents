@@ -702,7 +702,7 @@ class StateMessenger:
         }
         await self._send()
 
-    async def add_task(self, task_id: str, title: str, agent_name: str) -> dict:
+    async def add_task(self, task_id: str, title: str, agent_name: str, team_id: str | None = None) -> dict:
         task = {
             "id": task_id,
             "title": title,
@@ -710,10 +710,11 @@ class StateMessenger:
             "status": "running",
             "progress": 0,
             "result": "",
+            "team_id": team_id or "",
             "created_at": datetime.now().isoformat(),
         }
         self.task_store.add_task(task)
-        self.state["tasks"] = self.task_store.list_tasks()
+        self.state["tasks"] = self.task_store.get_tasks_by_team(team_id) if team_id else self.task_store.list_tasks()
         await self._send()
         return task
 
