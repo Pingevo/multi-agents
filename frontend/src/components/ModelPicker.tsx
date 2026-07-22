@@ -87,7 +87,7 @@ const isModelAllowed = (model: ModelCatalogEntry, mediaPicker: boolean = false):
 const isRoutingModel = (model: ModelCatalogEntry): boolean =>
   ROUTING_MODELS.includes(model.id);
 
-const isModelFree = (model: ModelCatalogEntry): boolean => {
+const isModelFree = (model: ModelCatalogEntry, mediaType?: string): boolean => {
   if (isRoutingModel(model)) return false;
   const prices = [
     parsePrice(model.prompt_price),
@@ -99,7 +99,23 @@ const isModelFree = (model: ModelCatalogEntry): boolean => {
   ];
   // Free only if all known prices are 0 (ignore unknown/null)
   const knownPrices = prices.filter((p): p is number => p !== null);
-  return knownPrices.length > 0 && knownPrices.every((p) => p === 0);
+  if (knownPrices.length === 0) return false;
+  if (!knownPrices.every((p) => p === 0)) return false;
+  // For media models, the media-specific price must also be known and 0
+  if (mediaType) {
+    const mediaPriceMap: Record<string, any> = {
+      image: model.image_price,
+      video: model.video_price,
+      search: model.web_search_price,
+      tts: model.audio_price,
+      stt: model.audio_price,
+    };
+    const mediaPrice = mediaPriceMap[mediaType];
+    const parsed = parsePrice(mediaPrice);
+    if (parsed === null) return false; // unknown media price → not free
+    if (parsed !== 0) return false;
+  }
+  return true;
 };
 
 const formatContext = (ctx: any): string => {
@@ -202,6 +218,7 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
 
   const isAdaptive = selectedModel === '' || selectedModel === 'adaptive';
+  const mediaType = isMediaPicker ? Object.keys(recommended)[0] : undefined;
   const selectedEntry = useMemo(() => {
     if (isAdaptive) return null;
     const all = Object.values(recommended).flat().concat(searchResults);
@@ -417,6 +434,7 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
                     isSelected={model.id === selectedModel}
                     onSelect={handleSelect}
                     onHover={setHoveredModel}
+                    mediaType={mediaType}
                   />
                 ));
               })()}
@@ -432,6 +450,7 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
                   isSelected={model.id === selectedModel}
                   onSelect={handleSelect}
                   onHover={setHoveredModel}
+                  mediaType={mediaType}
                 />
               ))}
             </div>
@@ -519,7 +538,7 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
                 </div>
               </div>
 
-              {isModelFree(previewModel) && (
+              {isModelFree(previewModel, mediaType) && (
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', padding: '2px 6px', borderRadius: '2px', background: 'rgba(90,122,74,0.15)', color: 'var(--green)', fontSize: '9px' }}>
                   <Star size={10} />
                   Free model
@@ -552,7 +571,8 @@ const ModelRow: React.FC<{
   isSelected: boolean;
   onSelect: (id: string) => void;
   onHover: (model: ModelCatalogEntry | null) => void;
-}> = ({ model, isSelected, onSelect, onHover }) => {
+  mediaType?: string;
+}> = ({ model, isSelected, onSelect, onHover, mediaType }) => {
   const provider = getProvider(model.id);
 
   return (
@@ -586,7 +606,7 @@ const ModelRow: React.FC<{
       <span style={{ fontSize: '10px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{stripProviderPrefix(model.name)}</span>
       <div
         style={{ width: '5px', height: '5px', borderRadius: '50%', flexShrink: 0, backgroundColor: COST_TIER_COLORS[getModelCostTier(model)] }}
-        title={`Cost: ${isModelFree(model) ? 'Free' : formatPrice(getMaxPrice(model))}/1M`}
+        title={`Cost: ${isModelFree(model, mediaType) ? 'Free' : formatPrice(getMaxPrice(model))}/1M`}
       />
       {isSelected && <Check size={11} style={{ color: 'var(--orange)', flexShrink: 0 }} />}
     </button>

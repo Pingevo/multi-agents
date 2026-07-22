@@ -760,7 +760,13 @@ async def on_chat_start():
                     web_search_price = _convert(pricing.get("web_search", "?"))
                     all_prices = [prompt_price, comp_price, image_price, video_price, audio_price, web_search_price]
                     known_prices = [p for p in all_prices if isinstance(p, (int, float))]
-                    is_free = len(known_prices) > 0 and all(p == 0 for p in known_prices)
+                    # For media models, the media-specific price must be known and 0 to be free
+                    media_price_map = {"image": image_price, "video": video_price, "search": web_search_price, "tts": audio_price, "stt": audio_price, "vision": None}
+                    media_price = media_price_map.get(media_type)
+                    if media_price is not None:
+                        is_free = isinstance(media_price, (int, float)) and media_price == 0 and all(p == 0 for p in known_prices)
+                    else:
+                        is_free = len(known_prices) > 0 and all(p == 0 for p in known_prices)
                     entries.append({
                         "id": mid,
                         "name": name,
@@ -1277,7 +1283,13 @@ async def on_message(message: cl.Message):
                     web_search_price = _convert_media(pricing.get("web_search", "?"))
                     all_prices = [prompt_price, comp_price, image_price, video_price, audio_price, web_search_price]
                     known_prices = [p for p in all_prices if isinstance(p, (int, float))]
-                    is_free = len(known_prices) > 0 and all(p == 0 for p in known_prices)
+                    # For media models, the media-specific price must be known and 0 to be free
+                    media_price_map = {"image": image_price, "video": video_price, "search": web_search_price, "tts": audio_price, "stt": audio_price, "vision": None}
+                    media_price = media_price_map.get(media_type)
+                    if media_price is not None:
+                        is_free = isinstance(media_price, (int, float)) and media_price == 0 and all(p == 0 for p in known_prices)
+                    else:
+                        is_free = len(known_prices) > 0 and all(p == 0 for p in known_prices)
                     entries.append({
                         "id": mid,
                         "name": m.get("name", mid),
