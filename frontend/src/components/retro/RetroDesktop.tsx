@@ -69,7 +69,7 @@ const windowConfig: Record<WindowId, { title: string; icon: string; width: numbe
 };
 
 const DesktopInner: React.FC<RetroDesktopProps> = (props) => {
-  const { windows, activeWindowId, openWindow, closeWindow, focusWindow, minimizeWindow, moveWindow, resizeWindow } = useWindowManager();
+  const { windows, activeWindowId, openWindow, closeWindow, focusWindow, minimizeWindow, toggleMaximize, moveWindow, resizeWindow } = useWindowManager();
   const [startMenuOpen, setStartMenuOpen] = useState(false);
 
   // Toast notifications — fire on real-time chat events
@@ -387,9 +387,11 @@ const DesktopInner: React.FC<RetroDesktopProps> = (props) => {
           zIndex={w.zIndex}
           active={activeWindowId === w.id}
           minimized={w.minimized}
+          maximized={w.maximized}
           onFocus={() => focusWindow(w.id)}
           onClose={() => closeWindow(w.id)}
           onMinimize={() => minimizeWindow(w.id)}
+          onMaximize={() => toggleMaximize(w.id)}
           onMove={(x, y) => moveWindow(w.id, x, y)}
           onResize={(width, height) => resizeWindow(w.id, width, height)}
         >

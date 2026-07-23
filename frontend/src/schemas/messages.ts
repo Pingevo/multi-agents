@@ -79,6 +79,7 @@ export type ChatMessageType =
 export interface ChatReplyText {
   messageType: 'text';
   message: string;
+  agentName?: string;
 }
 
 export interface ChatReplyPlan {

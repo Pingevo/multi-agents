@@ -308,14 +308,16 @@ const PlanFrame: React.FC<{
     })),
   [run.planAgents, run.runIndex]);
 
+  const planAgentNames = useMemo(() => new Set(planAgentsAsAgents.map(a => a.name)), [planAgentsAsAgents]);
+
   const doneCount = useMemo(() => {
     if (!run.progress) return 0;
-    return run.progress.filter(p => p.status === 'complete' || p.status === 'error').length;
-  }, [run.progress]);
+    return run.progress.filter(p => planAgentNames.has(p.name) && (p.status === 'complete' || p.status === 'error')).length;
+  }, [run.progress, planAgentNames]);
   const totalCount = planAgentsAsAgents.length;
 
   const overallProgress = run.progress
-    ? Math.round(run.progress.reduce((sum, p) => sum + (p.status === 'complete' ? 100 : p.progress || 0), 0) / Math.max(totalCount, 1))
+    ? Math.round(run.progress.filter(p => planAgentNames.has(p.name)).reduce((sum, p) => sum + (p.status === 'complete' ? 100 : p.progress || 0), 0) / Math.max(totalCount, 1))
     : run.result ? 100 : 0;
 
   const frameStatus = run.planStatus === 'pending' ? 'pending' : run.result ? 'done' : 'running';

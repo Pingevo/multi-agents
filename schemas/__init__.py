@@ -119,6 +119,7 @@ class ToolCatalogEntry(BaseModel):
 class ChatReplyText(BaseModel):
     messageType: Literal["text"] = "text"
     message: str = ""
+    agentName: str = ""
 
 
 class ChatReplyPlanValidationError(BaseModel):

@@ -107,6 +107,9 @@ async def execute_multi_agent_task(
             for s in agent_specs
         ]
         await messenger.reply_agent_progress(task_id, initial_agents)
+        # NOTE: reply_progress() is intentionally NOT called here — the progress card
+        # gets stuck showing "กำลังเริ่มทำงาน..." after the task completes.
+        # Progress is shown via agent_progress updates + TasksWindow instead.
 
     for spec in agent_specs:
         rid = spec.get("registry_id")
@@ -152,6 +155,7 @@ async def execute_multi_agent_task(
         if messenger and not pre_assigned:
             await messenger.notify(f"⚙️ กำลังกำหนด model ให้ {len(agent_specs)} agents...")
         if messenger:
+            await messenger.reply_progress(0, "กำลังเริ่มทำงาน...", progress_id=task_id)
             await messenger.notify("🔥 Crew เริ่มทำงานแล้ว — รอผลลัพธ์...")
         print(f"[DEBUG-EXEC] Calling orchestrator.run_async...", flush=True)
         result = await orchestrator.run_async(user_input, agent_specs, pre_assigned_models=pre_assigned, task_id=task_id, task_title=user_input[:80], messenger=messenger)
@@ -313,6 +317,18 @@ async def execute_multi_agent_task(
                     f"✅ งานเสร็จสมบูรณ์ ({len(agent_specs)} agents)",
                     agent_outputs,
                 )
+
+            # Send each agent's output as a separate chat bubble (skip Manager —
+            # Manager's summary is sent via messenger.reply below).
+            # This replaces the old ResultCard which was removed because it
+            # duplicated agent bubbles and caused UI issues.
+            for agent_out in agent_outputs:
+                agent_name = agent_out.get("name", "")
+                if agent_name == "Manager":
+                    continue
+                output_text = agent_out.get("output", "") or ""
+                if output_text and len(output_text) > 10:
+                    await messenger.reply_agent_output(agent_name, output_text[:4000])
 
             # Send AI response only if Manager is NOT already in agent_outputs (avoid duplicate)
             has_manager_in_outputs = any(a.get("name") == "Manager" for a in agent_outputs)
@@ -2004,6 +2020,26 @@ async def on_message(message: cl.Message):
                         _debug(f"[DEBUG-PLAN] agent: {s.get('name', '?')} role={s.get('role', '?')} tools={s.get('tools', [])} model={s.get('model', '?')} depends_on={s.get('depends_on', [])}", flush=True)
                 if not agent_specs:
                     raise ValueError("AI ไม่สามารถวิเคราะห์แผนงานได้")
+
+                # Auto-detect: if user wants visual output but no agent has generate_image, auto-add it
+                _image_keywords = ['poster', 'image', 'picture', 'graphic', 'illustration', 'banner',
+                                   'thumbnail', 'logo', 'infographic', 'ภาพ', 'โปสเตอร์', 'กราฟิก',
+                                   'รูป', 'แบนเนอร์', 'ภาพประกอบ']
+                _user_lower = user_input.lower()
+                _needs_image = any(kw in _user_lower for kw in _image_keywords)
+                _has_image_tool = any('generate_image' in str(s.get('tools', [])) for s in agent_specs)
+                if _needs_image and not _has_image_tool:
+                    _target_idx = 0
+                    for i, s in enumerate(agent_specs):
+                        _role = (s.get('role', '') + ' ' + s.get('name', '')).lower()
+                        if any(kw in _role for kw in ['design', 'creative', 'artist', 'graphic', 'visual', 'ออกแบบ', 'กราฟิก', 'ศิลป์']):
+                            _target_idx = i
+                            break
+                    _tools = agent_specs[_target_idx].get('tools', [])
+                    if 'generate_image' not in _tools:
+                        _tools.append('generate_image')
+                        agent_specs[_target_idx]['tools'] = _tools
+                        _debug(f"[DEBUG-AUTO-TOOL] Auto-added generate_image to agent '{agent_specs[_target_idx].get('name', '?')}'", flush=True)
 
                 # Store model_assignment for run_async to skip assign_models
                 cl.user_session.set("pre_assigned_models", model_assignment)

@@ -372,6 +372,14 @@ class CentralManager:
             "- If an agent has generate_image in tools, its task_description MUST explicitly say 'Call generate_image to create N images of [specific subject]' — not 'design images' or 'create visual concepts'.\n"
             "- Agents with media tools (generate_image, generate_video) MUST call those tools as part of their work. Writing image/video prompts as text output is NOT acceptable — the agent must CALL the tool.\n\n"
 
+            "CRITICAL — Tool Assignment Rules:\n"
+            "- If the user asks to CREATE/GENERATE/MAKE any visual output (poster, image, picture, graphic, illustration, banner, thumbnail, logo, infographic, ภาพ, โปสเตอร์, กราฟิก, รูป, แบนเนอร์), you MUST assign 'generate_image' to at least one agent's tools.\n"
+            "- If the user asks to CREATE/GENERATE video content, you MUST assign 'generate_video' to at least one agent's tools.\n"
+            "- If the user asks to analyze/examine an image, you MUST assign 'analyze_image' to at least one agent's tools.\n"
+            "- If the user asks to generate a document/report/file, you MUST assign 'generate_document' to at least one agent's tools.\n"
+            "- Writing text descriptions of images or prompts WITHOUT calling generate_image is NOT acceptable when the user wants actual images.\n"
+            "- When in doubt about whether a tool is needed, assign it — it is better to have the tool and not use it than to lack it.\n\n"
+
             f"Available capabilities:\n{caps_text}\n\n"
             f"{history_text}"
             f"{last_task_text}"

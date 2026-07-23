@@ -267,6 +267,7 @@ const parseChatReply = (message: any): Omit<ChatMessage, 'id' | 'timestamp'> | n
         role: 'assistant',
         content: (p as any).message || '',
         messageType: 'text',
+        agentName: (p as any).agentName || '',
       };
     }
   } catch {
@@ -541,6 +542,7 @@ function AppContent() {
     socket.on('disconnect', (reason) => {
       console.log('Socket disconnected:', reason);
       setConnectionStatus('disconnected');
+      // Socket.IO will auto-reconnect (reconnection: true is set above)
     });
 
     socket.on('reconnect', (attempt) => {
@@ -798,7 +800,7 @@ function AppContent() {
   const sendMessage = useCallback((output: string) => {
     const socket = socketRef.current;
     if (!socket || !socket.connected) {
-      console.error('Socket not connected');
+      console.warn('Socket not connected (sendMessage)');
       return;
     }
     setThinkingText('');
@@ -820,7 +822,7 @@ function AppContent() {
   const sendAction = useCallback((name: string, payload?: Record<string, any>) => {
     const socket = socketRef.current;
     if (!socket || !socket.connected) {
-      console.error('Socket not connected');
+      console.warn('Socket not connected (sendAction)');
       return;
     }
     const message = {
@@ -836,7 +838,7 @@ function AppContent() {
   const sendAIModalMessage = useCallback((message: string) => {
     const socket = socketRef.current;
     if (!socket || !socket.connected) {
-      console.error('Socket not connected');
+      console.warn('Socket not connected (sendAIModalMessage)');
       return;
     }
     const prefixed = `__mode:plan__\n${message}`;

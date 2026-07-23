@@ -11,22 +11,31 @@ interface RetroWindowProps {
   zIndex: number;
   active: boolean;
   minimized: boolean;
+  maximized: boolean;
   onFocus: () => void;
   onClose: () => void;
   onMinimize: () => void;
+  onMaximize: () => void;
   onMove: (x: number, y: number) => void;
   onResize: (width: number, height: number) => void;
   children: ReactNode;
 }
 
 export const RetroWindow: React.FC<RetroWindowProps> = ({
-  title, icon, x, y, width, height, zIndex, active, minimized,
-  onFocus, onClose, onMinimize, onMove, onResize, children,
+  title, icon, x, y, width, height, zIndex, active, minimized, maximized,
+  onFocus, onClose, onMinimize, onMaximize, onMove, onResize, children,
 }) => {
   const [dragging, setDragging] = useState(false);
   const [resizing, setResizing] = useState(false);
+  const [viewport, setViewport] = useState({ w: window.innerWidth, h: window.innerHeight });
   const dragStart = useRef({ x: 0, y: 0, winX: 0, winY: 0 });
   const resizeStart = useRef({ x: 0, y: 0, w: 0, h: 0 });
+
+  useEffect(() => {
+    const onResize = () => setViewport({ w: window.innerWidth, h: window.innerHeight });
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   const handleDragStart = useCallback((e: React.MouseEvent) => {
     if (e.target !== e.currentTarget && (e.target as HTMLElement).closest('.win-btn')) return;
@@ -76,12 +85,18 @@ export const RetroWindow: React.FC<RetroWindowProps> = ({
 
   if (minimized) return null;
 
+  const SIDEBAR_W = 90;
+  const TASKBAR_H = 40;
+  const maxStyle = maximized
+    ? { left: SIDEBAR_W, top: 0, width: viewport.w - SIDEBAR_W, height: viewport.h - TASKBAR_H }
+    : { left: x, top: y, width, height };
+
   return (
     <div
       className={`absolute flex flex-col overflow-hidden bg-paper border border-line-2 rounded-retro ${
         active ? 'shadow-retro-active' : 'shadow-retro-lg'
       }`}
-      style={{ left: x, top: y, width, height, zIndex }}
+      style={{ ...maxStyle, zIndex }}
       onMouseDown={onFocus}
     >
       {/* Title bar */}
@@ -99,6 +114,12 @@ export const RetroWindow: React.FC<RetroWindowProps> = ({
             _
           </button>
           <button
+            className="win-btn w-5 h-5 border border-line-2 bg-paper rounded-retro-sm text-[10px] flex items-center justify-center text-ink-2 hover:bg-cream hover:border-ink-3 transition-colors"
+            onClick={(e) => { e.stopPropagation(); onMaximize(); }}
+          >
+            {maximized ? '❐' : '□'}
+          </button>
+          <button
             className="win-btn close w-5 h-5 border border-line-2 bg-paper rounded-retro-sm text-[10px] flex items-center justify-center text-ink-2 hover:bg-red hover:text-white hover:border-red transition-colors"
             onClick={(e) => { e.stopPropagation(); onClose(); }}
           >
@@ -112,13 +133,15 @@ export const RetroWindow: React.FC<RetroWindowProps> = ({
         {children}
       </div>
 
-      {/* Resize handle */}
-      <div
-        className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize z-10"
-        onMouseDown={handleResizeStart}
-      >
-        <div className="absolute bottom-[3px] right-[3px] w-2 h-2 border-r-2 border-b-2 border-ink-3 hover:border-orange" />
-      </div>
+      {/* Resize handle — hidden when maximized */}
+      {!maximized && (
+        <div
+          className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize z-10"
+          onMouseDown={handleResizeStart}
+        >
+          <div className="absolute bottom-[3px] right-[3px] w-2 h-2 border-r-2 border-b-2 border-ink-3 hover:border-orange" />
+        </div>
+      )}
     </div>
   );
 };

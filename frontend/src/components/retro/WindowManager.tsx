@@ -8,6 +8,7 @@ interface WindowManagerContextValue {
   closeWindow: (id: string) => void;
   focusWindow: (id: string) => void;
   minimizeWindow: (id: string) => void;
+  toggleMaximize: (id: string) => void;
   moveWindow: (id: string, x: number, y: number) => void;
   resizeWindow: (id: string, width: number, height: number) => void;
 }
@@ -29,7 +30,7 @@ export const WindowManagerProvider: React.FC<{ children: ReactNode }> = ({ child
         const cx = Math.max(0, (window.innerWidth - width) / 2);
         const cy = Math.max(0, (window.innerHeight - height) / 2);
         setActiveWindowId(id);
-        return prev.map(w => w.id === id ? { ...w, minimized: false, zIndex: z, x: cx, y: cy, width, height } : w);
+        return prev.map(w => w.id === id ? { ...w, minimized: false, maximized: false, zIndex: z, x: cx, y: cy, width, height } : w);
       }
       // New window: center on screen
       const cx = Math.max(0, (window.innerWidth - width) / 2);
@@ -71,9 +72,13 @@ export const WindowManagerProvider: React.FC<{ children: ReactNode }> = ({ child
     setWindows(prev => prev.map(w => w.id === id ? { ...w, width, height } : w));
   }, []);
 
+  const toggleMaximize = useCallback((id: string) => {
+    setWindows(prev => prev.map(w => w.id === id ? { ...w, maximized: !w.maximized } : w));
+  }, []);
+
   return (
     <WindowManagerContext.Provider value={{
-      windows, activeWindowId, openWindow, closeWindow, focusWindow, minimizeWindow, moveWindow, resizeWindow,
+      windows, activeWindowId, openWindow, closeWindow, focusWindow, minimizeWindow, toggleMaximize, moveWindow, resizeWindow,
     }}>
       {children}
     </WindowManagerContext.Provider>

@@ -999,7 +999,7 @@ class ExecutionOrchestrator:
                         for idx in pending_review:
                             name = agent_specs[idx].get("name", f"Agent {idx+1}")
                             role = agent_specs[idx].get("role", "")
-                            goal = agent_specs[idx].get("goal", "")
+                            goal = agent_specs[idx].get("task_description", agent_specs[idx].get("goal", ""))
                             state = agent_review_state[idx]
                             _send_progress_for_agent(idx, "awaiting_review", state["current_output"][:8000],
                                 review_round=state["retry_count"] + 1,

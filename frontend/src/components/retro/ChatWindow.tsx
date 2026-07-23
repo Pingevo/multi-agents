@@ -487,7 +487,10 @@ const ImageApprovalCard: React.FC<{
         {msg.imageError ? (
           <div style={{ color: 'var(--red)', fontSize: '11px' }}>⚠ {msg.imageError}</div>
         ) : (
-          <div className="img-prompt">{msg.imagePrompt || ''}</div>
+          <div>
+            <div style={{ fontSize: '10px', color: 'var(--ink3)', marginBottom: '4px' }}>Prompt สำหรับสร้างภาพ:</div>
+            <div className="img-prompt" style={{ whiteSpace: 'pre-wrap', maxHeight: '120px', overflowY: 'auto' }}>{msg.imagePrompt || ''}</div>
+          </div>
         )}
         {msg.model && (
           <div className="img-model-sel" style={{ marginBottom: '4px' }}>
@@ -953,12 +956,16 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
         />
       );
     }
+    // return null — progress card gets stuck showing "กำลังเริ่มทำงาน..." after task completes;
+    // progress is shown via agent bubbles + button state + TasksWindow instead
     if (msgType === 'progress') {
       return null;
     }
     if (msgType === 'agent_progress') {
       return null;
     }
+    // return null — result card duplicates agent bubbles in chat;
+    // result data goes to Storyboard/TasksWindow only (reply_result is persist-only)
     if (msgType === 'result') {
       return null;
     }

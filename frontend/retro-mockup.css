@@ -620,7 +620,7 @@ html,body{height:100%;overflow:hidden;font-family:var(--font);font-size:13px;col
 .kcard{
   background:var(--paper);border:1px solid var(--line);
   border-radius:var(--r);padding:8px 10px;
-  display:flex;align-items:center;gap:8px;transition:.15s
+  display:flex;align-items:center;gap:8px;transition:.15s;flex-wrap:wrap
 }
 .kcard:hover{border-color:var(--line2);box-shadow:var(--shadow)}
 .kcard-av{
@@ -638,7 +638,7 @@ html,body{height:100%;overflow:hidden;font-family:var(--font);font-size:13px;col
 .kcard-av.waiting{border-color:var(--red)}
 .kcard-av.idle{border-color:var(--line2);opacity:.5}
 @keyframes spin{to{transform:rotate(360deg)}}
-.kcard-name{font-size:11px;font-weight:600;color:var(--ink);flex:1;min-width:0}
+.kcard-name{font-size:11px;font-weight:600;color:var(--ink);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .kcard-badge{
   font-size:9px;font-weight:600;padding:2px 8px;border-radius:var(--r-sm);
   flex-shrink:0

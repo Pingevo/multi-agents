@@ -337,7 +337,9 @@ class StateMessenger:
                 self.chat_store._save()
 
     async def reply_result(self, summary: str, agents: list[dict] | None = None, is_error: bool = False):
-        """Persist a result card for Storyboard/TasksWindow — no longer sent to chat."""
+        # persist-only — result card duplicates agent bubbles in chat;
+        # result data goes to Storyboard/TasksWindow only.
+        # Agent outputs are sent to chat separately via reply_agent_output.
         result_agents = [
             ResultAgentItem(
                 name=a.get("name", ""),
@@ -347,6 +349,15 @@ class StateMessenger:
             for a in (agents or [])
         ]
         self.persist_message({"role": "assistant", "messageType": "result", "resultSummary": summary, "resultError": is_error, "resultAgents": [a.model_dump() for a in result_agents]})
+
+    async def reply_agent_output(self, agent_name: str, output: str):
+        # Send agent output as a FeedAgentMessage bubble in chat.
+        # This replaces the old ResultCard approach — each agent's output
+        # appears as a separate chat bubble with the agent's name, instead of
+        # a single result card that duplicated agent bubbles.
+        payload = chat_reply(ChatReplyText(message=output, agentName=agent_name))
+        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
+        self.persist_message({"role": "assistant", "content": output, "messageType": "text", "agentName": agent_name})
 
     async def reply_image_approval(self, prompt: str, approval_id: str, agent_name: str = "", media_type: str = "image", duration: int = 0, model: str = "", approval_status: str = "pending", image_error: str = ""):
         """Send a media approval card — user must approve before generation"""
