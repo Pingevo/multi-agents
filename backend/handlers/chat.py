@@ -300,7 +300,7 @@ async def execute_multi_agent_task(
             # Post-execution validation: ensure agents used their assigned tools
             from backend.core.tool_validator import validate_tool_usage
             image_model = cl.user_session.get("ai_image_model") or ""
-            validate_tool_usage(agent_specs, agent_outputs, _g._media_tool_results, image_model=image_model)
+            await validate_tool_usage(agent_specs, agent_outputs, _g._media_tool_results, image_model=image_model, llm_manager=llm_manager)
 
             # Re-sort after validation may have added new results
             sorted_results = sorted(_g._media_tool_results, key=lambda r: (0 if r.get("type") == "image" else 1, _day_sort_key(r)))
@@ -695,9 +695,41 @@ async def on_chat_start():
 
             # 10c: Add result message if session has stopped agent_progress but no result
             # — frontend needs a terminal message to set isProcessing = false
+            # 10e: Also extract agent outputs from agent_progress and create agent_output
+            # bubbles — when user stops normally, chat.py sends reply_agent_output for
+            # each agent. Without this, restart shows no output bubbles (unlike stop).
             if has_stopped_agent_progress:
+                # Check for existing agent output bubbles (messageType=text with agentName)
+                has_agent_bubbles = any(
+                    m.get("messageType") == "text" and m.get("agentName")
+                    for m in msgs
+                )
+                # Extract agent outputs from agent_progress if no bubbles exist yet
+                if not has_agent_bubbles:
+                    agent_output_msgs = []
+                    for m in msgs:
+                        if m.get("messageType") == "agent_progress":
+                            task_id = m.get("taskId", "")
+                            if task_id in stopped_task_ids:
+                                for a in m.get("agents", []):
+                                    output_text = (a.get("output", "") or "").strip()
+                                    agent_name = a.get("name", "Agent")
+                                    if output_text and len(output_text) > 10:
+                                        agent_output_msgs.append({
+                                            "role": "assistant",
+                                            "content": output_text,
+                                            "messageType": "text",
+                                            "agentName": agent_name,
+                                        })
+                    if agent_output_msgs:
+                        modified = True
+
+                # Add result message if missing — frontend needs terminal message to clear isProcessing
                 has_result = any(m.get("messageType") == "result" for m in msgs)
                 if not has_result:
+                    # Insert agent output bubbles before result message
+                    if agent_output_msgs:
+                        msgs.extend(agent_output_msgs)
                     msgs.append({
                         "role": "assistant",
                         "messageType": "result",
@@ -706,6 +738,11 @@ async def on_chat_start():
                         "resultError": False,
                     })
                     modified = True
+                elif agent_output_msgs:
+                    # Result exists but bubbles don't — insert bubbles before result
+                    result_idx = next((i for i, m in enumerate(msgs) if m.get("messageType") == "result"), len(msgs))
+                    for j, bubble in enumerate(agent_output_msgs):
+                        msgs.insert(result_idx + j, bubble)
 
             if modified:
                 session["messages"] = msgs
@@ -985,12 +1022,16 @@ async def on_message(message: cl.Message):
                             approval_status="error",
                             image_error=error_msg,
                         )
+                        # Refresh notifications so error status is reflected
+                        await messenger.reply_notifications(team_id=cl.user_session.get("current_team_id"))
                     else:
                         print(f"[APPROVE] Image generated successfully: {result[:80]}", flush=True)
                         await messenger.reply_image_result(result, prompt, approval_id, task_id=task_id, media_type=media_type, agent_name=pending.get('agent_name', ''))
                         print(f"[APPROVE] reply_image_result sent", flush=True)
                         if task_id:
                             await messenger.update_task_image(task_id, result, prompt, media_type=media_type, team_id=cl.user_session.get("current_team_id"))
+                        # Refresh notifications so the approval moves from "pending" to "completed" tab
+                        await messenger.reply_notifications(team_id=cl.user_session.get("current_team_id"))
                         # Keep pending_media for regenerate after success
                 except Exception as e:
                     _debug(f"[DEBUG-APPROVE] Error: {_sanitize_error(e)}", flush=True)

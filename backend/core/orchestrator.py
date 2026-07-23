@@ -694,6 +694,7 @@ class ExecutionOrchestrator:
                     f"- If an agent has QUALITY CRITERIA listed above, check EACH criterion one by one and REJECT if any is not met\n"
                     f"- If an agent has an EXPECTED OUTPUT FORMAT listed above, REJECT if the output does not follow that format\n"
                     f"- APPROVE only if the output contains concrete, specific information that fully addresses the user's request and follows the required format\n"
+                    f"- If an agent wrote a detailed prompt for creating media (image/video/document) but didn't produce the actual file, APPROVE — the system will generate the media automatically after review. Only REJECT if the output has NO usable prompt AND no actual content.\n"
                     f"- feedback must be specific: tell the agent exactly what details to add or fix, including which sections are missing\n"
                     f"- summary should be concise: e.g. 'รอบ 1: งานยังไม่ครบ ขาดสรุป — สั่งแก้' or 'รอบ 2: ครบ ตรงโจทย์ — ผ่าน'\n"
                 )

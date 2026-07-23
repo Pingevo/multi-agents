@@ -52,8 +52,8 @@ export const tasksToPlans = (tasks: Task[], agents: Agent[]): PlanData[] => {
       ? Math.round((doneCount / taskAgents.length) * 100)
       : task.progress || 0;
 
-    const status = task.status === 'complete' ? 'done' : task.status === 'running' ? 'running' : 'pending';
-    const statusTextVal = status === 'done' ? 'เสร็จสิ้น' : status === 'running' ? 'กำลังทำงาน' : 'รออนุมัติ';
+    const status = task.status === 'complete' ? 'done' : task.status === 'running' ? 'running' : task.status === 'stopped' ? 'done' : 'pending';
+    const statusTextVal = status === 'done' ? (task.status === 'stopped' ? 'หยุดแล้ว' : 'เสร็จสิ้น') : status === 'running' ? 'กำลังทำงาน' : 'รออนุมัติ';
 
     return {
       id: task.id,
