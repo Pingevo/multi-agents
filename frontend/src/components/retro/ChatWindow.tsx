@@ -956,11 +956,13 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
         />
       );
     }
-    // return null — progress card gets stuck showing "กำลังเริ่มทำงาน..." after task completes;
-    // progress is shown via agent bubbles + button state + TasksWindow instead
+    // Progress card — shows live progress during execution.
+    // Previously return null to fix "stuck at กำลังเริ่มทำงาน..." bug, but the real fix
+    // is updating progress via reply_progress() in orchestrator as agents complete.
     if (msgType === 'progress') {
-      return null;
+      return <FeedProgress key={msg.id} label={msg.progressLabel || 'กำลังทำงาน...'} onViewProgress={onViewTasks} />;
     }
+    // agent_progress updates go to Storyboard only — not shown as chat bubbles
     if (msgType === 'agent_progress') {
       return null;
     }

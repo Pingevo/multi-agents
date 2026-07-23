@@ -69,6 +69,10 @@ from schemas import (
 def get_messenger() -> StateMessenger:
     return cl.user_session.get("messenger")
 
+# Max characters for agent output sent to chat — replaces scattered magic numbers (4000/6000/8000)
+# that caused output to be truncated mid-sentence. 50000 is safe for WebSocket transport.
+MAX_OUTPUT_CHARS = 50000
+
 
 async def execute_multi_agent_task(
     user_input: str,
@@ -180,7 +184,7 @@ async def execute_multi_agent_task(
                     "role": spec.get("role", ""),
                     "status": "complete",
                     "progress": 100,
-                    "output": (out.get("output", "") or "")[:6000],
+                    "output": (out.get("output", "") or "")[:MAX_OUTPUT_CHARS],
                     "model": spec.get("model", ""),
                 })
             # Add Manager as complete in final progress so frontend stops showing "Synthesizing"
@@ -191,7 +195,7 @@ async def execute_multi_agent_task(
                     "role": "Project Manager",
                     "status": "complete",
                     "progress": 100,
-                    "output": (manager_output.get("output", "") or "")[:8000],
+                    "output": (manager_output.get("output", "") or "")[:MAX_OUTPUT_CHARS],
                     "model": "",
                 })
             await messenger.reply_agent_progress(task_id, final_agents)
@@ -318,25 +322,17 @@ async def execute_multi_agent_task(
                     agent_outputs,
                 )
 
-            # Send each agent's output as a separate chat bubble (skip Manager —
-            # Manager's summary is sent via messenger.reply below).
-            # This replaces the old ResultCard which was removed because it
-            # duplicated agent bubbles and caused UI issues.
+            # Send each agent's output as a separate chat bubble — including Manager.
+            # Manager output is sent as a regular chat bubble via reply_agent_output,
+            # same as other agents. This replaces the old ResultCard which was removed
+            # because it duplicated agent bubbles and caused UI issues.
             for agent_out in agent_outputs:
                 agent_name = agent_out.get("name", "")
-                if agent_name == "Manager":
-                    continue
                 output_text = agent_out.get("output", "") or ""
                 if output_text and len(output_text) > 10:
-                    await messenger.reply_agent_output(agent_name, output_text[:4000])
+                    await messenger.reply_agent_output(agent_name, output_text[:MAX_OUTPUT_CHARS])
 
-            # Send AI response only if Manager is NOT already in agent_outputs (avoid duplicate)
-            has_manager_in_outputs = any(a.get("name") == "Manager" for a in agent_outputs)
-            if raw_output and len(raw_output) > 20 and not raw_output.strip().startswith("{") and not has_manager_in_outputs:
-                await messenger.reply(raw_output[:4000])
-                messenger.log_history(task_id, user_input[:80], "Manager", "สรุปผล: ", raw_output[:200], team_id=cl.user_session.get("current_team_id") or "")
-
-            # Now send approval cards after AI response
+            # Now send approval cards after agent output bubbles
             for media_result, idx in pending_approval_cards:
                 await _send_approval_card(media_result, idx)
                 messenger.log_history(task_id, user_input[:80], media_result.get("agent_name", "Agent"), f"ส่ง approval card ({media_result.get('type', 'image')}): ", media_result.get("prompt", "")[:200], team_id=cl.user_session.get("current_team_id") or "")

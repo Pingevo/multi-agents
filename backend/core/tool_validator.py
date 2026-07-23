@@ -37,14 +37,32 @@ def _extract_image_prompt_from_svg(output: str) -> str | None:
 
 
 def _extract_image_prompt_from_text(output: str) -> str | None:
-    """Try to extract an image prompt from agent text output using multiple patterns."""
+    """Try to extract an image prompt from agent text output using multiple patterns.
+    
+    Handles both English and Thai-language output — agents often write analysis in Thai
+    but the image prompt itself is in English (inside code blocks, quotes, or after labels).
+    """
     patterns = [
+        # English code block with prompt
         r'```\s*\n([A-Za-z][^`]{20,})\n```',
+        # "Prompt:" or "Image Prompt:" label (English)
         r'Prompt[:\s]+([A-Za-z][^\n]{20,})',
         r'[Ii]mage [Pp]rompt[:\s]+([A-Za-z][^\n]{20,})',
+        # Thai labels followed by English prompt: "พรอมต์ภาพ:" "คำสั่งภาพ:" "prompt ภาพ:"
+        r'พรอมต์ภาพ[:\s]+([A-Za-z][^\n]{20,})',
+        r'คำสั่งภาพ[:\s]+([A-Za-z][^\n]{20,})',
+        r'prompt ภาพ[:\s]+([A-Za-z][^\n]{20,})',
+        r'Prompt ภาพ[:\s]+([A-Za-z][^\n]{20,})',
+        # Thai label with colon then English text on same line
+        r'โปสเตอร์[:\s]*([A-Za-z][^\n]{20,})',
+        # Quoted English text (long enough to be a prompt)
         r'"([A-Z][^"]{30,})"',
+        # Bold English text
         r'\*\*([A-Z][^*]{30,})\*\*',
+        # generate_image tool call with prompt argument
         r'generate_image\([^)]*"([^"]{20,})"',
+        # "English prompt for image:" style
+        r'[Pp]rompt\s+(?:for\s+)?(?:image|poster|picture)[:\s]+([A-Za-z][^\n]{20,})',
     ]
     for pattern in patterns:
         match = re.search(pattern, output)
@@ -56,10 +74,17 @@ def _extract_image_prompt_from_text(output: str) -> str | None:
 
 
 def _extract_video_prompt_from_text(output: str) -> str | None:
-    """Try to extract a video prompt from agent text output."""
+    """Try to extract a video prompt from agent text output.
+    
+    Handles Thai-language output where the video prompt itself is in English.
+    """
     patterns = [
         r'"name"\s*:\s*"generate_video"\s*,\s*"arguments"\s*:\s*\{[^}]*"prompt"\s*:\s*"([^"]+)"',
         r'[Vv]ideo [Pp]rompt[:\s]+([A-Za-z][^\n]{20,})',
+        # Thai labels for video prompt
+        r'พรอมต์วิดีโอ[:\s]+([A-Za-z][^\n]{20,})',
+        r'คำสั่งวิดีโอ[:\s]+([A-Za-z][^\n]{20,})',
+        r'prompt วิดีโอ[:\s]+([A-Za-z][^\n]{20,})',
         r'generate_video\([^)]*"([^"]{20,})"',
     ]
     for pattern in patterns:

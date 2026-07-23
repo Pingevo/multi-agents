@@ -337,8 +337,8 @@ class StateMessenger:
                 self.chat_store._save()
 
     async def reply_result(self, summary: str, agents: list[dict] | None = None, is_error: bool = False):
-        # persist-only — result card duplicates agent bubbles in chat;
-        # result data goes to Storyboard/TasksWindow only.
+        # Send result via WebSocket so Storyboard receives run.result (stops "Combining all agent outputs..." spinner).
+        # ChatWindow returns null for 'result' messageType — no duplicate card in chat.
         # Agent outputs are sent to chat separately via reply_agent_output.
         result_agents = [
             ResultAgentItem(
@@ -348,6 +348,12 @@ class StateMessenger:
             )
             for a in (agents or [])
         ]
+        payload = chat_reply(ChatReplyResult(
+            resultSummary=summary,
+            resultError=is_error,
+            resultAgents=result_agents,
+        ))
+        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
         self.persist_message({"role": "assistant", "messageType": "result", "resultSummary": summary, "resultError": is_error, "resultAgents": [a.model_dump() for a in result_agents]})
 
     async def reply_agent_output(self, agent_name: str, output: str):

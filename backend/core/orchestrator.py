@@ -32,6 +32,10 @@ from backend.credit_logger import log_llm_call
 
 MAX_REVIEW_RETRIES = int(os.environ.get("MAX_REVIEW_RETRIES", "3"))
 
+# Max characters for agent output in progress updates — replaces scattered [:8000] magic numbers.
+# Large enough to avoid truncating meaningful output; WebSocket can handle this size.
+MAX_OUTPUT_CHARS = 50000
+
 
 # --- LLM call logging context (shared between CrewAI events and litellm callback) ---
 _llm_call_context: dict[str, str] = {}
@@ -261,7 +265,7 @@ class ExecutionOrchestrator:
             if idx >= 0:
                 output_raw = ""
                 if hasattr(event, "output") and event.output:
-                    output_raw = getattr(event.output, "raw", str(event.output))[:8000]
+                    output_raw = getattr(event.output, "raw", str(event.output))[:MAX_OUTPUT_CHARS]
                 if _has_media_tool(idx):
                     _merge_and_send({idx: {"status": "waiting_approval", "progress": 100, "current_task": "", "current_tool": "", "tool_description": "", "output": output_raw}})
                 else:
@@ -602,7 +606,7 @@ class ExecutionOrchestrator:
                     self._agent_state[idx]["status"] = status
                     self._agent_state[idx]["progress"] = 100 if status in ("complete", "error", "awaiting_review") else 0
                     if output_text:
-                        self._agent_state[idx]["output"] = output_text[:8000]
+                        self._agent_state[idx]["output"] = output_text[:MAX_OUTPUT_CHARS]
                     if review_round is not None:
                         self._agent_state[idx]["review_round"] = review_round
                     if review_summary is not None:
@@ -612,10 +616,23 @@ class ExecutionOrchestrator:
                     if review_history is not None:
                         self._agent_state[idx]["review_history"] = review_history
                     progress = self._build_progress({}, self._agent_state)
+                    # Update chat progress card — calculate overall percent from completed agents
+                    # so the card updates live instead of staying stuck at "กำลังเริ่มทำงาน..."
+                    completed = sum(1 for s in self._agent_state.values() if s.get("status") in ("complete", "error"))
+                    overall_pct = int((completed / max(len(agent_specs), 1)) * 100) if agent_specs else 0
+                    _prog_id = task_id or ""
                 _ctx = self._ctx
                 _loop = self._main_loop
                 _cb = self._agent_progress_callback
                 _loop.call_soon_threadsafe(lambda p=progress: _loop.create_task(_async_progress_callback(_cb, p), context=_ctx))
+                # Update chat progress card via reply_progress — uses update-in-place by progress_id
+                if _hist_messenger and _loop and _ctx:
+                    def _schedule_prog_update():
+                        _loop.create_task(
+                            _hist_messenger.reply_progress(overall_pct, f"ดำเนินการ {overall_pct}% — {completed}/{len(agent_specs)} agents เสร็จ", progress_id=_prog_id),
+                            context=_ctx,
+                        )
+                    _loop.call_soon_threadsafe(_schedule_prog_update)
 
             async def _batch_manager_review(agents_data, retry_count):
                 """Manager LLM reviews multiple agent outputs in one call.
@@ -632,6 +649,15 @@ class ExecutionOrchestrator:
                         f"Task: {a['goal']}\n"
                         f"Output:\n{a['output']}\n"
                     )
+                    # Include agent-specific tools so Manager can check if they were used
+                    agent_tools = a.get("tools", [])
+                    if agent_tools:
+                        agents_section += f"ASSIGNED TOOLS for {a['name']}: {', '.join(agent_tools)}\n"
+                        agents_section += (
+                            f"CRITICAL: If this agent has tools assigned but the output only contains text/analysis "
+                            f"without calling the tools, REJECT and tell the agent to USE the tools. "
+                            f"For example, if generate_image is assigned but no image was produced, REJECT.\n"
+                        )
                     # Include agent-specific quality criteria if set
                     qc = a.get("quality_criteria", "")
                     if qc:
@@ -776,6 +802,15 @@ class ExecutionOrchestrator:
                     if context_parts:
                         feedback_prompt += f"\n\n[UPSTREAM CONTEXT]\n" + "\n\n".join(context_parts)
                 feedback_prompt += f"\n\n[MANAGER FEEDBACK]\n{feedback}"
+                # Remind agent of assigned tools — if agent has tools but didn't call them,
+                # it must use them this time instead of producing text-only output.
+                agent_tools = agent_specs[idx].get("tools", [])
+                if agent_tools:
+                    feedback_prompt += (
+                        f"\n\n[TOOL REMINDER] You have these tools available: {', '.join(agent_tools)}. "
+                        f"You MUST use them to produce the actual deliverable. "
+                        f"Do NOT produce text-only output — call the tools to generate the required output."
+                    )
                 tasks[idx] = self.agent_factory.create_task(
                     agents[idx], agent_specs[idx], feedback_prompt,
                     agent_memory=agent_memory,
@@ -846,7 +881,7 @@ class ExecutionOrchestrator:
                                 name = agent_specs[i].get("name", f"Agent {i+1}")
                                 st = agent_review_state[i]
                                 approved_outputs[name] = st["current_output"]
-                                _send_progress_for_agent(i, "complete", st["current_output"][:8000],
+                                _send_progress_for_agent(i, "complete", st["current_output"][:MAX_OUTPUT_CHARS],
                                     review_summary="Cancelled — output approved without review")
                                 done_indices.add(i)
                         continue
@@ -862,7 +897,7 @@ class ExecutionOrchestrator:
                             err_str = str(result)
                             _debug(f"[DEBUG-SCHED] Agent {name} failed: {_sanitize_error(result)}", flush=True)
                             agent_outputs[i] = {"name": name, "role": role, "output": f"Error: {err_str}"}
-                            _send_progress_for_agent(i, "error", err_str[:8000])
+                            _send_progress_for_agent(i, "error", err_str[:MAX_OUTPUT_CHARS])
                             approved_outputs[name] = f"Error: {err_str}"
                             done_indices.add(i)
                         else:
@@ -898,7 +933,7 @@ class ExecutionOrchestrator:
                                         if state_ph["retry_count"] >= tmpl_review_iters:
                                             print(f"[DEBUG-SCHED] Agent '{name}' hit max retries on template validation — force approving", flush=True)
                                             approved_outputs[name] = output_text
-                                            _send_progress_for_agent(i, "complete", output_text[:8000],
+                                            _send_progress_for_agent(i, "complete", output_text[:MAX_OUTPUT_CHARS],
                                                 review_round=state_ph["retry_count"] + 1,
                                                 review_summary="ครบ retry สูงสุด — ใช้ output ปัจจุบัน (template check ไม่ผ่าน)",
                                                 review_history=state_ph["review_history"])
@@ -923,7 +958,7 @@ class ExecutionOrchestrator:
                                             )
                                             if isinstance(rerun_result, Exception):
                                                 approved_outputs[name] = f"Error: {rerun_output}"
-                                                _send_progress_for_agent(i, "error", rerun_output[:8000])
+                                                _send_progress_for_agent(i, "error", rerun_output[:MAX_OUTPUT_CHARS])
                                                 done_indices.add(i)
                                                 del agent_review_state[i]
                                             else:
@@ -954,7 +989,7 @@ class ExecutionOrchestrator:
                                 state = agent_review_state[idx]
                                 approved_outputs[name] = state["current_output"]
                                 agent_outputs[idx] = state["current_result"]
-                                _send_progress_for_agent(idx, "complete", state["current_output"][:8000],
+                                _send_progress_for_agent(idx, "complete", state["current_output"][:MAX_OUTPUT_CHARS],
                                     review_round=state["retry_count"] + 1,
                                     review_summary="หยุดโดยผู้ใช้ — ใช้ output ปัจจุบัน",
                                     review_history=state["review_history"])
@@ -980,7 +1015,7 @@ class ExecutionOrchestrator:
                                 })
                                 approved_outputs[name] = state["current_output"]
                                 agent_outputs[idx] = state["current_result"]
-                                _send_progress_for_agent(idx, "complete", state["current_output"][:8000],
+                                _send_progress_for_agent(idx, "complete", state["current_output"][:MAX_OUTPUT_CHARS],
                                     review_round=state["retry_count"] + 1,
                                     review_summary="User หยุดตรวจ — ใช้ output ปัจจุบัน",
                                     review_history=state["review_history"])
@@ -1001,7 +1036,7 @@ class ExecutionOrchestrator:
                             role = agent_specs[idx].get("role", "")
                             goal = agent_specs[idx].get("task_description", agent_specs[idx].get("goal", ""))
                             state = agent_review_state[idx]
-                            _send_progress_for_agent(idx, "awaiting_review", state["current_output"][:8000],
+                            _send_progress_for_agent(idx, "awaiting_review", state["current_output"][:MAX_OUTPUT_CHARS],
                                 review_round=state["retry_count"] + 1,
                                 review_history=state["review_history"])
                             agents_data.append({
@@ -1012,6 +1047,7 @@ class ExecutionOrchestrator:
                                 "output": state["current_output"],
                                 "quality_criteria": agent_specs[idx].get("quality_criteria", ""),
                                 "output_format": agent_specs[idx].get("output_format", ""),
+                                "tools": agent_specs[idx].get("tools", []),
                             })
 
                         # Determine wave retry count (max of all pending)
@@ -1043,7 +1079,7 @@ class ExecutionOrchestrator:
                             if review["approved"]:
                                 approved_outputs[name] = state["current_output"]
                                 agent_outputs[idx] = state["current_result"]
-                                _send_progress_for_agent(idx, "complete", state["current_output"][:8000],
+                                _send_progress_for_agent(idx, "complete", state["current_output"][:MAX_OUTPUT_CHARS],
                                     review_round=state["retry_count"] + 1,
                                     review_summary=review["summary"],
                                     review_history=state["review_history"])
@@ -1057,7 +1093,7 @@ class ExecutionOrchestrator:
                                     print(f"[DEBUG-SCHED] Agent '{name}' hit max retries ({agent_review_iters}) — force approving", flush=True)
                                     approved_outputs[name] = state["current_output"]
                                     agent_outputs[idx] = state["current_result"]
-                                    _send_progress_for_agent(idx, "complete", state["current_output"][:8000],
+                                    _send_progress_for_agent(idx, "complete", state["current_output"][:MAX_OUTPUT_CHARS],
                                         review_round=state["retry_count"] + 1,
                                         review_summary=f"ครบจำนวน retry สูงสุด ({agent_review_iters}) — ใช้ output ปัจจุบัน",
                                         review_history=state["review_history"])
@@ -1091,7 +1127,7 @@ class ExecutionOrchestrator:
                                     state = agent_review_state[idx]
                                     approved_outputs[name] = state["current_output"]
                                     agent_outputs[idx] = state["current_result"]
-                                    _send_progress_for_agent(idx, "complete", state["current_output"][:8000],
+                                    _send_progress_for_agent(idx, "complete", state["current_output"][:MAX_OUTPUT_CHARS],
                                         review_round=state["retry_count"] + 1,
                                         review_summary="หยุดโดยผู้ใช้ — ใช้ output ปัจจุบัน",
                                         review_history=state["review_history"])
@@ -1120,7 +1156,7 @@ class ExecutionOrchestrator:
                                 if isinstance(result, Exception):
                                     err_str = str(result)
                                     agent_outputs[idx] = {"name": name, "role": role, "output": f"Error: {err_str}"}
-                                    _send_progress_for_agent(idx, "error", err_str[:8000])
+                                    _send_progress_for_agent(idx, "error", err_str[:MAX_OUTPUT_CHARS])
                                     approved_outputs[name] = f"Error: {err_str}"
                                     done_indices.add(idx)
                                     del agent_review_state[idx]
@@ -1165,7 +1201,7 @@ class ExecutionOrchestrator:
                     progress[i]["status"] = "complete"
                     progress[i]["progress"] = 100
                     if i < len(agent_outputs):
-                        progress[i]["output"] = (agent_outputs[i].get("output", "") or "")[:8000]
+                        progress[i]["output"] = (agent_outputs[i].get("output", "") or "")[:MAX_OUTPUT_CHARS]
                     # Preserve review_history from agent_state
                     if i in self._agent_state:
                         progress[i]["review_history"] = self._agent_state[i].get("review_history", [])
@@ -1271,7 +1307,7 @@ class ExecutionOrchestrator:
                     progress[i]["status"] = "complete"
                     progress[i]["progress"] = 100
                     if i < len(agent_outputs) - 1:  # exclude manager output (last entry)
-                        progress[i]["output"] = (agent_outputs[i].get("output", "") or "")[:8000]
+                        progress[i]["output"] = (agent_outputs[i].get("output", "") or "")[:MAX_OUTPUT_CHARS]
                     if i in self._agent_state:
                         progress[i]["review_history"] = self._agent_state[i].get("review_history", [])
                         progress[i]["review_round"] = self._agent_state[i].get("review_round", 0)
@@ -1281,7 +1317,7 @@ class ExecutionOrchestrator:
                     "role": "Project Manager",
                     "status": "complete",
                     "progress": 100,
-                    "output": clean_manager_output[:8000],
+                    "output": clean_manager_output[:MAX_OUTPUT_CHARS],
                     "current_task": "Review complete",
                 })
                 ctx = self._ctx
