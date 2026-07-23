@@ -649,16 +649,10 @@ class ExecutionOrchestrator:
                         f"Task: {a['goal']}\n"
                         f"Output:\n{a['output']}\n"
                     )
-                    # Include agent-specific tools so Manager can check if they were used
-                    agent_tools = a.get("tools", [])
-                    if agent_tools:
-                        agents_section += f"ASSIGNED TOOLS for {a['name']}: {', '.join(agent_tools)}\n"
-                        agents_section += (
-                            f"CRITICAL: If this agent has tools assigned but the output only contains text/analysis "
-                            f"without calling the tools, REJECT and tell the agent to USE the tools. "
-                            f"For example, if generate_image is assigned but no image was produced, REJECT.\n"
-                        )
                     # Include agent-specific quality criteria if set
+                    # Note: Tool-related checks are handled by tool_validator post-review,
+                    # so Manager prompt does NOT mention tools — this prevents Manager from
+                    # rejecting agents for missing media when it's not their responsibility.
                     qc = a.get("quality_criteria", "")
                     if qc:
                         agents_section += f"QUALITY CRITERIA for {a['name']} (MUST check all):\n{qc}\n"
@@ -695,9 +689,8 @@ class ExecutionOrchestrator:
                     f'[{{"name": "agent name", "approved": true/false, "feedback": "specific feedback if not approved, empty if approved", "summary": "1-2 sentence summary in Thai"}}]\n\n'
                     f"Rules:\n"
                     f"- REJECT if the output is vague, generic, or lacks specific details (names, numbers, dates, sources) that the task requires\n"
-                    f"- REJECT if the output mentions tools but doesn't show actual results from using them\n"
-                    f"- REJECT if the output is too brief or doesn't address the user's actual question\n"
-                    f"- REJECT if any specific requirement from the user's original request is not addressed in the output — check each requirement one by one\n"
+                    f"- REJECT if the output is too brief or doesn't address the agent's own task/goal\n"
+                    f"- REJECT if the agent's OWN task/goal is not fully addressed — evaluate against the agent's specific task, NOT the overall user request\n"
                     f"- If an agent has QUALITY CRITERIA listed above, check EACH criterion one by one and REJECT if any is not met\n"
                     f"- If an agent has an EXPECTED OUTPUT FORMAT listed above, REJECT if the output does not follow that format\n"
                     f"- APPROVE only if the output contains concrete, specific information that fully addresses the user's request and follows the required format\n"
@@ -1178,6 +1171,16 @@ class ExecutionOrchestrator:
             # Filter None (shouldn't happen but safe)
             agent_outputs = [o for o in agent_outputs if o is not None]
             print(f"[DEBUG-SCHED] All agents completed. {len(agent_outputs)} agent outputs collected.", flush=True)
+
+            # Bug 7: If user cancelled, skip Manager synthesis LLM call — it takes 5-15s
+            # and user already stopped. Just return outputs with a simple summary.
+            if cl.user_session.get("cancel_generation"):
+                print(f"[DEBUG-SCHED] Cancelled — skipping Manager synthesis", flush=True)
+                return {
+                    "raw": "หยุดโดยผู้ใช้ — แสดงผลลัพธ์ที่ทำเสร็จแล้ว",
+                    "agent_outputs": agent_outputs,
+                    "agent_memories": agent_memories,
+                }
 
             # Manager synthesizes all outputs — pull config from registry
             _debug(f"[DEBUG-PARALLEL] Manager synthesizing {len(agent_outputs)} outputs", flush=True)

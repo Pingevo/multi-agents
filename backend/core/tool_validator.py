@@ -11,6 +11,23 @@ long text instead of generate_document), this module:
 import re
 
 
+def _is_english_prompt(text: str) -> bool:
+    """Check if text is predominantly English/ASCII — image prompts should be in English.
+    
+    Returns True if >60% of characters are ASCII (excluding whitespace).
+    This filters out Thai text that gets incorrectly matched by regex patterns
+    (e.g. "USB-C PD สำหรับ iPhone..." starts with English but is mostly Thai).
+    """
+    stripped = text.strip()
+    if not stripped:
+        return False
+    non_ws = [c for c in stripped if not c.isspace()]
+    if not non_ws:
+        return False
+    ascii_count = sum(1 for c in non_ws if ord(c) < 128)
+    return (ascii_count / len(non_ws)) > 0.6
+
+
 def _strip_svg(output: str) -> str:
     """Remove SVG/HTML markup from agent output text."""
     cleaned = re.sub(r'<svg[\s\S]*?</svg>', '', output, flags=re.IGNORECASE)
@@ -68,7 +85,7 @@ def _extract_image_prompt_from_text(output: str) -> str | None:
         match = re.search(pattern, output)
         if match:
             prompt = match.group(1).strip()
-            if len(prompt) > 10:
+            if len(prompt) > 10 and _is_english_prompt(prompt):
                 return prompt
     return None
 
@@ -91,7 +108,7 @@ def _extract_video_prompt_from_text(output: str) -> str | None:
         match = re.search(pattern, output)
         if match:
             prompt = match.group(1).strip()
-            if len(prompt) > 10:
+            if len(prompt) > 10 and _is_english_prompt(prompt):
                 return prompt
     return None
 

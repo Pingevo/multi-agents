@@ -488,6 +488,18 @@ function AppContent() {
           return updated;
         }
       }
+      // Update existing image_approval message by approvalId instead of appending
+      // — when status changes (pending→approved/rejected/error), update the same card in-place
+      if (msg.messageType === 'image_approval' && msg.approvalId) {
+        const existingIdx = prev.findIndex(
+          (m) => m.messageType === 'image_approval' && m.approvalId === msg.approvalId
+        );
+        if (existingIdx >= 0) {
+          const updated = [...prev];
+          updated[existingIdx] = { ...updated[existingIdx], ...msg, id: updated[existingIdx].id, timestamp: updated[existingIdx].timestamp };
+          return updated;
+        }
+      }
       return [...prev, { ...msg, id: generateUUIDv4(), timestamp: Date.now() }];
     });
   }, []);
@@ -683,9 +695,9 @@ function AppContent() {
         addChatMessage(reply);
         clearActivity();
 
-        // Refresh credits after any LLM activity or during agent progress
-        if (reply.messageType === 'agent_progress' || reply.messageType === 'progress' ||
-            reply.messageType === 'result' || reply.messageType === 'text' ||
+        // Refresh credits only on terminal events — 'progress' and 'agent_progress' excluded
+        // because they fire frequently during execution and cause unnecessary Taskbar re-renders/blinking
+        if (reply.messageType === 'result' || reply.messageType === 'text' ||
             reply.messageType === 'plan') {
           sendAction('refresh_credits');
         }
@@ -699,6 +711,8 @@ function AppContent() {
           setIsThinking(false);
           if (reply.messageType === 'result') {
             updateState({ current_plan: null });
+            // Remove progress card — task is complete, no need to show "ดำเนินการ X%" anymore
+            setChatMessages(prev => prev.filter(m => m.messageType !== 'progress'));
           }
         }
 

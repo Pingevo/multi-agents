@@ -206,12 +206,14 @@ async def execute_multi_agent_task(
                 output_preview = (out.get("output", "") or "")[:200]
                 messenger.log_history(task_id, user_input[:80], agent_name, "ทำงานเสร็จ: ", output_preview, team_id=cl.user_session.get("current_team_id") or "")
 
+            # Bug 9: Use 'stopped' status when user cancelled — not 'complete'
+            was_cancelled = cl.user_session.get("cancel_generation") or False
             cl.run_sync(
                 messenger.update_task(
                     task_id,
                     team_id=cl.user_session.get("current_team_id"),
                     progress=100,
-                    status="complete",
+                    status="stopped" if was_cancelled else "complete",
                     result=raw_output,
                     agent_outputs=agent_outputs,
                     agent_progress=final_agents,
@@ -336,6 +338,9 @@ async def execute_multi_agent_task(
             for media_result, idx in pending_approval_cards:
                 await _send_approval_card(media_result, idx)
                 messenger.log_history(task_id, user_input[:80], media_result.get("agent_name", "Agent"), f"ส่ง approval card ({media_result.get('type', 'image')}): ", media_result.get("prompt", "")[:200], team_id=cl.user_session.get("current_team_id") or "")
+
+            # Send notifications so NotificationsWindow shows pending media approvals
+            await messenger.reply_notifications(team_id=cl.user_session.get("current_team_id"))
 
             # Update task status to review (user can review results)
             task_store = cl.user_session.get("task_store")
@@ -639,6 +644,77 @@ async def on_chat_start():
 
     task_store = TaskStore(user_id=user_id)
     cl.user_session.set("task_store", task_store)
+
+    # Clean up stale tasks: any task still marked "running" from a previous session
+    # is stale because backend restarted — no process is actually executing it.
+    # Mark as "stopped" so UI doesn't show it as still working.
+    stopped_task_ids = set()
+    for t in task_store.tasks:
+        if t.get("status") == "running":
+            t["status"] = "stopped"
+            stopped_task_ids.add(t.get("id", ""))
+            print(f"[CHAT-START] Marked stale task {t.get('id', '?')} as stopped", flush=True)
+    task_store._save()
+
+    # Bug 10: Cleanup stale chat messages — make restart behave like user pressed stop.
+    # When backend crashes mid-execution, persisted chat messages still show agents as
+    # "running" and progress cards at 0%. This cleanup fixes all sessions for this user.
+    if stopped_task_ids:
+        for session in chat_store.sessions:
+            msgs = session.get("messages", [])
+            if not msgs:
+                continue
+            modified = False
+            has_stopped_agent_progress = False
+
+            # 10a: Update agent_progress messages for stopped tasks
+            for m in msgs:
+                if m.get("messageType") == "agent_progress":
+                    task_id = m.get("taskId", "")
+                    if task_id in stopped_task_ids:
+                        has_stopped_agent_progress = True
+                        agents = m.get("agents", [])
+                        for a in agents:
+                            if a.get("status") in ("running", "awaiting_review", "pending"):
+                                a["status"] = "complete"
+                                a["progress"] = 100
+                                a["review_summary"] = "หยุดโดยระบบ (backend restart)"
+                                modified = True
+                        m["overallProgress"] = 100
+                        m["agents"] = agents
+
+            # 10b: Remove progress messages that are < 100% (stale "กำลังทำงาน...")
+            msgs = [m for m in msgs if not (
+                m.get("messageType") == "progress" and
+                (m.get("progressPercent", 0) or 0) < 100
+            )]
+            # Check if we removed any
+            if len(msgs) < len(session.get("messages", [])):
+                modified = True
+                session["messages"] = msgs
+
+            # 10c: Add result message if session has stopped agent_progress but no result
+            # — frontend needs a terminal message to set isProcessing = false
+            if has_stopped_agent_progress:
+                has_result = any(m.get("messageType") == "result" for m in msgs)
+                if not has_result:
+                    msgs.append({
+                        "role": "assistant",
+                        "messageType": "result",
+                        "resultSummary": "หยุดโดยระบบ — แสดงผลลัพธ์ที่ทำเสร็จแล้ว",
+                        "resultAgents": [],
+                        "resultError": False,
+                    })
+                    modified = True
+
+            if modified:
+                session["messages"] = msgs
+                session["updated_at"] = datetime.now().isoformat()
+                print(f"[CHAT-START] Cleaned stale messages in session {session.get('id', '?')}", flush=True)
+
+        # 10d: Save all session changes
+        chat_store._save()
+
     messenger = StateMessenger(task_store=task_store, chat_store=chat_store, history_store=HistoryStore(user_id=user_id))
     messenger.current_session_id = current_session_id
     messenger._main_loop = asyncio.get_event_loop()
@@ -870,7 +946,7 @@ async def on_message(message: cl.Message):
             print(f"[APPROVE] approval_id={approval_id}, model_override={model_override}", flush=True)
             # Persist approval status so it survives refresh
             if messenger:
-                messenger.update_approval_status(approval_id, "approved")
+                await messenger.update_approval_status(approval_id, "approved")
             pending = cl.user_session.get(f"pending_media_{approval_id}")
             if pending and messenger:
                 prompt = pending["prompt"]
@@ -983,7 +1059,7 @@ async def on_message(message: cl.Message):
         elif action_name == "reject_image":
             approval_id = payload.get("approval_id", "")
             if messenger:
-                messenger.update_approval_status(approval_id, "rejected")
+                await messenger.update_approval_status(approval_id, "rejected")
                 await messenger.reply(f"❌ ยกเลิกการสร้างสื่อ (ID: {approval_id})")
                 cl.user_session.set(f"pending_media_{approval_id}", None)
                 await messenger.reply_notifications(team_id=cl.user_session.get("current_team_id"))

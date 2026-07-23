@@ -677,8 +677,13 @@ class StateMessenger:
                 self.chat_store._save()
                 break
 
-    def update_approval_status(self, approval_id: str, status: str):
-        """Update the approvalStatus of an image_approval message in the current session"""
+    async def update_approval_status(self, approval_id: str, status: str):
+        """Update the approvalStatus of an image_approval message and send WebSocket update.
+
+        Sends a new image_approval message with the updated status so the frontend
+        can update the existing card in-place (by approvalId) instead of creating a duplicate.
+        Same pattern as update_agent_review_status.
+        """
         if not self.current_session_id:
             return
         session = self.chat_store.get_session(self.current_session_id)
@@ -689,6 +694,18 @@ class StateMessenger:
             if msgs[i].get("messageType") == "image_approval" and msgs[i].get("approvalId") == approval_id:
                 msgs[i]["approvalStatus"] = status
                 self.chat_store._save()
+                # Send WebSocket message so frontend updates the card in-place
+                payload = chat_reply(ChatReplyImageApproval(
+                    imagePrompt=msgs[i].get("imagePrompt", ""),
+                    approvalId=approval_id,
+                    agentName=msgs[i].get("agentName", ""),
+                    mediaType=msgs[i].get("mediaType", "image"),
+                    duration=msgs[i].get("duration", 0),
+                    model=msgs[i].get("model", ""),
+                    approvalStatus=status,
+                    imageError=msgs[i].get("imageError", ""),
+                ))
+                await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
                 break
 
     async def clear_plan(self):
