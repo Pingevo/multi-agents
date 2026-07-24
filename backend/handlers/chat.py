@@ -99,7 +99,7 @@ async def execute_multi_agent_task(
         if existing_task:
             task_store.update_task(task_id, status="running", progress=0, agent=agent_names)
         else:
-            await messenger.add_task(task_id, user_input, agent_names, team_id=cl.user_session.get("current_team_id"))
+            await messenger.add_task(task_id, user_input[:60], agent_names, team_id=cl.user_session.get("current_team_id"))
         await messenger.update_tasks(task_store, team_id=cl.user_session.get("current_team_id"))
         messenger.log_history(task_id, user_input[:80], "User", "สั่งงาน: ", user_input[:200], team_id=cl.user_session.get("current_team_id") or "")
         messenger.log_history(task_id, user_input[:80], "Manager", "รับคำสั่ง สร้าง plan", team_id=cl.user_session.get("current_team_id") or "")

@@ -365,7 +365,36 @@ const parseChatSessionMessage = (message: any): { sessions: ChatSession[]; curre
           attachmentMime: m.attachmentMime,
           attachments: m.attachments || (m.attachmentUrl ? [{ url: m.attachmentUrl, name: m.attachmentName || '', mime: m.attachmentMime || '' }] : undefined),
         }));
-        return { messages, canvasState: p.canvasState || null, selectedModel: p.selectedModel || '' };
+
+        // Filter out transient progress messages — they're UI state, not conversation content.
+        // Without this, stale "ดำเนินการ 100%" cards reappear after refresh and block new progress cards
+        // (new task has different progressId so update-in-place won't find the old one).
+        const filtered = messages.filter((m: ChatMessage) =>
+          m.messageType !== 'progress' && m.messageType !== 'agent_progress'
+        );
+
+        // Merge image_result into image_approval card — same logic as live merge (App.tsx:708-717).
+        // Without this, refreshed image_approval cards show "กรุณารอสักครู่..." forever because
+        // backend persists approvalStatus="approved" (not "generated") and the merge only happens
+        // in-memory on live image_result arrivals, not on history restore.
+        for (const m of filtered) {
+          if (m.messageType === 'image_result' && m.approvalId) {
+            const approvalIdx = filtered.findIndex(
+              (am) => am.messageType === 'image_approval' && am.approvalId === m.approvalId
+            );
+            if (approvalIdx >= 0) {
+              filtered[approvalIdx] = {
+                ...filtered[approvalIdx],
+                imageUrl: m.imageUrl,
+                approvalStatus: 'generated',
+                mediaType: m.mediaType,
+                model: m.model,
+              };
+            }
+          }
+        }
+
+        return { messages: filtered, canvasState: p.canvasState || null, selectedModel: p.selectedModel || '' };
       }
 
       if (msgType === 'history_data') {
