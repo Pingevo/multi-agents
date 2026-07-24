@@ -3,6 +3,7 @@ import {
   Bot, CheckCircle, XCircle,
   Image as ImageIcon, Video, Volume2, FileText, Copy,
   Cpu, ChevronDown, Square, Pencil, Trash2, Check, X,
+  Loader2,
 } from 'lucide-react';
 import type {
   ChatMessage, ActivityEntry, ResultAgent, PlanAgent,
@@ -466,7 +467,33 @@ const ImageApprovalCard: React.FC<{
   if (status === 'approved') {
     return (
       <div className="card" style={{ borderLeft: '4px solid var(--green)' }}>
-        <div className="card-hdr"><CheckCircle size={14} style={{ color: 'var(--green)' }} /> <span>Image Approved</span></div>
+        <div className="card-hdr"><CheckCircle size={14} style={{ color: 'var(--green)' }} /> <span>Image Approved — กำลังสร้างภาพ...</span></div>
+        <div className="card-body" style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px' }}>
+          <Loader2 size={14} className="animate-spin" style={{ color: 'var(--ink3)' }} />
+          <span style={{ fontSize: '11px', color: 'var(--ink3)' }}>กรุณารอสักครู่...</span>
+        </div>
+      </div>
+    );
+  }
+  if (status === 'generated') {
+    // Merge: show generated image inline in the approval card — replaces separate ImageResultCard
+    return (
+      <div className="card" style={{ borderLeft: '4px solid var(--green)' }}>
+        <div className="card-hdr">
+          <ImageIcon size={14} style={{ color: 'var(--purple)' }} />
+          <span>Image Result — {msg.agentName || 'Agent'}</span>
+        </div>
+        <div className="card-body">
+          <div className="img-result">
+            {msg.mediaType === 'video' ? (
+              <video src={msg.imageUrl} controls style={{ width: '100%', border: '1px solid var(--line)', borderRadius: '3px' }} />
+            ) : (
+              <img src={msg.imageUrl} alt={msg.imagePrompt} style={{ width: '100%', border: '1px solid var(--line)', borderRadius: '3px' }} />
+            )}
+            <div className="ir-info">{msg.imagePrompt}</div>
+            {msg.model && <div className="ir-info">🤖 {msg.model}</div>}
+          </div>
+        </div>
       </div>
     );
   }
@@ -982,7 +1009,9 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
       );
     }
     if (msgType === 'image_result') {
-      return <ImageResultCard key={msg.id} msg={msg} onEditPrompt={onEditImagePrompt} />;
+      // image_result is merged into image_approval card by App.tsx (updates approvalStatus to 'generated')
+      // — return null here to avoid a duplicate separate card
+      return null;
     }
     if (msgType === 'model_catalog') { return null; }
     if (msgType === 'agent_review') {

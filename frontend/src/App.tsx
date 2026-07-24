@@ -447,6 +447,13 @@ function AppContent() {
 
   const addChatMessage = useCallback((msg: Omit<ChatMessage, 'id' | 'timestamp'>) => {
     setChatMessages((prev) => {
+      // Ignore progress messages that arrive after result —
+      // orchestrator schedules final 100% progress via call_soon_threadsafe
+      // which can arrive AFTER reply_result, re-adding the stuck card
+      if (msg.messageType === 'progress') {
+        const hasResult = prev.some(m => m.messageType === 'result');
+        if (hasResult) return prev;
+      }
       // Update existing progress message by progressId instead of appending
       if (msg.messageType === 'progress' && msg.progressId) {
         const existingIdx = prev.findIndex(
@@ -694,6 +701,21 @@ function AppContent() {
 
         addChatMessage(reply);
         clearActivity();
+
+        // Merge: when image_result arrives, update the existing image_approval card
+        // (by approvalId) with the imageUrl instead of creating a separate ImageResultCard.
+        // This eliminates the redundant second card — the approval card shows the result inline.
+        if (reply.messageType === 'image_result' && reply.approvalId) {
+          setChatMessages(prev => {
+            const idx = prev.findIndex(m => m.messageType === 'image_approval' && m.approvalId === reply.approvalId);
+            if (idx >= 0) {
+              const updated = [...prev];
+              updated[idx] = { ...updated[idx], imageUrl: reply.imageUrl, approvalStatus: 'generated' };
+              return updated;
+            }
+            return prev;
+          });
+        }
 
         // Refresh credits only on terminal events — 'progress' and 'agent_progress' excluded
         // because they fire frequently during execution and cause unnecessary Taskbar re-renders/blinking
@@ -1138,6 +1160,9 @@ function AppContent() {
     setIsThinking(false);
     isThinkingRef.current = false;
     addActivity('Stopped');
+    // Fix: remove progress cards from chat when user stops — without this, the progress card
+    // stays visible even though execution has stopped, making it look like the system is still working
+    setChatMessages(prev => prev.filter(m => m.messageType !== 'progress' && m.messageType !== 'agent_progress'));
   }, [sendMessage, addActivity]);
 
   if (authLoading) {

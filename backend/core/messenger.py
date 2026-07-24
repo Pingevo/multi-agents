@@ -367,8 +367,13 @@ class StateMessenger:
         await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
         self.persist_message({"role": "assistant", "content": output, "messageType": "text", "agentName": agent_name, "agentId": agent_id})
 
-    async def reply_image_approval(self, prompt: str, approval_id: str, agent_name: str = "", media_type: str = "image", duration: int = 0, model: str = "", approval_status: str = "pending", image_error: str = ""):
-        """Send a media approval card — user must approve before generation"""
+    async def reply_image_approval(self, prompt: str, approval_id: str, agent_name: str = "", media_type: str = "image", duration: int = 0, model: str = "", approval_status: str = "pending", image_error: str = "", task_session_id: str = ""):
+        """Send a media approval card — user must approve before generation.
+        
+        task_session_id: the session ID when the task was started. If the user has since
+        switched sessions, the WebSocket message is skipped (only persisted) to prevent
+        the card from appearing in the wrong session.
+        """
         payload = chat_reply(ChatReplyImageApproval(
             imagePrompt=prompt,
             approvalId=approval_id,
@@ -379,8 +384,18 @@ class StateMessenger:
             approvalStatus=approval_status,
             imageError=image_error,
         ))
-        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
-        self.persist_message({"role": "assistant", "messageType": "image_approval", "imagePrompt": prompt, "approvalId": approval_id, "agentName": agent_name, "mediaType": media_type, "duration": duration, "model": model, "approvalStatus": approval_status, "imageError": image_error})
+        # Fix: cl.Message().send() goes to the user's WebSocket regardless of session.
+        # If user switched sessions while task was running, only persist — don't send to WebSocket.
+        # The card will appear when the user navigates back to the original session via chat_history.
+        if task_session_id and self.current_session_id and task_session_id != self.current_session_id:
+            print(f"[DEBUG-APPROVAL] Skipping WebSocket send — user switched session (task={task_session_id}, current={self.current_session_id})", flush=True)
+        else:
+            await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
+        # Persist to the task's original session, not the current session
+        if task_session_id:
+            self.chat_store.add_message(task_session_id, {"role": "assistant", "messageType": "image_approval", "imagePrompt": prompt, "approvalId": approval_id, "agentName": agent_name, "mediaType": media_type, "duration": duration, "model": model, "approvalStatus": approval_status, "imageError": image_error})
+        else:
+            self.persist_message({"role": "assistant", "messageType": "image_approval", "imagePrompt": prompt, "approvalId": approval_id, "agentName": agent_name, "mediaType": media_type, "duration": duration, "model": model, "approvalStatus": approval_status, "imageError": image_error})
 
     async def reply_agent_review(self, review_id: str, task_id: str, agent_name: str, agent_role: str, output: str, review_status: str = "pending"):
         """Send a per-agent review card — user must approve before dependents can start"""

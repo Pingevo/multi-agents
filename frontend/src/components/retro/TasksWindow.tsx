@@ -522,7 +522,7 @@ export const TasksWindow: React.FC<TasksWindowProps> = ({
         <div key={`ot-${task.id}`} style={{ borderLeft: '3px solid var(--line)', paddingLeft: '6px', marginBottom: '6px', opacity: 0.6 }}>
           <div className="plan-frame" style={{ marginBottom: '0' }}>
             <div className="plan-frame-hdr">
-              <span className="pf-ic">�</span>
+              <span className="pf-ic">📋</span>
               <div className="pf-info">
                 <div className="pf-title">{task.input?.slice(0, 60) || task.title?.slice(0, 60) || 'งานไม่มีชื่อ'}</div>
                 <div className="pf-bar"><div className="pf-bar-fill" style={{ width: `${task.progress || 0}%` }} /></div>

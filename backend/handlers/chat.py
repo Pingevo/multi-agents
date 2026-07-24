@@ -86,6 +86,9 @@ async def execute_multi_agent_task(
         messenger._main_loop = asyncio.get_event_loop()
     task_store = cl.user_session.get("task_store")
     task_id = cl.user_session.get("current_task_id") or str(uuid.uuid4())[:8]
+    # Capture session ID at task start — used to prevent cross-session leak if user switches
+    # sessions while task is running. Approval cards should only appear in the original session.
+    _task_session_id = messenger.current_session_id if messenger else None
     from backend.globals import _thread_local, user_prompt_ctx
     _thread_local.user_prompt = user_input[:200]
     user_prompt_ctx.set(user_input[:200])
@@ -284,10 +287,12 @@ async def execute_multi_agent_task(
                     "media_type": media_type,
                     "duration": media_duration,
                 })
+                # Pass the session ID at task start — prevents cross-session leak if user switched sessions
                 await messenger.reply_image_approval(
                     media_prompt, approval_id, agent_name,
                     media_type=media_type, duration=media_duration,
-                    model=media_result.get("model", "")
+                    model=media_result.get("model", ""),
+                    task_session_id=_task_session_id or "",
                 )
 
             # Collect all approval cards data (don't send yet)
@@ -323,9 +328,8 @@ async def execute_multi_agent_task(
                 )
 
             # Send each agent's output as a separate chat bubble — including Manager.
-            # Manager output is sent as a regular chat bubble via reply_agent_output,
-            # same as other agents. This replaces the old ResultCard which was removed
-            # because it duplicated agent bubbles and caused UI issues.
+            # Outputs are sent here after Manager review is complete (or after user stops,
+            # in which case the orchestrator returns whatever outputs are available).
             for agent_out in agent_outputs:
                 agent_name = agent_out.get("name", "")
                 output_text = agent_out.get("output", "") or ""
@@ -587,10 +591,18 @@ def _build_last_task_context_from_chat_store(session_id: str, chat_store: ChatSt
         if isinstance(plan_agents, list):
             agent_specs = plan_agents
 
-    # Collect agent outputs (text messages with agentName between plan and result)
+    # Collect agent outputs (text messages with agentName between plan and next user message)
+    # Agent outputs are persisted AFTER result because chat.py calls reply_result before reply_agent_output,
+    # so we must search beyond result_idx — up to the next user message (or end of messages)
     agent_outputs = []
     start_idx = (plan_idx + 1) if plan_idx is not None else 0
-    for i in range(start_idx, result_idx):
+    # Find the next user message after result_idx — that marks the start of a new task
+    next_user_idx = len(messages)
+    for i in range(result_idx + 1, len(messages)):
+        if messages[i].get("role") == "user":
+            next_user_idx = i
+            break
+    for i in range(start_idx, next_user_idx):
         msg = messages[i]
         if msg.get("messageType") == "text" and msg.get("agentName"):
             agent_outputs.append({
@@ -1306,7 +1318,9 @@ async def on_message(message: cl.Message):
             cl.user_session.set("conversation_history", [])
             await messenger.reply_chat_sessions(team_id=current_team_id)
             await messenger.reply_chat_history(session["id"])
-            await messenger.update_tasks(task_store, team_id=current_team_id)
+            # Fix: task_store is not a local var in on_message scope — fetch from session
+            _ts = cl.user_session.get("task_store")
+            await messenger.update_tasks(_ts, team_id=current_team_id)
             await messenger.reply_notifications(team_id=current_team_id)
         elif action_name == "switch_chat":
             session_id = payload.get("session_id", "")
@@ -1323,7 +1337,9 @@ async def on_message(message: cl.Message):
                 current_team_id = cl.user_session.get("current_team_id")
                 await messenger.reply_chat_sessions(team_id=current_team_id)
                 await messenger.reply_chat_history(session_id)
-                await messenger.update_tasks(task_store, team_id=current_team_id)
+                # Fix: task_store is not a local var in on_message scope — fetch from session
+                _ts = cl.user_session.get("task_store")
+                await messenger.update_tasks(_ts, team_id=current_team_id)
                 await messenger.reply_notifications(team_id=current_team_id)
                 # Restore plan approval state if last message is a pending plan
                 msgs = session.get("messages", [])
@@ -2081,7 +2097,14 @@ async def on_message(message: cl.Message):
                     if filtered:
                         agent_specs_for_tuning = filtered
 
+                # Fix: add thinking bubble during analyze_feedback — this is a second LLM call
+                # that runs after the first thinking_done, leaving the user staring at a blank screen
+                tuning_thinking_id = f"thinking-tuning-{int(time.time())}"
+                if messenger:
+                    await messenger.reply_thinking("📝 กำลังวิเคราะห์การปรับแต่ง agent...", tuning_thinking_id)
                 tuning = await manager.analyze_feedback(tuning_text, agent_specs_for_tuning, last_result, conversation_history=conversation_history)
+                if messenger:
+                    await messenger.reply_thinking_done(tuning_thinking_id)
                 proposals = tuning.get("tuning_proposals", [])
 
                 if not proposals:

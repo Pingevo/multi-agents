@@ -544,6 +544,28 @@ class ExecutionOrchestrator:
                 name = spec.get("name", f"Agent {idx+1}")
                 role = spec.get("role", "")
                 _debug(f"[DEBUG-PARALLEL] Agent {name} completed, output_len={len(str(raw))}", flush=True)
+
+                # Retry once if LLM returned empty output — can happen due to rate limits,
+                # network issues, or content filtering. Without retry, CrewAI silently restarts
+                # the agent, wasting time. If still empty after retry, return error to stop the loop.
+                if not raw or not str(raw).strip():
+                    _debug(f"[DEBUG-PARALLEL] Agent {name} returned empty output — retrying once", flush=True)
+                    try:
+                        single_crew_retry = Crew(
+                            agents=[agent],
+                            tasks=[task],
+                            process=Process.sequential,
+                            verbose=True,
+                        )
+                        single_result = single_crew_retry.kickoff()
+                        raw = getattr(single_result, "raw", str(single_result))
+                        _debug(f"[DEBUG-PARALLEL] Agent {name} retry output_len={len(str(raw))}", flush=True)
+                    except Exception as retry_err:
+                        _debug(f"[DEBUG-PARALLEL] Agent {name} retry failed: {_sanitize_error(retry_err)}", flush=True)
+
+                if not raw or not str(raw).strip():
+                    raw = f"Error: LLM returned empty response after retry. Please try again."
+
                 clear_llm_call_context()
                 # Include agent id so reply_agent_output can persist agentId —
                 # prevents ambiguity when users assign duplicate agent names (Issue #30)

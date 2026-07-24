@@ -95,23 +95,24 @@ class LLMManager:
         print(f"[LLMManager] User selected model: {model_id}")
 
     _model_context_cache: dict[str, int] = {}
+    # Cache for max_completion_tokens (output limit) — separate from context_length (input limit)
+    # Fix: previously used context_length * 0.75 as max_tokens, which sent values like 750K to
+    # OpenRouter when the model only supports 128K output tokens, causing empty responses.
+    _model_max_output_cache: dict[str, int] = {}
 
     def _get_max_tokens(self, model_id: str) -> int:
-        """Get max_tokens for a model — adaptive based on context_length.
+        """Get max_tokens (output limit) for a model.
 
-        1. Check cached context_length for the model
-        2. Return 75% of context_length as max_tokens (25% reserved for prompt)
-        3. Fall back to LLM_MAX_TOKENS env var (default 8192)
+        Uses top_provider.max_completion_tokens from OpenRouter API — this is the actual
+        output token limit, NOT context_length (which is the input limit).
+        Falls back to LLM_MAX_TOKENS env var (default 8192) if unavailable.
         """
         if not model_id:
             return int(os.getenv("LLM_MAX_TOKENS", "8192"))
 
-        # Check cache first
-        if model_id in self._model_context_cache:
-            ctx = self._model_context_cache[model_id]
-            if ctx > 0:
-                return int(ctx * 0.75)
-            return int(os.getenv("LLM_MAX_TOKENS", "8192"))
+        # Check output token cache first
+        if model_id in self._model_max_output_cache:
+            return self._model_max_output_cache[model_id]
 
         # Try fetching from OpenRouter API
         if self._is_openrouter():
@@ -125,19 +126,24 @@ class LLMManager:
                     models = resp.json().get("data", [])
                     for m in models:
                         mid = m.get("id", "")
+                        # Cache context_length (input limit) for other uses
                         ctx = m.get("context_length", 0) or 0
                         self._model_context_cache[mid] = ctx
-                    # Now check cache again
-                    if model_id in self._model_context_cache:
-                        ctx = self._model_context_cache[model_id]
-                        if ctx > 0:
-                            max_tok = int(ctx * 0.75)
-                            print(f"[LLMManager] max_tokens for {model_id}: {max_tok} (context={ctx})", flush=True)
-                            return max_tok
+                        # Cache max_completion_tokens (output limit) — this is what we need for max_tokens
+                        max_out = (m.get("top_provider") or {}).get("max_completion_tokens", 0) or 0
+                        if max_out > 0:
+                            self._model_max_output_cache[mid] = max_out
+                    # Now check output token cache
+                    if model_id in self._model_max_output_cache:
+                        max_tok = self._model_max_output_cache[model_id]
+                        print(f"[LLMManager] max_tokens for {model_id}: {max_tok} (max_completion_tokens from API)", flush=True)
+                        return max_tok
+                    else:
+                        print(f"[LLMManager] max_completion_tokens not found for {model_id}, using fallback", flush=True)
             except Exception as e:
-                print(f"[LLMManager] Failed to fetch model context: {_sanitize_error(e)}", flush=True)
+                print(f"[LLMManager] Failed to fetch model info: {_sanitize_error(e)}", flush=True)
 
-        # Fallback
+        # Fallback — safe default, not context_length * 0.75 which can exceed output limits
         return int(os.getenv("LLM_MAX_TOKENS", "8192"))
 
     def _is_in_cooldown(self) -> bool:

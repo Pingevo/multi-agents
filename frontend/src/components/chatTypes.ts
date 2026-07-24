@@ -26,7 +26,7 @@ export type ChatMessageType = 'text' | 'plan' | 'plan_validation_error' | 'progr
 
 export type PlanStatus = 'pending' | 'approved' | 'rejected';
 
-export type ImageApprovalStatus = 'pending' | 'approved' | 'rejected' | 'error';
+export type ImageApprovalStatus = 'pending' | 'approved' | 'rejected' | 'error' | 'generated';
 
 export type AgentReviewStatus = 'pending' | 'approved' | 'rejected';
 
