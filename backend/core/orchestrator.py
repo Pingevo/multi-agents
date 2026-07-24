@@ -545,7 +545,9 @@ class ExecutionOrchestrator:
                 role = spec.get("role", "")
                 _debug(f"[DEBUG-PARALLEL] Agent {name} completed, output_len={len(str(raw))}", flush=True)
                 clear_llm_call_context()
-                return {"name": name, "role": role, "output": str(raw)}
+                # Include agent id so reply_agent_output can persist agentId —
+                # prevents ambiguity when users assign duplicate agent names (Issue #30)
+                return {"name": name, "role": role, "output": str(raw), "id": spec.get("registry_id", "")}
 
             # === Dependency-driven scheduler with Manager auto-review ===
             # Each agent starts as soon as all its depends_on targets are approved.
@@ -835,7 +837,7 @@ class ExecutionOrchestrator:
                             if i not in done_indices:
                                 name = agent_specs[i].get("name", f"Agent {i+1}")
                                 _send_progress_for_agent(i, "error", "Cancelled by user")
-                                agent_outputs[i] = {"name": name, "role": agent_specs[i].get("role", ""), "output": "Cancelled by user"}
+                                agent_outputs[i] = {"name": name, "role": agent_specs[i].get("role", ""), "output": "Cancelled by user", "id": agent_specs[i].get("registry_id", "")}
                                 done_indices.add(i)
                         break
 
@@ -890,7 +892,7 @@ class ExecutionOrchestrator:
                         if isinstance(result, Exception):
                             err_str = str(result)
                             _debug(f"[DEBUG-SCHED] Agent {name} failed: {_sanitize_error(result)}", flush=True)
-                            agent_outputs[i] = {"name": name, "role": role, "output": f"Error: {err_str}"}
+                            agent_outputs[i] = {"name": name, "role": role, "output": f"Error: {err_str}", "id": agent_specs[i].get("registry_id", "")}
                             _send_progress_for_agent(i, "error", err_str[:MAX_OUTPUT_CHARS])
                             approved_outputs[name] = f"Error: {err_str}"
                             done_indices.add(i)
@@ -1149,7 +1151,7 @@ class ExecutionOrchestrator:
 
                                 if isinstance(result, Exception):
                                     err_str = str(result)
-                                    agent_outputs[idx] = {"name": name, "role": role, "output": f"Error: {err_str}"}
+                                    agent_outputs[idx] = {"name": name, "role": role, "output": f"Error: {err_str}", "id": agent_specs[idx].get("registry_id", "")}
                                     _send_progress_for_agent(idx, "error", err_str[:MAX_OUTPUT_CHARS])
                                     approved_outputs[name] = f"Error: {err_str}"
                                     done_indices.add(idx)
@@ -1302,6 +1304,7 @@ class ExecutionOrchestrator:
                 "name": "Manager",
                 "role": "Project Manager",
                 "output": clean_manager_output,
+                "id": "manager",  # Manager has no registry_id — use fixed id for agentId persistence (Issue #30)
             })
 
             # Send final progress: Manager synthesis complete

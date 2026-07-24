@@ -23,12 +23,11 @@ class CentralManager:
         """ประเมินความต้องการ: CHAT (ตอบเลย) / INFO (ตอบเลย) / TASK_NEEDS_INFO (ถามเพิ่ม) / TASK_READY (วางแผน)"""
         history_text = ""
         if conversation_history:
-            recent = conversation_history[-20:]
+            # No cap — send full conversation history so Secretary can recall all past tasks (Issue #30)
+            recent = conversation_history
             history_text = "\nConversation so far:\n"
             for msg in recent:
                 content = msg.get('content', '')
-                if len(content) > 4000:
-                    content = content[:4000] + "..."
                 history_text += f"- {msg.get('role', 'user')}: {content}\n"
 
         prompt = (
@@ -91,12 +90,11 @@ class CentralManager:
         """
         history_text = ""
         if conversation_history:
-            recent = conversation_history[-20:]
+            # No cap — send full conversation history so Secretary can recall all past tasks (Issue #30)
+            recent = conversation_history
             history_text = "\nConversation so far:\n"
             for msg in recent:
                 content = msg.get('content', '')
-                if len(content) > 4000:
-                    content = content[:4000] + "..."
                 history_text += f"- {msg.get('role', 'user')}: {content}\n"
 
         cap_registry = CapabilityRegistry()
@@ -107,21 +105,37 @@ class CentralManager:
 
         models_text = "Assign each agent a model from this list: 'google/gemini-3.5-flash', 'anthropic/claude-sonnet-5', 'openai/gpt-5.6-luna'. Choose the most suitable model based on the agent's role and tasks. The Manager uses 'openrouter/free' by default."
 
-        # Build last task context (if any)
+        # Build last task context (if any) — include full agent outputs + media results (Issue #30)
         last_task_text = ""
         if last_task_context:
             last_task_text = "\nLast completed task:\n"
-            last_task_text += f"- User request: {last_task_context.get('user_input', '')[:200]}\n"
-            last_task_text += f"- Result summary: {last_task_context.get('result', '')[:1500]}\n"
-            agents_ctx = last_task_context.get('agents', [])
-            for a in agents_ctx:
+            last_task_text += f"- User request: {last_task_context.get('user_input', '')}\n"
+            last_task_text += f"- Result summary: {last_task_context.get('result', '')}\n"
+            # Include full per-agent outputs (not truncated) so follow-up prompts have real context
+            agent_outputs = last_task_context.get('agent_outputs', [])
+            for a in agent_outputs:
                 name = a.get('name', 'Agent')
+                agent_id = a.get('id', '')
                 role = a.get('role', '')
-                persona = a.get('persona', a.get('backstory', ''))
-                personality = a.get('personality', {})
-                tone = personality.get('tone', '') if isinstance(personality, dict) else ''
-                style = personality.get('communication_style', '') if isinstance(personality, dict) else ''
-                last_task_text += f"- Agent: {name} ({role}) | tone={tone} | style={style} | persona={persona[:100]}\n"
+                output = a.get('output', '')
+                last_task_text += f"- Agent output [{name}] (id={agent_id}, role={role}):\n{output}\n"
+            # Include all media results (image, audio, video, file, transcription)
+            media_results = last_task_context.get('media_results', [])
+            for m in media_results:
+                mtype = m.get('type', 'media')
+                url = m.get('url', '')
+                prompt = m.get('prompt', '')
+                agent_name = m.get('agentName', '')
+                last_task_text += f"- Media result ({mtype}): prompt={prompt} | url={url} | agent={agent_name}\n"
+
+        # Safety net: if combined context (history + last task) exceeds 60000 chars,
+        # truncate oldest history content to fit — prevents context window overflow (Issue #30)
+        MAX_CONTEXT_CHARS = 60000
+        combined_len = len(history_text) + len(last_task_text)
+        if combined_len > MAX_CONTEXT_CHARS:
+            # Truncate history_text from the front (oldest messages first)
+            excess = combined_len - MAX_CONTEXT_CHARS
+            history_text = history_text[excess:]
 
         # Build registry agents text — always available for tuning
         registry_text = ""
@@ -608,12 +622,11 @@ class CentralManager:
 
         history_text = ""
         if conversation_history:
-            recent = conversation_history[-20:]
+            # No cap — send full conversation history so Secretary can recall all past tasks (Issue #30)
+            recent = conversation_history
             history_text = "\nConversation context:\n"
             for msg in recent:
                 content = msg.get('content', '')
-                if len(content) > 4000:
-                    content = content[:4000] + "..."
                 history_text += f"- {msg.get('role', 'user')}: {content}\n"
 
         prompt = (
@@ -739,12 +752,11 @@ class CentralManager:
         """assess_and_plan with multimodal content blocks (image, PDF, audio, video)."""
         history_text = ""
         if conversation_history:
-            recent = conversation_history[-20:]
+            # No cap — send full conversation history so Secretary can recall all past tasks (Issue #30)
+            recent = conversation_history
             history_text = "\nConversation so far:\n"
             for msg in recent:
                 content = msg.get('content', '')
-                if len(content) > 4000:
-                    content = content[:4000] + "..."
                 history_text += f"- {msg.get('role', 'user')}: {content}\n"
 
         cap_registry = CapabilityRegistry()
@@ -988,12 +1000,11 @@ class CentralManager:
 
         history_text = ""
         if conversation_history:
-            recent = conversation_history[-20:]
+            # No cap — send full conversation history so Secretary can recall all past tasks (Issue #30)
+            recent = conversation_history
             history_text = "\nConversation context:\n"
             for msg in recent:
                 content = msg.get('content', '')
-                if len(content) > 4000:
-                    content = content[:4000] + "..."
                 history_text += f"- {msg.get('role', 'user')}: {content}\n"
 
         prompt = (

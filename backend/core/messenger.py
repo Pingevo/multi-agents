@@ -356,14 +356,16 @@ class StateMessenger:
         await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
         self.persist_message({"role": "assistant", "messageType": "result", "resultSummary": summary, "resultError": is_error, "resultAgents": [a.model_dump() for a in result_agents]})
 
-    async def reply_agent_output(self, agent_name: str, output: str):
+    async def reply_agent_output(self, agent_name: str, output: str, agent_id: str = ""):
         # Send agent output as a FeedAgentMessage bubble in chat.
         # This replaces the old ResultCard approach — each agent's output
         # appears as a separate chat bubble with the agent's name, instead of
         # a single result card that duplicated agent bubbles.
+        # agent_id is persisted as agentId so follow-up context can distinguish
+        # agents with duplicate names (Issue #30).
         payload = chat_reply(ChatReplyText(message=output, agentName=agent_name))
         await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
-        self.persist_message({"role": "assistant", "content": output, "messageType": "text", "agentName": agent_name})
+        self.persist_message({"role": "assistant", "content": output, "messageType": "text", "agentName": agent_name, "agentId": agent_id})
 
     async def reply_image_approval(self, prompt: str, approval_id: str, agent_name: str = "", media_type: str = "image", duration: int = 0, model: str = "", approval_status: str = "pending", image_error: str = ""):
         """Send a media approval card — user must approve before generation"""

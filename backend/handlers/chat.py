@@ -170,10 +170,8 @@ async def execute_multi_agent_task(
         agent_outputs = result.get("agent_outputs", [])
         agent_memories = result.get("agent_memories", {})
 
-        # Store last task context for feedback tuning
-        cl.user_session.set("last_task_result", raw_output[:6000])
-        cl.user_session.set("last_agent_specs", agent_specs)
-        cl.user_session.set("last_user_input", user_input)
+        # last_* session storage removed — context is now built from chat_store
+        # via _build_last_task_context_from_chat_store, ensuring per-session isolation (Issue #30)
 
         if messenger:
             final_agents = []
@@ -332,7 +330,7 @@ async def execute_multi_agent_task(
                 agent_name = agent_out.get("name", "")
                 output_text = agent_out.get("output", "") or ""
                 if output_text and len(output_text) > 10:
-                    await messenger.reply_agent_output(agent_name, output_text[:MAX_OUTPUT_CHARS])
+                    await messenger.reply_agent_output(agent_name, output_text[:MAX_OUTPUT_CHARS], agent_out.get("id", ""))
 
             # Now send approval cards after agent output bubbles
             for media_result, idx in pending_approval_cards:
@@ -470,10 +468,8 @@ async def execute_task_with_agent(
         result = await orchestrator.run_async(user_input, [agent_spec], task_id=task_id, task_title=user_input[:80], messenger=messenger)
         task_result = result
 
-        # Store last task context for feedback tuning
-        cl.user_session.set("last_task_result", str(result)[:6000])
-        cl.user_session.set("last_agent_specs", [agent_spec])
-        cl.user_session.set("last_user_input", user_input)
+        # last_* session storage removed — context is now built from chat_store
+        # via _build_last_task_context_from_chat_store, ensuring per-session isolation (Issue #30)
 
         if messenger:
             cl.run_sync(
@@ -538,11 +534,130 @@ async def execute_task_with_agent(
         cl.user_session.set("attachment_plugins", None)
 
 
+def _build_last_task_context_from_chat_store(session_id: str, chat_store: ChatStore) -> dict | None:
+    """Build last_task_context by reading directly from chat_store.
+
+    Replaces cl.user_session.get("last_*") — ensures context is always scoped
+    to the current chat session, preventing cross-session context leakage (Issue #30).
+
+    Finds the latest result message, then collects:
+    - user input before the plan
+    - result summary
+    - agent specs from the plan
+    - full agent outputs (text messages with agentName/agentId between plan and result)
+    - all media results (image_result, audio_result, video_result, file_result, transcription_result)
+    """
+    session = chat_store.get_session(session_id)
+    if not session:
+        return None
+    messages = session.get("messages", [])
+
+    # Find the latest result message (search backwards)
+    result_idx = None
+    for i in range(len(messages) - 1, -1, -1):
+        if messages[i].get("messageType") == "result":
+            result_idx = i
+            break
+    if result_idx is None:
+        return None
+
+    result_msg = messages[result_idx]
+    result_summary = result_msg.get("resultSummary", "")
+
+    # Find the plan message before this result
+    plan_idx = None
+    for i in range(result_idx - 1, -1, -1):
+        if messages[i].get("messageType") == "plan":
+            plan_idx = i
+            break
+
+    # Find the user input before the plan (or before result if no plan)
+    search_from = plan_idx if plan_idx is not None else result_idx
+    user_input = ""
+    for i in range(search_from - 1, -1, -1):
+        if messages[i].get("role") == "user":
+            user_input = messages[i].get("content", "")
+            break
+
+    # Extract agent specs from plan
+    agent_specs = []
+    if plan_idx is not None:
+        plan_msg = messages[plan_idx]
+        plan_agents = plan_msg.get("planAgents", [])
+        if isinstance(plan_agents, list):
+            agent_specs = plan_agents
+
+    # Collect agent outputs (text messages with agentName between plan and result)
+    agent_outputs = []
+    start_idx = (plan_idx + 1) if plan_idx is not None else 0
+    for i in range(start_idx, result_idx):
+        msg = messages[i]
+        if msg.get("messageType") == "text" and msg.get("agentName"):
+            agent_outputs.append({
+                "name": msg.get("agentName", ""),
+                "id": msg.get("agentId", ""),
+                "output": msg.get("content", ""),
+            })
+
+    # Collect all media results between plan and result (and after result for late arrivals)
+    media_types = ["image_result", "audio_result", "video_result", "file_result", "transcription_result"]
+    media_results = []
+    for i in range(start_idx, len(messages)):
+        msg = messages[i]
+        msg_type = msg.get("messageType", "")
+        if msg_type in media_types:
+            if msg_type == "image_result":
+                media_results.append({
+                    "type": msg.get("mediaType", "image"),
+                    "url": msg.get("imageUrl", ""),
+                    "prompt": msg.get("imagePrompt", ""),
+                    "agentName": msg.get("agentName", ""),
+                })
+            elif msg_type == "audio_result":
+                media_results.append({
+                    "type": "audio",
+                    "url": msg.get("audioUrl", ""),
+                    "prompt": msg.get("audioPrompt", ""),
+                    "agentName": msg.get("agentName", ""),
+                })
+            elif msg_type == "video_result":
+                media_results.append({
+                    "type": "video",
+                    "url": msg.get("videoUrl", ""),
+                    "prompt": msg.get("videoPrompt", ""),
+                    "agentName": msg.get("agentName", ""),
+                })
+            elif msg_type == "file_result":
+                media_results.append({
+                    "type": "file",
+                    "url": msg.get("fileUrl", ""),
+                    "prompt": msg.get("fileName", ""),
+                    "agentName": msg.get("agentName", ""),
+                })
+            elif msg_type == "transcription_result":
+                media_results.append({
+                    "type": "transcription",
+                    "url": msg.get("audioUrl", ""),
+                    "prompt": msg.get("transcriptionText", ""),
+                    "agentName": msg.get("agentName", ""),
+                })
+
+    return {
+        "user_input": user_input,
+        "result": result_summary,
+        "agents": agent_specs,
+        "agent_outputs": agent_outputs,
+        "media_results": media_results,
+    }
+
+
 def _restore_conversation_history(session_id: str, chat_store: ChatStore) -> list[dict]:
     """Rebuild conversation_history from persisted chat_store messages.
 
-    Filters to LLM-relevant messages only (user, text, plan, result, tuning_proposal).
-    Caps at last 20 entries, truncates each content to 4000 chars.
+    Returns ALL messages (no cap) with full content (no truncation) —
+    Secretary needs complete history to recall past tasks and media results (Issue #30).
+    Includes agent outputs (text with agentName) and all media types so
+    follow-up prompts after restart have the same context as live sessions.
     """
     session = chat_store.get_session(session_id)
     if not session:
@@ -557,7 +672,14 @@ def _restore_conversation_history(session_id: str, chat_store: ChatStore) -> lis
             content = msg.get("content", "")
         elif role == "assistant":
             if msg_type == "text":
-                content = msg.get("content", "")
+                # Include agentName + agentId attribution so Secretary knows which agent produced each output
+                agent_name = msg.get("agentName", "")
+                agent_id = msg.get("agentId", "")
+                raw_content = msg.get("content", "")
+                if agent_name:
+                    content = f"[Agent: {agent_name} (id={agent_id})]: {raw_content}"
+                else:
+                    content = raw_content
             elif msg_type == "plan":
                 summary = msg.get("planSummary", "")
                 agents = msg.get("planAgents", [])
@@ -567,16 +689,28 @@ def _restore_conversation_history(session_id: str, chat_store: ChatStore) -> lis
                 content = f"Task result: {msg.get('resultSummary', '')}"
             elif msg_type == "tuning_proposal":
                 content = "Agent tuning proposed."
+            elif msg_type == "image_result":
+                # Restore image results so Secretary knows what images were generated (Issue #30)
+                content = f"Image result: prompt={msg.get('imagePrompt', '')} | url={msg.get('imageUrl', '')} | agent={msg.get('agentName', '')}"
+            elif msg_type == "image_approval":
+                content = f"Image approval: prompt={msg.get('imagePrompt', '')} | status={msg.get('approvalStatus', '')} | agent={msg.get('agentName', '')}"
+            elif msg_type == "audio_result":
+                content = f"Audio result: prompt={msg.get('audioPrompt', '')} | url={msg.get('audioUrl', '')} | agent={msg.get('agentName', '')}"
+            elif msg_type == "video_result":
+                content = f"Video result: prompt={msg.get('videoPrompt', '')} | url={msg.get('videoUrl', '')} | agent={msg.get('agentName', '')}"
+            elif msg_type == "file_result":
+                content = f"File result: name={msg.get('fileName', '')} | url={msg.get('fileUrl', '')} | agent={msg.get('agentName', '')}"
+            elif msg_type == "transcription_result":
+                content = f"Transcription result: text={msg.get('transcriptionText', '')} | agent={msg.get('agentName', '')}"
             else:
                 continue
         else:
             continue
         if not content:
             continue
-        if len(content) > 4000:
-            content = content[:4000] + "..."
+        # No cap — send full content (Issue #30)
         history.append({"role": role, "content": content})
-    return history[-20:]
+    return history
 
 
 @cl.on_chat_start
@@ -1307,8 +1441,12 @@ async def on_message(message: cl.Message):
         elif action_name == "rate_task":
             rating = int(payload.get("rating", 0))
             if 1 <= rating <= 5:
-                last_input = cl.user_session.get("last_user_input", "")
-                last_result = cl.user_session.get("last_task_result", "")
+                # Pull from chat_store instead of cl.user_session — ensures per-session isolation (Issue #30)
+                _ctx = _build_last_task_context_from_chat_store(
+                    messenger.current_session_id, messenger.chat_store
+                )
+                last_input = _ctx.get("user_input", "") if _ctx else ""
+                last_result = _ctx.get("result", "") if _ctx else ""
                 user_id = cl.user_session.get("user_id", "default")
                 ratings_file = Path(f"data/task_ratings_{user_id}.json")
                 ratings_file.parent.mkdir(parents=True, exist_ok=True)
@@ -1591,6 +1729,12 @@ async def on_message(message: cl.Message):
                     await cl.Message(content=json.dumps(payload_sessions, ensure_ascii=False)).send()
                     # Load chat history for the team's session (fresh if new)
                     await messenger.reply_chat_history(messenger.current_session_id)
+                    # Restore conversation_history for the new team's session —
+                    # cl.user_session is per-connection, so without this the previous
+                    # team's history would leak into the new team's context (Issue #30)
+                    cl.user_session.set("conversation_history", _restore_conversation_history(
+                        messenger.current_session_id, messenger.chat_store
+                    ))
                     # List agents for this team
                     registry = cl.user_session.get("registry")
                     if not registry:
@@ -1754,16 +1898,10 @@ async def on_message(message: cl.Message):
                     team_name = team.get("name", "")
                     team_agents = registry.list_agents(team_id=current_team_id)
 
-            last_task_context = None
-            last_result = cl.user_session.get("last_task_result")
-            last_specs = cl.user_session.get("last_agent_specs")
-            last_input = cl.user_session.get("last_user_input")
-            if last_result and last_specs:
-                last_task_context = {
-                    "user_input": last_input or "",
-                    "result": last_result,
-                    "agents": last_specs,
-                }
+            # Build last task context from chat_store — ensures per-session isolation (Issue #30)
+            last_task_context = _build_last_task_context_from_chat_store(
+                messenger.current_session_id, messenger.chat_store
+            )
 
             result = await manager.assess_and_plan(
                 user_input_for_ai, conversation_history,
@@ -1831,17 +1969,10 @@ async def on_message(message: cl.Message):
                 if messenger:
                     await messenger.reply_thinking(chunk, thinking_id)
 
-            # Build last task context (optional — tuning can happen without it)
-            last_task_context = None
-            last_result = cl.user_session.get("last_task_result")
-            last_specs = cl.user_session.get("last_agent_specs")
-            last_input = cl.user_session.get("last_user_input")
-            if last_result and last_specs:
-                last_task_context = {
-                    "user_input": last_input or "",
-                    "result": last_result,
-                    "agents": last_specs,
-                }
+            # Build last task context from chat_store — ensures per-session isolation (Issue #30)
+            last_task_context = _build_last_task_context_from_chat_store(
+                messenger.current_session_id, messenger.chat_store
+            )
 
             # Only pass registry agents if user is in a team context (for tuning/reuse)
             # When creating a new team via AI modal, don't show existing agents
@@ -1921,9 +2052,12 @@ async def on_message(message: cl.Message):
                 if messenger:
                     await messenger.notify("📝 กำลังวิเคราะห์การปรับแต่ง agent...")
 
-                # Use last task agents if available, otherwise use all registry agents
-                last_specs = cl.user_session.get("last_agent_specs") or []
-                last_result = cl.user_session.get("last_task_result") or ""
+                # Pull from chat_store instead of cl.user_session — ensures per-session isolation (Issue #30)
+                _tuning_ctx = _build_last_task_context_from_chat_store(
+                    messenger.current_session_id, messenger.chat_store
+                )
+                last_specs = _tuning_ctx.get("agents", []) if _tuning_ctx else []
+                last_result = _tuning_ctx.get("result", "") if _tuning_ctx else ""
                 all_agents = registry.list_agents(team_id=cl.user_session.get("current_team_id"))
 
                 # Build agent list for analysis: prefer last task agents, fallback to registry
@@ -2351,17 +2485,10 @@ async def on_message(message: cl.Message):
                     team_name = team.get("name", "")
                     team_agents = registry.list_agents(team_id=current_team_id)
 
-            # Pass last task context if available
-            last_task_context = None
-            last_result = cl.user_session.get("last_task_result")
-            last_specs = cl.user_session.get("last_agent_specs")
-            last_input = cl.user_session.get("last_user_input")
-            if last_result and last_specs:
-                last_task_context = {
-                    "user_input": last_input or "",
-                    "result": last_result,
-                    "agents": last_specs,
-                }
+            # Build last task context from chat_store — ensures per-session isolation (Issue #30)
+            last_task_context = _build_last_task_context_from_chat_store(
+                messenger.current_session_id, messenger.chat_store
+            )
 
             thinking_id = f"thinking-reassess-{int(time.time())}"
             if messenger:
