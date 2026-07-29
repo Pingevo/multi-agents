@@ -1,4 +1,4 @@
-name: เพิ่ม issue ใหม่เข้าบอร์ดอัตโนมัติ
+name: Auto-add new issues to Project Board
 
 on:
   issues:
@@ -8,7 +8,7 @@ jobs:
   add-to-project:
     runs-on: ubuntu-latest
     steps:
-      - name: เพิ่ม issue เข้าบอร์ด
+      - name: Add issue to project board
         uses: actions/add-to-project@v1.0.2
         with:
           project-url: https://github.com/users/itdev3-bot/projects/1
