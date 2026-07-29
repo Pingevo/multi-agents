@@ -137,25 +137,25 @@ export const AICreateTeamModal: React.FC<AICreateTeamModalProps> = ({
   const hasActivePreview = parsedTeams.some(t => !t.cancelled);
 
   const renderTeamCard = (team: ParsedTeam, idx: number) => (
-    <div key={`preview-${idx}`} className={`rounded-xl p-4 mt-1 ${team.cancelled ? 'bg-surface-2/50 border border-border/50' : 'bg-accent/5 border border-accent/30'}`}>
+    <div key={`preview-${idx}`} className={`rounded-retro-lg p-4 mt-1 ${team.cancelled ? 'bg-cream-2/50 border border-line/50' : 'bg-orange/5 border border-orange/30'}`}>
       <div className="flex items-center justify-between mb-3">
-        <span className="text-xs font-medium uppercase tracking-wide" style={{ color: team.cancelled ? 'var(--text-3)' : 'var(--accent)' }}>
+        <span className="text-xs font-medium uppercase tracking-wide" style={{ color: team.cancelled ? 'var(--ink3)' : 'var(--orange)' }}>
           ตัวอย่างทีม {parsedTeams.length > 1 ? `#${idx + 1}` : ''}
         </span>
         {team.cancelled && (
-          <span className="text-[10px] text-text-3 flex items-center gap-1">
+          <span className="text-[10px] text-ink-3 flex items-center gap-1">
             <XCircle className="w-3 h-3" />
             ปรับแก้
           </span>
         )}
       </div>
 
-      <h4 className="text-sm font-semibold text-text mb-1">{team.name}</h4>
-      {team.description && <p className="text-xs text-text-2 mb-2">{team.description}</p>}
+      <h4 className="text-sm font-semibold text-ink mb-1">{team.name}</h4>
+      {team.description && <p className="text-xs text-ink-2 mb-2">{team.description}</p>}
 
       {/* Manager Agent */}
       <div className="mt-3 space-y-1.5">
-        <span className="text-[10px] text-text-3 uppercase">Manager</span>
+        <span className="text-[10px] text-ink-3 uppercase">Manager</span>
         <div ref={managerRef} className="relative">
           {managerModelPickerOpen && !team.cancelled && (
             <ModelPicker
@@ -168,13 +168,13 @@ export const AICreateTeamModal: React.FC<AICreateTeamModalProps> = ({
               anchorRef={managerRef}
             />
           )}
-          <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-bg border border-accent/20">
-            <div className="w-2 h-2 rounded-full bg-accent shrink-0" />
-            <span className="text-xs font-medium text-text">Manager</span>
-            <span className="text-[11px] text-text-3 truncate flex-1">— ประสานงานทีมและกระจายงาน</span>
+          <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-retro bg-cream border border-orange/20">
+            <div className="w-2 h-2 rounded-full bg-orange shrink-0" />
+            <span className="text-xs font-medium text-ink">Manager</span>
+            <span className="text-[11px] text-ink-3 truncate flex-1">— ประสานงานทีมและกระจายงาน</span>
             <button
               onClick={() => setExpandedManager(!expandedManager)}
-              className="text-[10px] text-text-3 hover:text-text transition-colors shrink-0"
+              className="text-[10px] text-ink-3 hover:text-ink transition-colors shrink-0"
             >
               {expandedManager ? '▲' : '▼'}
             </button>
@@ -185,46 +185,46 @@ export const AICreateTeamModal: React.FC<AICreateTeamModalProps> = ({
                 setManagerModelPickerOpen(true);
               }}
               disabled={team.cancelled}
-              className="text-[10px] px-1.5 py-0.5 rounded-full bg-surface-2 border border-border text-text-2 hover:text-text hover:border-accent/30 transition-colors shrink-0 disabled:opacity-50"
+              className="text-[10px] px-1.5 py-0.5 rounded-full bg-cream-2 border border-line text-ink-2 hover:text-ink hover:border-orange/30 transition-colors shrink-0 disabled:opacity-50"
             >
               {managerModel || 'auto'}
             </button>
           </div>
           {expandedManager && (
-            <div className="mt-2 pl-4 pr-2 space-y-1.5 border-t border-border/50 pt-2">
+            <div className="mt-2 pl-4 pr-2 space-y-1.5 border-t border-line/50 pt-2">
               <div>
-                <span className="text-[9px] text-text-3 uppercase">Role</span>
-                <p className="text-[11px] text-text-2 leading-relaxed">Team Manager / Coordinator</p>
+                <span className="text-[9px] text-ink-3 uppercase">Role</span>
+                <p className="text-[11px] text-ink-2 leading-relaxed">Team Manager / Coordinator</p>
               </div>
               <div>
-                <span className="text-[9px] text-text-3 uppercase">Goal</span>
-                <p className="text-[11px] text-text-2 leading-relaxed">ประสานงานระหว่าง agent ในทีม กระจายงาน และสรุปผลลัพธ์</p>
+                <span className="text-[9px] text-ink-3 uppercase">Goal</span>
+                <p className="text-[11px] text-ink-2 leading-relaxed">ประสานงานระหว่าง agent ในทีม กระจายงาน และสรุปผลลัพธ์</p>
               </div>
               <div>
-                <span className="text-[9px] text-text-3 uppercase">Persona</span>
-                <p className="text-[11px] text-text-3">—</p>
+                <span className="text-[9px] text-ink-3 uppercase">Persona</span>
+                <p className="text-[11px] text-ink-3">—</p>
               </div>
-              <div className="grid grid-cols-3 gap-2 pt-1 border-t border-border/30">
+              <div className="grid grid-cols-3 gap-2 pt-1 border-t border-line/30">
                 <div>
-                  <span className="text-[9px] text-text-3 uppercase">Tone</span>
-                  <p className="text-[11px] text-text-3">—</p>
+                  <span className="text-[9px] text-ink-3 uppercase">Tone</span>
+                  <p className="text-[11px] text-ink-3">—</p>
                 </div>
                 <div>
-                  <span className="text-[9px] text-text-3 uppercase">Style</span>
-                  <p className="text-[11px] text-text-3">—</p>
+                  <span className="text-[9px] text-ink-3 uppercase">Style</span>
+                  <p className="text-[11px] text-ink-3">—</p>
                 </div>
                 <div>
-                  <span className="text-[9px] text-text-3 uppercase">Language</span>
-                  <p className="text-[11px] text-text-3">—</p>
+                  <span className="text-[9px] text-ink-3 uppercase">Language</span>
+                  <p className="text-[11px] text-ink-3">—</p>
                 </div>
               </div>
               <div>
-                <span className="text-[9px] text-text-3 uppercase">Expertise</span>
-                <p className="text-[11px] text-text-3">—</p>
+                <span className="text-[9px] text-ink-3 uppercase">Expertise</span>
+                <p className="text-[11px] text-ink-3">—</p>
               </div>
               <div>
-                <span className="text-[9px] text-text-3 uppercase">Brand Context</span>
-                <p className="text-[11px] text-text-3">—</p>
+                <span className="text-[9px] text-ink-3 uppercase">Brand Context</span>
+                <p className="text-[11px] text-ink-3">—</p>
               </div>
             </div>
           )}
@@ -234,7 +234,7 @@ export const AICreateTeamModal: React.FC<AICreateTeamModalProps> = ({
       {/* Worker Agents */}
       {team.agents.length > 0 && (
         <div className="mt-3 space-y-1.5">
-          <span className="text-[10px] text-text-3 uppercase">Agents ({team.agents.length})</span>
+          <span className="text-[10px] text-ink-3 uppercase">Agents ({team.agents.length})</span>
           {team.agents.map((agent, i) => (
             <div key={i} ref={(el) => { agentRefs.current[i] = el; }} className="relative">
               {agentModelPickerOpen === i && !team.cancelled && (
@@ -248,19 +248,19 @@ export const AICreateTeamModal: React.FC<AICreateTeamModalProps> = ({
                   anchorRef={{ current: agentRefs.current[i] }}
                 />
               )}
-              <div className="px-2.5 py-1.5 rounded-lg bg-bg">
+              <div className="px-2.5 py-1.5 rounded-retro bg-cream">
                 <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full bg-accent/50 shrink-0" />
-                  <span className="text-xs font-medium text-text">{agent.name}</span>
-                  <span className="text-[11px] text-text-3 truncate flex-1">— {agent.role}</span>
+                  <div className="w-2 h-2 rounded-full bg-orange/50 shrink-0" />
+                  <span className="text-xs font-medium text-ink">{agent.name}</span>
+                  <span className="text-[11px] text-ink-3 truncate flex-1">— {agent.role}</span>
                   {agent.tools.length > 0 && (
-                    <span className="text-[9px] px-1.5 py-0.5 bg-accent/10 text-accent rounded-full shrink-0">
+                    <span className="text-[9px] px-1.5 py-0.5 bg-orange/10 text-orange rounded-full shrink-0">
                       {agent.tools.length} tools
                     </span>
                   )}
                   <button
                     onClick={() => setExpandedAgent(expandedAgent === i ? null : i)}
-                    className="text-[10px] text-text-3 hover:text-text transition-colors shrink-0"
+                    className="text-[10px] text-ink-3 hover:text-ink transition-colors shrink-0"
                   >
                     {expandedAgent === i ? '▲' : '▼'}
                   </button>
@@ -271,56 +271,56 @@ export const AICreateTeamModal: React.FC<AICreateTeamModalProps> = ({
                       setAgentModelPickerOpen(i);
                     }}
                     disabled={team.cancelled}
-                    className="text-[10px] px-1.5 py-0.5 rounded-full bg-surface-2 border border-border text-text-2 hover:text-text hover:border-accent/30 transition-colors shrink-0 disabled:opacity-50"
+                    className="text-[10px] px-1.5 py-0.5 rounded-full bg-cream-2 border border-line text-ink-2 hover:text-ink hover:border-orange/30 transition-colors shrink-0 disabled:opacity-50"
                   >
                     {agentModels[i] || agent.model || 'auto'}
                   </button>
                 </div>
                 {expandedAgent === i && (
-                  <div className="mt-2 pl-4 pr-2 space-y-1.5 border-t border-border/50 pt-2">
+                  <div className="mt-2 pl-4 pr-2 space-y-1.5 border-t border-line/50 pt-2">
                     <div>
-                      <span className="text-[9px] text-text-3 uppercase">Goal</span>
-                      <p className="text-[11px] text-text-2 leading-relaxed">{agent.goal || '—'}</p>
+                      <span className="text-[9px] text-ink-3 uppercase">Goal</span>
+                      <p className="text-[11px] text-ink-2 leading-relaxed">{agent.goal || '—'}</p>
                     </div>
                     <div>
-                      <span className="text-[9px] text-text-3 uppercase">Persona</span>
-                      <p className="text-[11px] text-text-2 leading-relaxed">{agent.persona || '—'}</p>
+                      <span className="text-[9px] text-ink-3 uppercase">Persona</span>
+                      <p className="text-[11px] text-ink-2 leading-relaxed">{agent.persona || '—'}</p>
                     </div>
                     <div>
-                      <span className="text-[9px] text-text-3 uppercase">Tools</span>
+                      <span className="text-[9px] text-ink-3 uppercase">Tools</span>
                       {agent.tools.length > 0 ? (
                         <div className="flex flex-wrap gap-1 mt-0.5">
                           {agent.tools.map((tool, ti) => (
-                            <span key={ti} className="text-[9px] px-1.5 py-0.5 bg-surface-2 border border-border text-text-2 rounded">
+                            <span key={ti} className="text-[9px] px-1.5 py-0.5 bg-cream-2 border border-line text-ink-2 rounded-retro-sm">
                               {tool}
                             </span>
                           ))}
                         </div>
                       ) : (
-                        <p className="text-[11px] text-text-3">—</p>
+                        <p className="text-[11px] text-ink-3">—</p>
                       )}
                     </div>
-                    <div className="grid grid-cols-3 gap-2 pt-1 border-t border-border/30">
+                    <div className="grid grid-cols-3 gap-2 pt-1 border-t border-line/30">
                       <div>
-                        <span className="text-[9px] text-text-3 uppercase">Tone</span>
-                        <p className="text-[11px] text-text-3">—</p>
+                        <span className="text-[9px] text-ink-3 uppercase">Tone</span>
+                        <p className="text-[11px] text-ink-3">—</p>
                       </div>
                       <div>
-                        <span className="text-[9px] text-text-3 uppercase">Style</span>
-                        <p className="text-[11px] text-text-3">—</p>
+                        <span className="text-[9px] text-ink-3 uppercase">Style</span>
+                        <p className="text-[11px] text-ink-3">—</p>
                       </div>
                       <div>
-                        <span className="text-[9px] text-text-3 uppercase">Language</span>
-                        <p className="text-[11px] text-text-3">—</p>
+                        <span className="text-[9px] text-ink-3 uppercase">Language</span>
+                        <p className="text-[11px] text-ink-3">—</p>
                       </div>
                     </div>
                     <div>
-                      <span className="text-[9px] text-text-3 uppercase">Expertise</span>
-                      <p className="text-[11px] text-text-3">—</p>
+                      <span className="text-[9px] text-ink-3 uppercase">Expertise</span>
+                      <p className="text-[11px] text-ink-3">—</p>
                     </div>
                     <div>
-                      <span className="text-[9px] text-text-3 uppercase">Brand Context</span>
-                      <p className="text-[11px] text-text-3">—</p>
+                      <span className="text-[9px] text-ink-3 uppercase">Brand Context</span>
+                      <p className="text-[11px] text-ink-3">—</p>
                     </div>
                   </div>
                 )}
@@ -332,7 +332,7 @@ export const AICreateTeamModal: React.FC<AICreateTeamModalProps> = ({
 
       <div className="mt-3 flex gap-2">
         {team.cancelled ? (
-          <div className="flex-1 flex items-center justify-center gap-2 py-2 bg-surface-2 text-text-3 border border-border rounded-lg text-sm">
+          <div className="flex-1 flex items-center justify-center gap-2 py-2 bg-cream-2 text-ink-3 border border-line rounded-retro text-sm">
             <XCircle className="w-4 h-4" />
             ปรับแก้ — พิมพ์สิ่งที่ต้องการเปลี่ยนด้านล่าง
           </div>
@@ -340,14 +340,14 @@ export const AICreateTeamModal: React.FC<AICreateTeamModalProps> = ({
           <>
             <button
               onClick={() => handleConfirm(idx)}
-              className="flex-1 flex items-center justify-center gap-2 py-2 bg-accent text-white rounded-lg text-sm font-medium hover:bg-accent/90 transition-colors"
+              className="flex-1 flex items-center justify-center gap-2 py-2 bg-orange text-white rounded-retro text-sm font-medium hover:bg-orange-light transition-colors"
             >
               <Check className="w-4 h-4" />
               สร้างทีมนี้
             </button>
             <button
               onClick={() => handleCancelPreview(idx)}
-              className="flex items-center justify-center gap-1.5 px-3 py-2 bg-surface-2 text-text-2 border border-border rounded-lg text-sm hover:text-text hover:border-border/80 transition-colors"
+              className="flex items-center justify-center gap-1.5 px-3 py-2 bg-cream-2 text-ink-2 border border-line rounded-retro text-sm hover:text-ink hover:border-line-2 transition-colors"
             >
               <XCircle className="w-4 h-4" />
               ปรับแก้
@@ -359,27 +359,27 @@ export const AICreateTeamModal: React.FC<AICreateTeamModalProps> = ({
   );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/30 backdrop-blur-sm" onClick={onClose}>
       <div
-        className="w-full max-w-2xl h-[80vh] flex flex-col bg-surface border border-border rounded-2xl shadow-2xl"
+        className="w-full max-w-2xl h-[80vh] flex flex-col bg-paper border border-line-2 rounded-retro-lg shadow-retro-lg"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-border shrink-0">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-line shrink-0">
           <div className="flex items-center gap-2">
             <span className="text-lg">🤖</span>
             <div>
-              <h2 className="text-base font-semibold text-text">สร้างทีมด้วย AI</h2>
-              <p className="text-[11px] text-text-3">บอก AI ว่าต้องการทีมแบบไหน — แล้ว AI จะสร้างให้</p>
+              <h2 className="text-base font-semibold text-ink">สร้างทีมด้วย AI</h2>
+              <p className="text-[11px] text-ink-3">บอก AI ว่าต้องการทีมแบบไหน — แล้ว AI จะสร้างให้</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-1 text-text-3 hover:text-text transition-colors">
+          <button onClick={onClose} className="p-1 text-ink-3 hover:text-ink transition-colors">
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Model selector */}
-        <div ref={modelBarRef} className="px-5 py-2 border-b border-border shrink-0 relative">
+        <div ref={modelBarRef} className="px-5 py-2 border-b border-line shrink-0 relative">
           {modelPickerOpen && (
             <ModelPicker
               recommended={modelCatalog}
@@ -397,10 +397,10 @@ export const AICreateTeamModal: React.FC<AICreateTeamModalProps> = ({
               if (Object.keys(modelCatalog).length === 0 && onFetchModelCatalog) onFetchModelCatalog();
               setModelPickerOpen(true);
             }}
-            className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg border transition-colors text-left ${
+            className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-retro border transition-colors text-left ${
               modelPickerOpen
-                ? 'bg-accent/10 border-accent/40 text-text'
-                : 'bg-surface-2 border-border text-text-2 hover:text-text hover:border-border/80'
+                ? 'bg-orange/10 border-orange/40 text-ink'
+                : 'bg-cream-2 border-line text-ink-2 hover:text-ink hover:border-line-2'
             }`}
           >
             {(() => {
@@ -410,12 +410,12 @@ export const AICreateTeamModal: React.FC<AICreateTeamModalProps> = ({
               if (favicon) {
                 return <img src={favicon} alt="" className="w-4 h-4 rounded shrink-0 object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />;
               }
-              return <Cpu className={`w-3.5 h-3.5 shrink-0 ${modelPickerOpen ? 'text-accent' : ''}`} />;
+              return <Cpu className={`w-3.5 h-3.5 shrink-0 ${modelPickerOpen ? 'text-orange' : ''}`} />;
             })()}
-            <span className="text-[10px] font-medium text-text flex-1 truncate">
+            <span className="text-[10px] font-medium text-ink flex-1 truncate">
               {selectedModel || resolvedModel ? findModelName(selectedModel || resolvedModel || '', modelCatalog, modelSearchResults) : 'Free Router'}
             </span>
-            <span className={`text-[9px] px-1.5 py-0.5 rounded-full shrink-0 ${selectedModel ? 'bg-accent/15 text-accent' : 'bg-emerald-500/15 text-emerald-500'}`}>
+            <span className={`text-[9px] px-1.5 py-0.5 rounded-full shrink-0 ${selectedModel ? 'bg-orange/15 text-orange' : 'bg-green/15 text-green'}`}>
               {selectedModel ? 'Manual' : 'Auto'}
             </span>
             <ChevronDown className={`w-3 h-3 shrink-0 transition-transform ${modelPickerOpen ? 'rotate-180' : ''}`} />
@@ -427,8 +427,8 @@ export const AICreateTeamModal: React.FC<AICreateTeamModalProps> = ({
           {modalMessages.length === 0 && !isThinking && (
             <div className="text-center py-10">
               <span className="text-4xl mb-3 block">🤖</span>
-              <p className="text-sm text-text-2 mb-1">อธิบายทีมที่คุณต้องการสร้าง</p>
-              <p className="text-xs text-text-3">เช่น "ฉันต้องการทีมการตลาด 3 คน สำหรับร้านกาแฟ"</p>
+              <p className="text-sm text-ink-2 mb-1">อธิบายทีมที่คุณต้องการสร้าง</p>
+              <p className="text-xs text-ink-3">เช่น "ฉันต้องการทีมการตลาด 3 คน สำหรับร้านกาแฟ"</p>
             </div>
           )}
 
@@ -436,8 +436,8 @@ export const AICreateTeamModal: React.FC<AICreateTeamModalProps> = ({
             if (msg.messageType === 'thinking') {
               return (
                 <div key={i} className="flex justify-start">
-                  <div className="bg-surface-2 border border-border rounded-lg px-3 py-2 max-w-[80%]">
-                    <p className="text-xs text-text-3 italic">{thinkingText || 'Thinking...'}</p>
+                  <div className="bg-cream-2 border border-line rounded-retro px-3 py-2 max-w-[80%]">
+                    <p className="text-xs text-ink-3 italic">{thinkingText || 'Thinking...'}</p>
                   </div>
                 </div>
               );
@@ -453,8 +453,8 @@ export const AICreateTeamModal: React.FC<AICreateTeamModalProps> = ({
               return (
                 <div key={i}>
                   <div className="flex justify-start">
-                    <div className="bg-surface-2 border border-border rounded-lg px-3 py-2 max-w-[80%]">
-                      <p className="text-sm text-text">
+                    <div className="bg-cream-2 border border-line rounded-retro px-3 py-2 max-w-[80%]">
+                      <p className="text-sm text-ink">
                         {isCancelled
                           ? `ปรับแก้ทีม "${teamLabel}" — พิมพ์สิ่งที่ต้องการเปลี่ยนด้านล่าง`
                           : `AI เสนอทีม "${teamLabel}" (${agentCount} agent${agentCount > 1 ? 's' : ''}) — ดูรายละเอียดด้านล่าง`}
@@ -469,10 +469,10 @@ export const AICreateTeamModal: React.FC<AICreateTeamModalProps> = ({
             return (
               <div key={i} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
                 <div
-                  className={`rounded-lg px-3 py-2 max-w-[80%] text-sm ${
+                  className={`rounded-retro px-3 py-2 max-w-[80%] text-sm ${
                     isUser
-                      ? 'bg-accent text-white'
-                      : 'bg-surface-2 border border-border text-text'
+                      ? 'bg-orange text-white'
+                      : 'bg-cream-2 border border-line text-ink'
                   }`}
                 >
                   {msg.content}
@@ -483,11 +483,11 @@ export const AICreateTeamModal: React.FC<AICreateTeamModalProps> = ({
 
           {isThinking && !modalMessages.some((m) => m.messageType === 'thinking') && (
             <div className="flex justify-start">
-              <div className="bg-surface-2 border border-border rounded-lg px-3 py-2">
+              <div className="bg-cream-2 border border-line rounded-retro px-3 py-2">
                 <div className="flex gap-1">
-                  <div className="w-2 h-2 rounded-full bg-text-3 animate-bounce" style={{ animationDelay: '0ms' }} />
-                  <div className="w-2 h-2 rounded-full bg-text-3 animate-bounce" style={{ animationDelay: '150ms' }} />
-                  <div className="w-2 h-2 rounded-full bg-text-3 animate-bounce" style={{ animationDelay: '300ms' }} />
+                  <div className="w-2 h-2 rounded-full bg-ink-3 animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <div className="w-2 h-2 rounded-full bg-ink-3 animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <div className="w-2 h-2 rounded-full bg-ink-3 animate-bounce" style={{ animationDelay: '300ms' }} />
                 </div>
               </div>
             </div>
@@ -504,7 +504,7 @@ export const AICreateTeamModal: React.FC<AICreateTeamModalProps> = ({
         </div>
 
         {/* Input — always visible, disabled only when there's an active (non-cancelled) preview */}
-        <div className="px-5 py-3 border-t border-border shrink-0">
+        <div className="px-5 py-3 border-t border-line shrink-0">
           <div className="flex items-center gap-2">
             <input
               type="text"
@@ -513,12 +513,12 @@ export const AICreateTeamModal: React.FC<AICreateTeamModalProps> = ({
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
               placeholder="อธิบายทีมที่คุณต้องการ..."
               disabled={hasActivePreview}
-              className="flex-1 px-3 py-2 bg-bg border border-border rounded-lg text-sm text-text placeholder-text-3 focus:outline-none focus:ring-2 focus:ring-accent/50 disabled:opacity-50"
+              className="flex-1 px-3 py-2 bg-cream border border-line rounded-retro text-sm text-ink placeholder-ink-3 focus:outline-none focus:ring-2 focus:ring-orange/50 disabled:opacity-50"
             />
             {isThinking && onStop ? (
               <button
                 onClick={onStop}
-                className="px-3 py-2 bg-error text-white rounded-lg text-sm font-medium hover:bg-error/90 transition-colors"
+                className="px-3 py-2 bg-red text-white rounded-retro text-sm font-medium hover:bg-red/90 transition-colors"
               >
                 หยุด
               </button>
@@ -526,14 +526,14 @@ export const AICreateTeamModal: React.FC<AICreateTeamModalProps> = ({
               <button
                 onClick={handleSend}
                 disabled={!input.trim() || hasActivePreview}
-                className="p-2 bg-accent text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent/90 transition-colors"
+                className="p-2 bg-orange text-white rounded-retro disabled:opacity-50 disabled:cursor-not-allowed hover:bg-orange-light transition-colors"
               >
                 <Send className="w-4 h-4" />
               </button>
             )}
           </div>
           {hasActivePreview && (
-            <p className="text-[10px] text-text-3 text-center mt-1.5">กด "สร้างทีมนี้" เพื่อยืนยัน หรือ "ยกเลิก" เพื่อพิมพ์ prompt ใหม่</p>
+            <p className="text-[10px] text-ink-3 text-center mt-1.5">กด "สร้างทีมนี้" เพื่อยืนยัน หรือ "ยกเลิก" เพื่อพิมพ์ prompt ใหม่</p>
           )}
         </div>
       </div>
