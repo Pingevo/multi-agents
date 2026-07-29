@@ -333,10 +333,10 @@ class ExecutionOrchestrator:
         task_title: str | None = None,
         messenger: StateMessenger | None = None,
     ) -> dict:
-        global _progress_callback, _media_gen_manager, _media_tool_results, _search_model
+        global _progress_callback, _media_gen_manager, _search_model
         _progress_callback = self._progress_callback
         _media_gen_manager = self._media_gen_manager
-        _media_tool_results = []  # Reset for this run
+        _media_tool_results.clear()  # Reset for this run (in-place so all modules see empty list)
         total = len(agent_specs)
         self._agent_specs = agent_specs
         # Store task context for LLM call logging
