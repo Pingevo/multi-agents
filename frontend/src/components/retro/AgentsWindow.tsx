@@ -105,6 +105,30 @@ const FIELD_TOOLTIPS: Record<string, { desc: string; example: string }> = {
     desc: 'บทเรียนที่ agent บันทึกจากการทำงานก่อนหน้า ช่วยให้ทำงานได้ดีขึ้นในครั้งต่อไป',
     example: 'เช่น "ผู้ใช้ชอบบทความสั้นๆ", "ควรใส่ตัวอย่างในทุกหัวข้อ"',
   },
+  output_format: {
+    desc: 'รูปแบบผลลัพธ์ที่ agent ต้องส่งออก Manager จะตรวจสอบว่าผลลัพธ์เป็นไปตามรูปแบบนี้',
+    example: 'เช่น Markdown report with headings, JSON array, bullet point summary',
+  },
+  quality_criteria: {
+    desc: 'เกณฑ์คุณภาพที่ Manager ใช้ตรวจสอบผลลัพธ์ของ agent — ถ้าไม่ผ่านเกณฑ์จะสั่งแก้',
+    example: 'เช่น 1. ต้องมีแหล่งอ้างอิง 2. ห้ามมีคำกว้างๆ 3. ต้องมีตัวเลข/ข้อมูลเฉพาะ',
+  },
+  review_iterations: {
+    desc: 'จำนวนรอบสูงสุดที่ Manager จะตรวจและสั่งแก้งานของ agent ถ้ายังไม่ผ่านหลังจากรอบนี้จะยอมรับผลลัพธ์',
+    example: 'เช่น 3 (ค่าเริ่มต้น), 5 (เข้มข้น), 1 (ตรวจครั้งเดียว)',
+  },
+  max_iter: {
+    desc: 'จำนวนรอบสูงสุดที่ agent จะคิดและทำงานในแต่ละ task ถ้าเกินจะหยุดและส่งผลลัพธ์ที่มี',
+    example: 'เช่น 20 (ค่าเริ่มต้น), 5 (งานง่าย), 50 (งานซับซ้อน)',
+  },
+  max_retry_limit: {
+    desc: 'จำนวนครั้งสูงสุดที่ agent จะลองใหม่ถ้าเกิด error ระหว่างทำงาน',
+    example: 'เช่น 3 (ค่าเริ่มต้น), 0 (ไม่ลองใหม่), 5 (งานที่ error บ่อย)',
+  },
+  allow_delegation: {
+    desc: 'อนุญาตให้ agent มอบหมายงานบางส่วนให้ agent ตัวอื่นในทีมทำแทน',
+    example: 'เปิด = agent สามารถ delegate ได้, ปิด = agent ต้องทำเองทั้งหมด',
+  },
 };
 
 // ============================================================
@@ -592,13 +616,8 @@ const AgentDetailView: React.FC<{
         )}
       </FieldRow>
 
-      {/* Depends on */}
-      {agent.depends_on && agent.depends_on.length > 0 && (
-        <div className="ad-section">
-          <div className="ad-lbl">🔗 Depends on</div>
-          <DisplayValue value={agent.depends_on.join(', ')} />
-        </div>
-      )}
+      {/* Depends on — removed: this is a per-task runtime value set by the
+          Secretary/Manager during planning, not a persistent agent config. */}
 
       {/* Personality */}
       <div className="ad-section">
@@ -745,6 +764,10 @@ const AddAgentForm: React.FC<{
     if (!templateId) {
       setName(''); setRole(''); setGoal(''); setPersona(''); setTools([]); setModel('');
       setExpertise([]); setPersonality({}); setBrandContext({});
+      // Reset advanced fields too — otherwise stale values from a previous
+      // edit persist when switching templates, which is confusing for users.
+      setOutputFormat(''); setQualityCriteria(''); setReviewIterations(3);
+      setMaxIter(20); setMaxRetryLimit(3); setAllowDelegation(false);
       return;
     }
     const tmpl = TEMPLATES.find(t => t.id === templateId);
