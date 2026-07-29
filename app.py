@@ -26,8 +26,8 @@ import requests
 import chainlit as cl
 from crewai import LLM
 from chainlit import server as _cl_server
-from fastapi import Request
-from fastapi.responses import JSONResponse
+from fastapi import Request, Query
+from fastapi.responses import JSONResponse, FileResponse
 import base64
 import re
 import uuid
@@ -162,7 +162,6 @@ if os.path.exists(os.path.join(os.path.dirname(__file__), "public")):
 _frontend_dist = os.path.join(os.path.dirname(__file__), "frontend", "dist")
 if os.path.exists(_frontend_dist):
     from fastapi.staticfiles import StaticFiles
-    from fastapi.responses import FileResponse
 
     @_cl_server.app.get("/")
     async def _serve_frontend_root():
@@ -178,6 +177,45 @@ _use_dev_login = os.getenv("USE_DEV_LOGIN", "false").lower() == "true"
 _auth_provider = DevLoginProvider() if _use_dev_login else System81AuthProvider()
 _user_store = UserStore()
 _session_mgr = SessionManager()
+
+
+# ============================================================
+# Per-user media serving endpoint
+# ============================================================
+# Serves files from data/users/{user_id}/ with token verification.
+# Replaces unauthenticated StaticFiles mount for /api/media/ URLs.
+# Token passed via query param because <img>/<video> tags can't send headers.
+@_cl_server.app.get("/api/media/{file_path:path}")
+async def _serve_user_media(file_path: str, token: str = Query(default="")):
+    """Serve a per-user media file (generated images, attachments, etc.).
+    Verifies auth token and resolves file from data/users/{user_id}/{file_path}.
+    """
+    # Verify token — returns user_id if valid, None if invalid/expired
+    user_id = _session_mgr.verify_token(token) if token else None
+    if not user_id:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+    # Build full path and validate against path traversal
+    # — prevents accessing files outside user's directory via ../
+    base_dir = os.path.normpath(os.path.join(DATA_DIR, "users", user_id))
+    full_path = os.path.normpath(os.path.join(base_dir, file_path))
+    if not full_path.startswith(base_dir):
+        return JSONResponse({"error": "Forbidden"}, status_code=403)
+
+    # FileResponse raises RuntimeError if file doesn't exist — check first
+    if not os.path.exists(full_path) or not os.path.isfile(full_path):
+        return JSONResponse({"error": "Not found"}, status_code=404)
+
+    return FileResponse(full_path)
+
+# Reorder route ahead of Chainlit catch-all — same workaround as login-url route below.
+# Chainlit registers GET /{full_path:path} which shadows path-param routes.
+_media_route = _cl_server.app.router.routes.pop()
+_included_router_idx = next(
+    i for i, r in enumerate(_cl_server.app.router.routes)
+    if type(r).__name__ == "_IncludedRouter"
+)
+_cl_server.app.router.routes.insert(_included_router_idx, _media_route)
 
 
 @_cl_server.app.get("/api/auth/login-url")

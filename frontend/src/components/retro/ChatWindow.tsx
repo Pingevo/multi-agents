@@ -12,6 +12,7 @@ import type {
 import type { ChatSession } from '../ChatSidebar';
 import { ModelPicker, PROVIDER_FAVICONS, getProvider, findModelName } from '../ModelPicker';
 import type { ModelCatalogEntry } from '../ModelPicker';
+import { withMediaToken } from '../../utils/media';
 import MarkdownRenderer from '../MarkdownRenderer';
 
 // ============================================================
@@ -119,11 +120,11 @@ const FeedUserMessage: React.FC<{ msg: ChatMessage }> = ({ msg }) => (
           {atts.map((att, i) => (
             <div key={i}>
               {att.mime?.startsWith('image/') ? (
-                <img src={att.url} alt={att.name} style={{ maxWidth: '100%', borderRadius: '3px', display: 'block' }} />
+                <img src={withMediaToken(att.url)} alt={att.name} style={{ maxWidth: '100%', borderRadius: '3px', display: 'block' }} />
               ) : att.mime?.startsWith('audio/') ? (
-                <audio src={att.url} controls style={{ maxWidth: '100%' }} />
+                <audio src={withMediaToken(att.url)} controls style={{ maxWidth: '100%' }} />
               ) : att.mime?.startsWith('video/') ? (
-                <video src={att.url} controls style={{ maxWidth: '100%', borderRadius: '3px' }} />
+                <video src={withMediaToken(att.url)} controls style={{ maxWidth: '100%', borderRadius: '3px' }} />
               ) : (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '4px 8px', background: 'rgba(255,255,255,0.15)', borderRadius: '3px' }}>
                   <FileText size={14} />
@@ -486,9 +487,9 @@ const ImageApprovalCard: React.FC<{
         <div className="card-body">
           <div className="img-result">
             {msg.mediaType === 'video' ? (
-              <video src={msg.imageUrl} controls style={{ width: '100%', border: '1px solid var(--line)', borderRadius: '3px' }} />
+              <video src={withMediaToken(msg.imageUrl)} controls style={{ width: '100%', border: '1px solid var(--line)', borderRadius: '3px' }} />
             ) : (
-              <img src={msg.imageUrl} alt={msg.imagePrompt} style={{ width: '100%', border: '1px solid var(--line)', borderRadius: '3px' }} />
+              <img src={withMediaToken(msg.imageUrl)} alt={msg.imagePrompt} style={{ width: '100%', border: '1px solid var(--line)', borderRadius: '3px' }} />
             )}
             <div className="ir-info">{msg.imagePrompt}</div>
             {msg.model && <div className="ir-info">🤖 {msg.model}</div>}
@@ -558,9 +559,9 @@ const ImageResultCard: React.FC<{
       <div className="card-body">
         <div className="img-result">
           {msg.mediaType === 'video' ? (
-            <video src={msg.imageUrl} controls style={{ width: '100%', border: '1px solid var(--line)', borderRadius: '3px' }} />
+            <video src={withMediaToken(msg.imageUrl)} controls style={{ width: '100%', border: '1px solid var(--line)', borderRadius: '3px' }} />
           ) : (
-            <img src={msg.imageUrl} alt={msg.imagePrompt} style={{ width: '100%', border: '1px solid var(--line)', borderRadius: '3px' }} />
+            <img src={withMediaToken(msg.imageUrl)} alt={msg.imagePrompt} style={{ width: '100%', border: '1px solid var(--line)', borderRadius: '3px' }} />
           )}
           <div className="ir-info">{msg.imagePrompt}</div>
           {msg.model && <div className="ir-info">🤖 {msg.model}</div>}
@@ -694,7 +695,7 @@ const AudioResultCard: React.FC<{ msg: ChatMessage }> = ({ msg }) => (
     <div className="mr-hdr">🔊 Audio — {msg.agentName || 'Agent'}</div>
     <div className="mr-body">
       {msg.audioPrompt && <div style={{ fontSize: '10px', color: 'var(--ink3)', fontStyle: 'italic', marginBottom: '4px' }}>"{msg.audioPrompt}"</div>}
-      <audio controls src={msg.audioUrl} style={{ width: '100%', height: '32px' }} />
+      <audio controls src={withMediaToken(msg.audioUrl)} style={{ width: '100%', height: '32px' }} />
       <div className="mr-info">
         {msg.agentName && <span>Agent: {msg.agentName}</span>}
         {msg.model && <span>Model: {msg.model}</span>}
@@ -732,7 +733,7 @@ const VideoResultCard: React.FC<{ msg: ChatMessage }> = ({ msg }) => (
     <div className="mr-hdr">🎬 Video — {msg.agentName || 'Agent'}</div>
     <div className="mr-body">
       {msg.videoPrompt && <div style={{ fontSize: '10px', color: 'var(--ink3)', fontStyle: 'italic', marginBottom: '4px' }}>"{msg.videoPrompt}"</div>}
-      <video controls src={msg.videoUrl} style={{ width: '100%', borderRadius: '3px' }} />
+      <video controls src={withMediaToken(msg.videoUrl)} style={{ width: '100%', borderRadius: '3px' }} />
       <div className="mr-info">
         {msg.agentName && <span>Agent: {msg.agentName}</span>}
         {msg.model && <span>Model: {msg.model}</span>}
@@ -746,7 +747,7 @@ const FileResultCard: React.FC<{ msg: ChatMessage }> = ({ msg }) => (
   <div className="media-result">
     <div className="mr-hdr">📎 File — {msg.agentName || 'Agent'}</div>
     <div className="mr-file">
-      <a href={msg.fileUrl} download={msg.fileName} style={{ display: 'flex', alignItems: 'center', gap: '6px', textDecoration: 'none', color: 'var(--blue)' }}>
+      <a href={withMediaToken(msg.fileUrl)} download={msg.fileName} style={{ display: 'flex', alignItems: 'center', gap: '6px', textDecoration: 'none', color: 'var(--blue)' }}>
         <FileText size={18} />
         <div>
           <div className="mr-file-n">{msg.fileName || 'Download file'}</div>

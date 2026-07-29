@@ -12,6 +12,7 @@ import type { ChatSession } from './ChatSidebar';
 import { ModelPicker, PROVIDER_FAVICONS, getProvider, findModelName } from './ModelPicker';
 import type { ModelCatalogEntry } from './ModelPicker';
 import MarkdownRenderer from './MarkdownRenderer';
+import { withMediaToken } from '../utils/media';
 
 interface ChatPanelRightProps {
   messages: ChatMessage[];
@@ -929,9 +930,9 @@ const ImageResultCard: React.FC<{
             <p className="text-xs text-text-2">{isVideo ? '🎬' : '🖼️'} {isVideo ? 'Video' : 'Image'} pending paid tier</p>
           </div>
         ) : isVideo ? (
-          <video src={imageUrl} controls className="w-full rounded-lg border border-border" onError={() => setLoadError(true)} />
+          <video src={withMediaToken(imageUrl)} controls className="w-full rounded-lg border border-border" onError={() => setLoadError(true)} />
         ) : (
-          <img src={imageUrl} alt={prompt} className="w-full rounded-lg border border-border" loading="lazy" onError={() => setLoadError(true)} />
+          <img src={withMediaToken(imageUrl)} alt={prompt} className="w-full rounded-lg border border-border" loading="lazy" onError={() => setLoadError(true)} />
         )}
         <p className="text-[10px] text-text-2 mt-1.5 italic">"{prompt}"</p>
         {isEditing && (
@@ -1555,7 +1556,7 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
                           </div>
                           <div className="flex-1 min-w-0">
                             <ImageResultCard
-                              imageUrl={msg.imageUrl || ''}
+                              imageUrl={withMediaToken(msg.imageUrl || '')}
                               prompt={msg.imagePrompt || ''}
                               approvalId={msg.approvalId}
                               mediaType={msg.mediaType}
@@ -1658,7 +1659,7 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
                           </div>
                           <div className="max-w-[80%] rounded-xl px-3 py-2.5 bg-surface border border-border text-text">
                             {msg.audioPrompt && <p className="text-[10px] text-text-2 mb-1 italic">"{msg.audioPrompt}"</p>}
-                            <audio controls src={msg.audioUrl} className="w-full h-8" />
+                            <audio controls src={withMediaToken(msg.audioUrl)} className="w-full h-8" />
                             <div className="flex items-center gap-2 mt-1">
                               {msg.agentName && <span className="text-[9px] text-text-2">Agent: {msg.agentName}</span>}
                               {msg.model && <span className="text-[9px] text-text-2">Model: {msg.model}</span>}
@@ -1702,7 +1703,7 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
                           </div>
                           <div className="max-w-[80%] rounded-xl px-3 py-2.5 bg-surface border border-border text-text">
                             {msg.videoPrompt && <p className="text-[10px] text-text-2 mb-1 italic">"{msg.videoPrompt}"</p>}
-                            <video controls src={msg.videoUrl} className="w-full rounded" />
+                            <video controls src={withMediaToken(msg.videoUrl)} className="w-full rounded" />
                             <div className="flex items-center gap-2 mt-1">
                               {msg.agentName && <span className="text-[9px] text-text-2">Agent: {msg.agentName}</span>}
                               {msg.model && <span className="text-[9px] text-text-2">Model: {msg.model}</span>}
@@ -1719,7 +1720,7 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
                             <FileText className="w-3.5 h-3.5" />
                           </div>
                           <div className="max-w-[80%] rounded-xl px-3 py-2.5 bg-surface border border-border text-text">
-                            <a href={msg.fileUrl} download={msg.fileName} className="flex items-center gap-1.5 text-xs text-accent hover:text-accent-hover transition-colors">
+                            <a href={withMediaToken(msg.fileUrl)} download={msg.fileName} className="flex items-center gap-1.5 text-xs text-accent hover:text-accent-hover transition-colors">
                               <FileText className="w-3.5 h-3.5" />
                               <span className="truncate">{msg.fileName || 'Download file'}</span>
                             </a>
@@ -1748,11 +1749,11 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
                                   {atts.map((att, i) => (
                                     <div key={i} className={att.mime?.startsWith('image/') ? 'w-full' : 'w-full'}>
                                       {att.mime?.startsWith('audio/') ? (
-                                        <audio src={att.url} controls className="max-w-full" />
+                                        <audio src={withMediaToken(att.url)} controls className="max-w-full" />
                                       ) : att.mime?.startsWith('video/') ? (
-                                        <video src={att.url} controls className="max-w-full max-h-48 rounded" />
+                                        <video src={withMediaToken(att.url)} controls className="max-w-full max-h-48 rounded" />
                                       ) : att.mime?.startsWith('image/') ? (
-                                        <img src={att.url} alt={att.name} className="max-w-full rounded max-h-48 object-cover" />
+                                        <img src={withMediaToken(att.url)} alt={att.name} className="max-w-full rounded max-h-48 object-cover" />
                                       ) : (
                                         <div className={`flex items-center gap-2.5 rounded-lg px-3 py-2.5 ${msg.role === 'user' ? 'bg-white/10' : 'bg-surface-2 border border-border'}`}>
                                           <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${msg.role === 'user' ? 'bg-white/15' : 'bg-accent/10'}`}>

@@ -6,6 +6,7 @@ import type { ChatMessage, AgentProgressEntry, PlanAgent, ResultAgent, PlanStatu
 import type { Agent, PendingApproval, ImageResult } from '../../types/platform';
 import MarkdownRenderer from '../MarkdownRenderer';
 import { Dialog } from './Dialog';
+import { withMediaToken } from '../../utils/media';
 
 // ============================================================
 // Types
@@ -278,9 +279,9 @@ const TaskAgentCard: React.FC<{
       {imageResults.map((ir, i) => (
         <div key={i} style={{ marginTop: '4px' }}>
           {ir.mediaType === 'video' ? (
-            <video src={ir.imageUrl} controls style={{ width: '100%', borderRadius: '3px', border: '1px solid var(--line)' }} />
+            <video src={withMediaToken(ir.imageUrl)} controls style={{ width: '100%', borderRadius: '3px', border: '1px solid var(--line)' }} />
           ) : (
-            <img src={ir.imageUrl} alt={ir.prompt} style={{ width: '100%', borderRadius: '3px', border: '1px solid var(--line)' }} />
+            <img src={withMediaToken(ir.imageUrl)} alt={ir.prompt} style={{ width: '100%', borderRadius: '3px', border: '1px solid var(--line)' }} />
           )}
           <div style={{ fontSize: '9px', color: 'var(--ink3)', marginTop: '2px' }}>{ir.prompt}</div>
         </div>

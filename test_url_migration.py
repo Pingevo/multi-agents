@@ -91,6 +91,70 @@ class TestUrlMigration(unittest.TestCase):
         result = StateMessenger._migrate_msg_urls(msg)
         self.assertEqual(result["videoUrl"], "/public/generated/vid_abc.mp4")
 
+    # --- /api/media/ URL migration tests (Phase 3) ---
+
+    def test_api_media_image_url_converted(self):
+        msg = {
+            "role": "assistant",
+            "messageType": "image_result",
+            "imageUrl": "http://localhost:8000/api/media/generated/img_abc123.png",
+        }
+        result = StateMessenger._migrate_msg_urls(msg)
+        self.assertEqual(result["imageUrl"], "/api/media/generated/img_abc123.png")
+
+    def test_api_media_attachment_url_converted(self):
+        msg = {
+            "role": "user",
+            "attachmentUrl": "http://127.0.0.1:64446/api/media/attachments/test_file.webp",
+        }
+        result = StateMessenger._migrate_msg_urls(msg)
+        self.assertEqual(result["attachmentUrl"], "/api/media/attachments/test_file.webp")
+
+    def test_api_media_video_url_converted(self):
+        msg = {
+            "role": "assistant",
+            "messageType": "video_result",
+            "videoUrl": "http://localhost:8000/api/media/generated/vid_xyz.mp4",
+        }
+        result = StateMessenger._migrate_msg_urls(msg)
+        self.assertEqual(result["videoUrl"], "/api/media/generated/vid_xyz.mp4")
+
+    def test_api_media_audio_url_converted(self):
+        msg = {
+            "role": "assistant",
+            "messageType": "audio_result",
+            "audioUrl": "http://127.0.0.1:8000/api/media/generated/audio_abc.mp3",
+        }
+        result = StateMessenger._migrate_msg_urls(msg)
+        self.assertEqual(result["audioUrl"], "/api/media/generated/audio_abc.mp3")
+
+    def test_api_media_file_url_converted(self):
+        msg = {
+            "role": "assistant",
+            "messageType": "file_result",
+            "fileUrl": "http://localhost:8000/api/media/attachments/report.pdf",
+        }
+        result = StateMessenger._migrate_msg_urls(msg)
+        self.assertEqual(result["fileUrl"], "/api/media/attachments/report.pdf")
+
+    def test_api_media_attachments_list_converted(self):
+        msg = {
+            "role": "user",
+            "attachments": [
+                {"url": "http://localhost:8000/api/media/attachments/abc.png", "name": "test.png", "mime": "image/png"},
+            ],
+        }
+        result = StateMessenger._migrate_msg_urls(msg)
+        self.assertEqual(result["attachments"][0]["url"], "/api/media/attachments/abc.png")
+
+    def test_api_media_already_relative_unchanged(self):
+        msg = {
+            "role": "assistant",
+            "imageUrl": "/api/media/generated/img_abc.png",
+        }
+        result = StateMessenger._migrate_msg_urls(msg)
+        self.assertEqual(result["imageUrl"], "/api/media/generated/img_abc.png")
+
 
 if __name__ == "__main__":
     unittest.main()

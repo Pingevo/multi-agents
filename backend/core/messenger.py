@@ -617,11 +617,11 @@ class StateMessenger:
         for field in url_fields:
             val = m.get(field)
             if val and isinstance(val, str):
-                m[field] = re.sub(r'^https?://[^/]+(/public/.+)', r'\1', val)
+                m[field] = re.sub(r'^https?://[^/]+(/(?:public|api/media)/.+)', r'\1', val)
         atts = m.get("attachments")
         if atts and isinstance(atts, list):
             m["attachments"] = [
-                {**a, "url": re.sub(r'^https?://[^/]+(/public/.+)', r'\1', a["url"])}
+                {**a, "url": re.sub(r'^https?://[^/]+(/(?:public|api/media)/.+)', r'\1', a["url"])}
                 if a.get("url") and isinstance(a["url"], str) else a
                 for a in atts
             ]
