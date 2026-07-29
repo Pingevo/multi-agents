@@ -2342,25 +2342,18 @@ async def on_message(message: cl.Message):
                         merged["task_description"] = spec.get("task_description", user_input)
                         merged["depends_on"] = spec.get("depends_on", [])
                         merged["registry_id"] = existing_agent.get("id")
-                        # Capture original values before secretary overrides
+                        # Preserve user-configured fields — Secretary must NOT override
+                        # goal/persona of existing agents. Only task_description and
+                        # depends_on are per-task and can be set by Secretary.
                         orig_tools = list(existing_agent.get("tools", []))
-                        orig_goal = existing_agent.get("goal", "")
-                        orig_persona = existing_agent.get("persona", "")
                         # Merge tools: preserve original tools, add new ones from secretary
-                        # Never remove existing tools — secretary can only ADD capabilities
                         secretary_tools = spec.get("tools", [])
-                        secretary_goal = spec.get("goal", "")
-                        secretary_persona = spec.get("persona", spec.get("backstory", ""))
                         if secretary_tools:
                             merged_tools = list(orig_tools)
                             for t in secretary_tools:
                                 if t not in merged_tools:
                                     merged_tools.append(t)
                             merged["tools"] = merged_tools
-                        if secretary_goal:
-                            merged["goal"] = secretary_goal
-                        if secretary_persona:
-                            merged["persona"] = secretary_persona
                         resolved_specs.append(merged)
                         agents_for_plan.append({
                             "id": existing_agent.get("id"),

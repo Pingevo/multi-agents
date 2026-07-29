@@ -14,6 +14,12 @@ export interface PlanAgent {
   original_goal?: string;
   original_persona?: string;
   task_description?: string;
+  output_format?: string;
+  quality_criteria?: string;
+  review_iterations?: number;
+  max_iter?: number;
+  max_retry_limit?: number;
+  allow_delegation?: boolean;
 }
 
 export interface ResultAgent {

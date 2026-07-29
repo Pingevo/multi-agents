@@ -588,6 +588,7 @@ class ExecutionOrchestrator:
             _registry = cl.user_session.get("registry")
             _manager_persona = "You are an experienced team manager who coordinates teams effectively."
             _manager_goal = "Coordinate the team and synthesize results."
+            _manager_quality_criteria = ""  # If set, replaces hardcoded quality judgment rules
             _manager_model = model_assignment.get("manager", "")
             # Force manager model = user's top-bar selection (highest priority)
             _selected = cl.user_session.get("selected_model") or ""
@@ -600,6 +601,7 @@ class ExecutionOrchestrator:
                 if _manager_agent:
                     _manager_persona = _manager_agent.get("persona", _manager_persona)
                     _manager_goal = _manager_agent.get("goal", _manager_goal)
+                    _manager_quality_criteria = _manager_agent.get("quality_criteria", "")
 
             def _send_progress_for_agent(idx, status, output_text="", review_round=None, review_summary=None, review_feedback=None, review_history=None):
                 """Send progress update for a single agent."""
@@ -712,12 +714,25 @@ class ExecutionOrchestrator:
                     f"Respond in JSON ONLY — a JSON array with one entry per agent:\n"
                     f'[{{"name": "agent name", "approved": true/false, "feedback": "specific feedback if not approved, empty if approved", "summary": "1-2 sentence summary in Thai"}}]\n\n'
                     f"Rules:\n"
-                    f"- REJECT if the output is vague, generic, or lacks specific details (names, numbers, dates, sources) that the task requires\n"
-                    f"- REJECT if the output is too brief or doesn't address the agent's own task/goal\n"
+                )
+                # Quality judgment rules: use Manager's quality_criteria if configured,
+                # otherwise fall back to system defaults. This lets users control how
+                # strict the Manager is via the Manager agent's quality_criteria field.
+                if _manager_quality_criteria:
+                    review_prompt += (
+                        f"- Apply your quality criteria strictly:\n{_manager_quality_criteria}\n"
+                        f"- REJECT if the output does not meet ANY of your quality criteria above\n"
+                    )
+                else:
+                    review_prompt += (
+                        f"- REJECT if the output is vague, generic, or lacks specific details (names, numbers, dates, sources) that the task requires\n"
+                        f"- REJECT if the output is too brief or doesn't address the agent's own task/goal\n"
+                        f"- APPROVE only if the output contains concrete, specific information that fully addresses the user's request and follows the required format\n"
+                    )
+                review_prompt += (
                     f"- REJECT if the agent's OWN task/goal is not fully addressed — evaluate against the agent's specific task, NOT the overall user request\n"
                     f"- If an agent has QUALITY CRITERIA listed above, check EACH criterion one by one and REJECT if any is not met\n"
                     f"- If an agent has an EXPECTED OUTPUT FORMAT listed above, REJECT if the output does not follow that format\n"
-                    f"- APPROVE only if the output contains concrete, specific information that fully addresses the user's request and follows the required format\n"
                     f"- If an agent wrote a detailed prompt for creating media (image/video/document) but didn't produce the actual file, APPROVE — the system will generate the media automatically after review. Only REJECT if the output has NO usable prompt AND no actual content.\n"
                     f"- feedback must be specific: tell the agent exactly what details to add or fix, including which sections are missing\n"
                     f"- summary should be concise: e.g. 'รอบ 1: งานยังไม่ครบ ขาดสรุป — สั่งแก้' or 'รอบ 2: ครบ ตรงโจทย์ — ผ่าน'\n"

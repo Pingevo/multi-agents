@@ -162,6 +162,22 @@ class CentralManager:
                 model = a.get('model', 'auto')
                 tools = a.get('tools', [])
                 team_text += f"- {name} (id={aid}) | role={role} | model={model} | tools={tools}\n"
+                # Include full agent details so Secretary can decide reuse based on all fields
+                goal = a.get('goal', '')
+                persona = a.get('persona', '')[:200] if a.get('persona') else ''
+                expertise = a.get('expertise', [])
+                personality = a.get('personality', {})
+                brand_context = a.get('brand_context', {})
+                if goal:
+                    team_text += f"  goal: {goal}\n"
+                if persona:
+                    team_text += f"  persona: {persona}\n"
+                if expertise:
+                    team_text += f"  expertise: {expertise}\n"
+                if personality:
+                    team_text += f"  personality: {personality}\n"
+                if brand_context:
+                    team_text += f"  brand_context: {brand_context}\n"
 
         if has_attachment:
             attachment_status = "A file/image is attached. The user may want to discuss it, ask questions about it, or have agents process it."
@@ -348,6 +364,7 @@ class CentralManager:
             "Design Rules for plan:\n"
             "- Do NOT include a Manager agent in your response — the system has a Manager already. Only include worker agents.\n"
             "- REUSE existing team agents when possible — if a team agent already has the right role/tools, include it by name instead of creating a new one\n"
+            "- When deciding whether to reuse an existing agent, consider ALL of its fields: goal, persona, expertise, personality, brand_context — not just role and tools. If an existing agent's goal and expertise closely match the task, reuse it rather than creating a new one.\n"
             "- Only create NEW agents when the team lacks the required capability\n"
             "- CRITICAL: When reusing an existing agent, you MUST keep ALL of its original tools. Do NOT remove or replace existing tools (analyze_image, generate_image, etc.). You may ADD model_traits like 'reasoning' or 'long_context' but you must NEVER remove existing tools. Tools give agents external abilities — removing them cripples the agent.\n"
             "- Model_traits (reasoning, creative_writing, write_code, long_context) are NOT tools — they guide model selection only. Never use them to replace actual tools.\n"
@@ -511,6 +528,12 @@ class CentralManager:
                                 "depends_on": [d.strip() for d in depends_on if isinstance(d, str) and d.strip()],
                                 "model": item.get("model", "openrouter/free").strip() or "openrouter/free",
                                 "reuse_existing": item.get("reuse_existing", False),
+                                "output_format": item.get("output_format", "").strip(),
+                                "quality_criteria": item.get("quality_criteria", "").strip(),
+                                "review_iterations": item.get("review_iterations", 3) if isinstance(item.get("review_iterations"), (int, float)) else 3,
+                                "max_iter": item.get("max_iter", 20) if isinstance(item.get("max_iter"), (int, float)) else 20,
+                                "max_retry_limit": item.get("max_retry_limit", 3) if isinstance(item.get("max_retry_limit"), (int, float)) else 3,
+                                "allow_delegation": item.get("allow_delegation", False) if isinstance(item.get("allow_delegation"), bool) else False,
                             })
                     if not agents:
                         return {"action": "chat", "message": "ไม่สามารถวางแผนได้ กรุณาลองใหม่"}
@@ -792,6 +815,22 @@ class CentralManager:
                 model = a.get('model', 'auto')
                 tools = a.get('tools', [])
                 team_text += f"- {name} (id={aid}) | role={role} | model={model} | tools={tools}\n"
+                # Include full agent details so Secretary can decide reuse based on all fields
+                goal = a.get('goal', '')
+                persona = a.get('persona', '')[:200] if a.get('persona') else ''
+                expertise = a.get('expertise', [])
+                personality = a.get('personality', {})
+                brand_context = a.get('brand_context', {})
+                if goal:
+                    team_text += f"  goal: {goal}\n"
+                if persona:
+                    team_text += f"  persona: {persona}\n"
+                if expertise:
+                    team_text += f"  expertise: {expertise}\n"
+                if personality:
+                    team_text += f"  personality: {personality}\n"
+                if brand_context:
+                    team_text += f"  brand_context: {brand_context}\n"
 
         # Build last task context
         last_task_text = ""
@@ -884,6 +923,7 @@ class CentralManager:
             "Design Rules for plan:\n"
             "- Do NOT include a Manager agent in your response — the system has a Manager already. Only include worker agents.\n"
             "- REUSE existing team agents when possible — if a team agent already has the right role/tools, include it by name instead of creating a new one\n"
+            "- When deciding whether to reuse an existing agent, consider ALL of its fields: goal, persona, expertise, personality, brand_context — not just role and tools. If an existing agent's goal and expertise closely match the task, reuse it rather than creating a new one.\n"
             "- Only create NEW agents when the team lacks the required capability\n"
             "- CRITICAL: When reusing an existing agent, you MUST keep ALL of its original tools. Do NOT remove or replace existing tools (analyze_image, generate_image, etc.). You may ADD model_traits like 'reasoning' or 'long_context' but you must NEVER remove existing tools. Tools give agents external abilities — removing them cripples the agent.\n"
             "- Model_traits (reasoning, creative_writing, write_code, long_context) are NOT tools — they guide model selection only. Never use them to replace actual tools.\n"
@@ -1047,9 +1087,9 @@ class CentralManager:
         เช็ค Registry ว่ามี Agent ที่ตรงกับ spec หรือไม่
         ลำดับการเช็ค:
         1. reuse_existing=True → หาจาก name
-        2. name ตรงกับ agent เดิม → ใช้ของเดิม + override fields
-        3. fallback: หาจาก role/tools (เดิม)
-        4. ไม่เจอ → create new
+        2. name ตรงกับ agent เดิม → ใช้ของเดิม
+        3. ไม่เจอ → create new (ไม่ fallback ด้วย role/tools substring —
+           Secretary ตัดสินใจ reuse จากข้อมูลครบทุกฟิลด์แล้ว ถ้าไม่บอก reuse ก็สร้างใหม่)
         Returns: {"type": "existing", "agent": {...}} หรือ {"type": "create", "spec": {...}}
         """
         spec_name = agent_spec.get("name", "").strip()
@@ -1060,7 +1100,7 @@ class CentralManager:
             existing = registry.find_by_name(spec_name, team_id=team_id)
             if existing and not existing.get("is_manager"):
                 return {"type": "existing", "agent": existing}
-            # Not found by name — don't fallback to role/tools, create new
+            # Not found by name — don't fallback, create new
             return {"type": "create", "spec": agent_spec}
 
         # 2) If name matches an existing agent — only when reuse_existing is not explicitly False
@@ -1069,12 +1109,11 @@ class CentralManager:
             if existing and not existing.get("is_manager"):
                 return {"type": "existing", "agent": existing}
 
-        # 3) Fallback: role/tools match (only when reuse_existing is False)
-        existing = registry.find_idle_agent(
-            agent_spec.get("role", ""), agent_spec.get("tools", []), team_id=team_id
-        )
-        if existing and not existing.get("is_manager"):
-            return {"type": "existing", "agent": existing}
+        # 3) Secretary didn't request reuse — create new agent.
+        # Removed role/tools substring fallback (find_idle_agent) because it matched
+        # agents imprecisely (e.g. "writer" matched any writer role). Secretary now
+        # receives full agent details (goal, persona, expertise, etc.) and decides
+        # reuse explicitly via reuse_existing=true.
         return {"type": "create", "spec": agent_spec}
 
     def _parse_agent_specs(self, text: str, user_input: str) -> list[dict]:
@@ -1137,6 +1176,12 @@ class CentralManager:
                         "task_description": task_match.group(1).strip()
                         if task_match
                         else user_input,
+                        "output_format": "",
+                        "quality_criteria": "",
+                        "review_iterations": 3,
+                        "max_iter": 20,
+                        "max_retry_limit": 3,
+                        "allow_delegation": False,
                     }
                 )
 

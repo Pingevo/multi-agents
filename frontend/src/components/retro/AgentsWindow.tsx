@@ -652,6 +652,31 @@ const AgentDetailView: React.FC<{
         )}
       </div>
 
+      {/* Advanced Fields */}
+      <FieldRow label="Output Format" field="output_format">
+        <DisplayValue value={agent.output_format || ''} multiline />
+      </FieldRow>
+
+      <FieldRow label="Quality Criteria" field="quality_criteria">
+        <DisplayValue value={agent.quality_criteria || ''} multiline />
+      </FieldRow>
+
+      <FieldRow label="Review Iterations" field="review_iterations">
+        <DisplayValue value={agent.review_iterations != null ? String(agent.review_iterations) : ''} />
+      </FieldRow>
+
+      <FieldRow label="Max Iterations" field="max_iter">
+        <DisplayValue value={agent.max_iter != null ? String(agent.max_iter) : ''} />
+      </FieldRow>
+
+      <FieldRow label="Max Retry Limit" field="max_retry_limit">
+        <DisplayValue value={agent.max_retry_limit != null ? String(agent.max_retry_limit) : ''} />
+      </FieldRow>
+
+      <FieldRow label="Allow Delegation" field="allow_delegation">
+        <DisplayValue value={agent.allow_delegation != null ? String(agent.allow_delegation) : ''} />
+      </FieldRow>
+
       {/* Actions */}
       <div className="ad-actions">
         {busy ? (
@@ -700,6 +725,13 @@ const AddAgentForm: React.FC<{
   const [expertise, setExpertise] = useState<string[]>([]);
   const [personality, setPersonality] = useState<Record<string, string>>({});
   const [brandContext, setBrandContext] = useState<Record<string, string>>({});
+  // Advanced fields — user can set these when creating an agent
+  const [outputFormat, setOutputFormat] = useState('');
+  const [qualityCriteria, setQualityCriteria] = useState('');
+  const [reviewIterations, setReviewIterations] = useState(3);
+  const [maxIter, setMaxIter] = useState(20);
+  const [maxRetryLimit, setMaxRetryLimit] = useState(3);
+  const [allowDelegation, setAllowDelegation] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState('');
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const modelBtnRef = useRef<HTMLButtonElement>(null);
@@ -735,6 +767,12 @@ const AddAgentForm: React.FC<{
       name: name.trim(), role: role.trim(), goal: goal.trim(), persona: persona.trim(),
       tools: tools.join(', '), model, template_id: selectedTemplate,
       expertise, personality, brand_context: brandContext,
+      output_format: outputFormat.trim(),
+      quality_criteria: qualityCriteria.trim(),
+      review_iterations: reviewIterations,
+      max_iter: maxIter,
+      max_retry_limit: maxRetryLimit,
+      allow_delegation: allowDelegation,
     });
   };
 
@@ -899,6 +937,34 @@ const AddAgentForm: React.FC<{
           ))}
         </div>
       </div>
+
+      {/* Advanced Fields */}
+      <FieldRow label="Output Format" field="output_format">
+        <textarea value={outputFormat} onChange={e => setOutputFormat(e.target.value)} rows={2} className={textareaCls} placeholder="e.g. Markdown report with headings" />
+      </FieldRow>
+
+      <FieldRow label="Quality Criteria" field="quality_criteria">
+        <textarea value={qualityCriteria} onChange={e => setQualityCriteria(e.target.value)} rows={3} className={textareaCls} placeholder="e.g. Must include sources, no vague statements" />
+      </FieldRow>
+
+      <FieldRow label="Review Iterations" field="review_iterations">
+        <input type="number" value={reviewIterations} onChange={e => setReviewIterations(Number(e.target.value))} className={inputCls} min={1} max={10} />
+      </FieldRow>
+
+      <FieldRow label="Max Iterations" field="max_iter">
+        <input type="number" value={maxIter} onChange={e => setMaxIter(Number(e.target.value))} className={inputCls} min={1} max={50} />
+      </FieldRow>
+
+      <FieldRow label="Max Retry Limit" field="max_retry_limit">
+        <input type="number" value={maxRetryLimit} onChange={e => setMaxRetryLimit(Number(e.target.value))} className={inputCls} min={0} max={10} />
+      </FieldRow>
+
+      <FieldRow label="Allow Delegation" field="allow_delegation">
+        <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+          <input type="checkbox" checked={allowDelegation} onChange={e => setAllowDelegation(e.target.checked)} />
+          <span style={{ fontSize: '10px', color: 'var(--ink2)' }}>Allow this agent to delegate tasks to other agents</span>
+        </label>
+      </FieldRow>
 
       <div className="ad-actions" style={{ marginTop: '8px' }}>
         <button className="btn btn-no" onClick={onCancel}>Cancel</button>
