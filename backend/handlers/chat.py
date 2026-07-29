@@ -221,8 +221,16 @@ async def execute_multi_agent_task(
                 )
             )
 
+            # Map media type to the field that holds the display text for that type
+            # — TTS stores 'text', STT stores 'audio_url', Vision stores 'question', etc.
+            # Without this mapping, non-image/video types show empty strings in approval cards.
+            prompt_map = {"image": "prompt", "video": "prompt", "tts": "text", "stt": "audio_url", "vision": "question", "document": "filename"}
+            tool_map = {"image": "generate_image", "video": "generate_video", "tts": "text_to_speech", "stt": "transcribe_audio", "vision": "analyze_image", "document": "generate_document"}
+
             def _day_sort_key(item):
-                prompt_lower = item.get("prompt", "").lower()
+                # Use type-aware field to get display text for sort key
+                field = prompt_map.get(item.get("type", "image"), "prompt")
+                prompt_lower = item.get(field, "").lower()
                 for day_num in range(1, 10):
                     if f"day {day_num}" in prompt_lower or f"day{day_num}" in prompt_lower:
                         return day_num
@@ -239,8 +247,9 @@ async def execute_multi_agent_task(
                 print(f"[APPROVAL-FLOW] Plan has reviewer — refining {len(sorted_results)} prompts via manager LLM", flush=True)
                 await messenger.notify("🔍 Reviewer กำลังตรวจสอบ prompt สำหรับสื่อ...")
                 try:
+                    # Use type-aware field mapping so reviewer sees actual content for all media types
                     prompts_text = "\n".join(
-                        f"{i+1}. [{r.get('type','image')}] {r.get('prompt','')}"
+                        f"{i+1}. [{r.get('type','image')}] {r.get(prompt_map.get(r.get('type','image'), 'prompt'), '')}"
                         for i, r in enumerate(sorted_results)
                     )
                     review_prompt = (
@@ -258,7 +267,9 @@ async def execute_multi_agent_task(
                         if m:
                             idx = int(m.group(1)) - 1
                             if 0 <= idx < len(sorted_results):
-                                sorted_results[idx]["prompt"] = m.group(3).strip()
+                                # Write back to the correct field for this media type
+                                field = prompt_map.get(sorted_results[idx].get("type", "image"), "prompt")
+                                sorted_results[idx][field] = m.group(3).strip()
                     print(f"[APPROVAL-FLOW] Prompts refined by reviewer", flush=True)
                 except Exception as e:
                     print(f"[APPROVAL-FLOW] Review failed, using original prompts: {_sanitize_error(e)}", flush=True)
@@ -267,11 +278,15 @@ async def execute_multi_agent_task(
 
             async def _send_approval_card(media_result, idx):
                 media_type = media_result.get("type", "image")
-                media_prompt = media_result.get("prompt", "")
+                # Use type-aware field mapping — TTS stores 'text', STT stores 'audio_url', etc.
+                # Without this, non-image/video types have empty 'prompt' → approval card silently dropped
+                prompt_field = prompt_map.get(media_type, "prompt")
+                media_prompt = media_result.get(prompt_field, "")
                 media_duration = media_result.get("duration", 5)
                 agent_name = media_result.get("agent_name", "")
                 if not agent_name:
-                    tool_name = "generate_image" if media_type == "image" else "generate_video"
+                    # Map media type to the tool name that produces it
+                    tool_name = tool_map.get(media_type, "generate_image")
                     for spec in agent_specs:
                         if tool_name in spec.get("tools", []):
                             agent_name = spec.get("name", "")
@@ -280,13 +295,20 @@ async def execute_multi_agent_task(
                 if not media_prompt:
                     return
                 approval_id = f"{media_type}_{task_id}_{idx}"
-                cl.user_session.set(f"pending_media_{approval_id}", {
+                # Store ALL type-specific fields in pending data so approve/retry handlers can use them
+                pending_data = {
                     "prompt": media_prompt,
                     "agent_name": agent_name,
                     "task_id": task_id,
                     "media_type": media_type,
                     "duration": media_duration,
-                })
+                    "model": media_result.get("model", ""),
+                }
+                # Copy type-specific fields for non-image/video types
+                for k, v in media_result.items():
+                    if k not in ("type", "agent_name", "duration", "model") and k != prompt_field:
+                        pending_data[k] = v
+                cl.user_session.set(f"pending_media_{approval_id}", pending_data)
                 # Pass the session ID at task start — prevents cross-session leak if user switched sessions
                 await messenger.reply_image_approval(
                     media_prompt, approval_id, agent_name,
@@ -313,7 +335,9 @@ async def execute_multi_agent_task(
                 if (media_result, idx) not in pending_approval_cards:
                     pending_approval_cards.append((media_result, idx))
 
-            has_pending_approvals = len(_g._media_tool_results) > 0
+            # Documents don't need approval — exclude them from the pending count
+            # so the message says 'done' instead of 'waiting for approval' when only docs are pending
+            has_pending_approvals = any(r.get("type") != "document" for r in _g._media_tool_results)
             print(f"[DEBUG-RESULT] media_tool_results={len(_g._media_tool_results)}, has_pending={has_pending_approvals}", flush=True)
             print(f"[DEBUG-synth] chat.py: about to call reply_result, agent_outputs={len(agent_outputs)}", flush=True)
             if has_pending_approvals:
@@ -337,9 +361,33 @@ async def execute_multi_agent_task(
                     await messenger.reply_agent_output(agent_name, output_text[:MAX_OUTPUT_CHARS], agent_out.get("id", ""))
 
             # Now send approval cards after agent output bubbles
+            # Documents are saved to disk and sent as download links — they don't need approval
             for media_result, idx in pending_approval_cards:
+                mr_type = media_result.get("type", "image")
+                if mr_type == "document":
+                    # Save document content to disk and send as file result
+                    doc_filename = media_result.get("filename", "document.md")
+                    # Sanitize filename to prevent path traversal
+                    doc_filename = os.path.basename(doc_filename)
+                    doc_content = media_result.get("content", "")
+                    doc_type = media_result.get("doc_type", "markdown")
+                    user_id = cl.user_session.get("user_id", "")
+                    if user_id:
+                        doc_dir = os.path.join(DATA_DIR, "users", user_id, "generated")
+                    else:
+                        doc_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "public", "generated")
+                    os.makedirs(doc_dir, exist_ok=True)
+                    doc_path = os.path.join(doc_dir, doc_filename)
+                    with open(doc_path, "w", encoding="utf-8") as f:
+                        f.write(doc_content)
+                    doc_url = f"/api/media/generated/{doc_filename}" if user_id else f"/public/generated/{doc_filename}"
+                    await messenger.reply_file_result(doc_url, doc_filename, "text/markdown", media_result.get("agent_name", ""))
+                    continue
                 await _send_approval_card(media_result, idx)
-                messenger.log_history(task_id, user_input[:80], media_result.get("agent_name", "Agent"), f"ส่ง approval card ({media_result.get('type', 'image')}): ", media_result.get("prompt", "")[:200], team_id=cl.user_session.get("current_team_id") or "")
+                # Use type-aware field mapping — same as _send_approval_card
+                _pf = prompt_map.get(media_result.get("type", "image"), "prompt")
+                _display = media_result.get(_pf, "")
+                messenger.log_history(task_id, user_input[:80], media_result.get("agent_name", "Agent"), f"ส่ง approval card ({media_result.get('type', 'image')}): ", _display[:200], team_id=cl.user_session.get("current_team_id") or "")
 
             # Send notifications so NotificationsWindow shows pending media approvals
             await messenger.reply_notifications(team_id=cl.user_session.get("current_team_id"))
@@ -1136,22 +1184,51 @@ async def on_message(message: cl.Message):
                 task_id = pending.get("task_id")
                 media_type = pending.get("media_type", "image")
                 duration = pending.get("duration", 5)
+                agent_name = pending.get("agent_name", "")
                 print(f"[APPROVE] Generating {media_type}, model_override={model_override or cl.user_session.get('ai_image_model')}, prompt={prompt[:60]}...", flush=True)
                 try:
                     llm_mgr = LLMManager()
                     gen_mgr = MediaGenerationManager(llm_mgr, user_id=cl.user_session.get("user_id"))
+                    # Pass ALL 5 models — not just image/video, so TTS/STT/Vision can generate
                     resolved_image_model = model_override or cl.user_session.get("ai_image_model") or ""
                     resolved_video_model = model_override or cl.user_session.get("ai_video_model") or ""
-                    print(f"[APPROVE] Resolved models: image={resolved_image_model!r}, video={resolved_video_model!r}, ai_image_model={cl.user_session.get('ai_image_model')!r}", flush=True)
+                    resolved_tts_model = model_override or cl.user_session.get("ai_tts_model") or ""
+                    resolved_stt_model = model_override or cl.user_session.get("ai_stt_model") or ""
+                    resolved_vision_model = model_override or cl.user_session.get("ai_vision_model") or ""
+                    print(f"[APPROVE] Resolved models: image={resolved_image_model!r}, video={resolved_video_model!r}, tts={resolved_tts_model!r}, stt={resolved_stt_model!r}, vision={resolved_vision_model!r}", flush=True)
                     gen_mgr.set_models(
                         image_model=resolved_image_model,
                         video_model=resolved_video_model,
+                        tts_model=resolved_tts_model,
+                        stt_model=resolved_stt_model,
+                        vision_model=resolved_vision_model,
                     )
+                    # Dispatch to the correct generation method based on media type
                     if media_type == "video":
                         if not resolved_video_model:
                             await messenger.reply("⚠️ ยังไม่ได้เลือก Video model — กรุณาเลือก model สำหรับสร้างวิดีโอก่อนกดอนุมัติ")
                             return
                         result = await asyncio.to_thread(gen_mgr.generate_video, prompt, duration=duration)
+                    elif media_type == "tts":
+                        if not resolved_tts_model:
+                            await messenger.reply("⚠️ ยังไม่ได้เลือก TTS model — กรุณาเลือก model สำหรับสร้างเสียงก่อนกดอนุมัติ")
+                            return
+                        text = pending.get("text", prompt)
+                        voice = pending.get("voice", "alloy")
+                        result = await asyncio.to_thread(gen_mgr.generate_tts, text, voice)
+                    elif media_type == "stt":
+                        if not resolved_stt_model:
+                            await messenger.reply("⚠️ ยังไม่ได้เลือก STT model — กรุณาเลือก model สำหรับการถอดเสียงก่อนกดอนุมัติ")
+                            return
+                        audio_url = pending.get("audio_url", prompt)
+                        result = await asyncio.to_thread(gen_mgr.generate_stt, audio_url, user_id=cl.user_session.get("user_id", ""))
+                    elif media_type == "vision":
+                        if not resolved_vision_model:
+                            await messenger.reply("⚠️ ยังไม่ได้เลือก Vision model — กรุณาเลือก model สำหรับวิเคราะห์ภาพก่อนกดอนุมัติ")
+                            return
+                        image_url = pending.get("image_url", "")
+                        question = pending.get("question", prompt)
+                        result = await asyncio.to_thread(gen_mgr.generate_vision, image_url, question, user_id=cl.user_session.get("user_id", ""))
                     else:
                         if not resolved_image_model:
                             await messenger.reply("⚠️ ยังไม่ได้เลือก Image model — กรุณาเลือก model สำหรับสร้างรูปภาพก่อนกดอนุมัติ")
@@ -1162,7 +1239,7 @@ async def on_message(message: cl.Message):
                         # Keep pending_media for retry, send error card
                         error_msg = result.replace("Error: ", "").strip()
                         await messenger.reply_image_approval(
-                            prompt, approval_id, pending.get("agent_name", ""),
+                            prompt, approval_id, agent_name,
                             media_type=media_type, duration=duration,
                             model=pending.get("model", ""),
                             approval_status="error",
@@ -1171,10 +1248,19 @@ async def on_message(message: cl.Message):
                         # Refresh notifications so error status is reflected
                         await messenger.reply_notifications(team_id=cl.user_session.get("current_team_id"))
                     else:
-                        print(f"[APPROVE] Image generated successfully: {result[:80]}", flush=True)
-                        await messenger.reply_image_result(result, prompt, approval_id, task_id=task_id, media_type=media_type, agent_name=pending.get('agent_name', ''))
-                        print(f"[APPROVE] reply_image_result sent", flush=True)
-                        if task_id:
+                        print(f"[APPROVE] {media_type} generated successfully: {result[:80]}", flush=True)
+                        # Dispatch to the correct reply method based on media type
+                        # — reply_image_result is for image/video only; TTS/STT/Vision need their own reply methods
+                        if media_type == "tts":
+                            await messenger.reply_audio_result(result, pending.get("text", prompt), pending.get("voice", ""), agent_name, resolved_tts_model)
+                        elif media_type == "stt":
+                            await messenger.reply_transcription_result(result, pending.get("audio_url", ""), agent_name, resolved_stt_model)
+                        elif media_type == "vision":
+                            await messenger.reply(result)
+                        else:
+                            await messenger.reply_image_result(result, prompt, approval_id, task_id=task_id, media_type=media_type, agent_name=agent_name)
+                        # Only update task images for image/video — STT/Vision return text, not URLs
+                        if task_id and media_type in ("image", "video"):
                             await messenger.update_task_image(task_id, result, prompt, media_type=media_type, team_id=cl.user_session.get("current_team_id"))
                         # Refresh notifications so the approval moves from "pending" to "completed" tab
                         await messenger.reply_notifications(team_id=cl.user_session.get("current_team_id"))
@@ -1195,21 +1281,50 @@ async def on_message(message: cl.Message):
                 task_id = pending.get("task_id")
                 media_type = pending.get("media_type", "image")
                 duration = pending.get("duration", 5)
+                agent_name = pending.get("agent_name", "")
                 _debug(f"[DEBUG-RETRY] Retrying {media_type} for prompt: {prompt[:80]}...", flush=True)
                 try:
                     llm_mgr = LLMManager()
                     gen_mgr = MediaGenerationManager(llm_mgr, user_id=cl.user_session.get("user_id"))
+                    # Pass ALL 5 models — same fix as approve_image handler
                     retry_image_model = cl.user_session.get("ai_image_model") or ""
                     retry_video_model = cl.user_session.get("ai_video_model") or ""
+                    retry_tts_model = cl.user_session.get("ai_tts_model") or ""
+                    retry_stt_model = cl.user_session.get("ai_stt_model") or ""
+                    retry_vision_model = cl.user_session.get("ai_vision_model") or ""
                     gen_mgr.set_models(
                         image_model=retry_image_model,
                         video_model=retry_video_model,
+                        tts_model=retry_tts_model,
+                        stt_model=retry_stt_model,
+                        vision_model=retry_vision_model,
                     )
+                    # Dispatch to the correct generation method based on media type
                     if media_type == "video":
                         if not retry_video_model:
                             await messenger.reply("⚠️ ยังไม่ได้เลือก Video model — กรุณาเลือก model สำหรับสร้างวิดีโอก่อน")
                             return
                         result = await asyncio.to_thread(gen_mgr.generate_video, prompt, duration=duration)
+                    elif media_type == "tts":
+                        if not retry_tts_model:
+                            await messenger.reply("⚠️ ยังไม่ได้เลือก TTS model — กรุณาเลือก model สำหรับสร้างเสียงก่อน")
+                            return
+                        text = pending.get("text", prompt)
+                        voice = pending.get("voice", "alloy")
+                        result = await asyncio.to_thread(gen_mgr.generate_tts, text, voice)
+                    elif media_type == "stt":
+                        if not retry_stt_model:
+                            await messenger.reply("⚠️ ยังไม่ได้เลือก STT model — กรุณาเลือก model สำหรับการถอดเสียงก่อน")
+                            return
+                        audio_url = pending.get("audio_url", prompt)
+                        result = await asyncio.to_thread(gen_mgr.generate_stt, audio_url, user_id=cl.user_session.get("user_id", ""))
+                    elif media_type == "vision":
+                        if not retry_vision_model:
+                            await messenger.reply("⚠️ ยังไม่ได้เลือก Vision model — กรุณาเลือก model สำหรับวิเคราะห์ภาพก่อน")
+                            return
+                        image_url = pending.get("image_url", "")
+                        question = pending.get("question", prompt)
+                        result = await asyncio.to_thread(gen_mgr.generate_vision, image_url, question, user_id=cl.user_session.get("user_id", ""))
                     else:
                         if not retry_image_model:
                             await messenger.reply("⚠️ ยังไม่ได้เลือก Image model — กรุณาเลือก model สำหรับสร้างรูปภาพก่อน")
@@ -1219,8 +1334,17 @@ async def on_message(message: cl.Message):
                     if result.startswith("Error:"):
                         await messenger.reply(f"⚠️ {result}")
                     else:
-                        await messenger.reply_image_result(result, prompt, approval_id, task_id=task_id, media_type=media_type, agent_name=pending.get('agent_name', ''))
-                        if task_id:
+                        # Dispatch to the correct reply method based on media type
+                        if media_type == "tts":
+                            await messenger.reply_audio_result(result, pending.get("text", prompt), pending.get("voice", ""), agent_name, retry_tts_model)
+                        elif media_type == "stt":
+                            await messenger.reply_transcription_result(result, pending.get("audio_url", ""), agent_name, retry_stt_model)
+                        elif media_type == "vision":
+                            await messenger.reply(result)
+                        else:
+                            await messenger.reply_image_result(result, prompt, approval_id, task_id=task_id, media_type=media_type, agent_name=agent_name)
+                        # Only update task images for image/video — STT/Vision return text, not URLs
+                        if task_id and media_type in ("image", "video"):
                             await messenger.update_task_image(task_id, result, prompt, media_type=media_type, team_id=cl.user_session.get("current_team_id"))
                         # Keep pending_media for regenerate after success
                 except Exception as e:
@@ -1233,9 +1357,14 @@ async def on_message(message: cl.Message):
             new_prompt = payload.get("new_prompt", "").strip()
             if new_prompt and messenger:
                 pending = cl.user_session.get(f"pending_media_{approval_id}") or {}
-                pending["prompt"] = new_prompt
-                cl.user_session.set(f"pending_media_{approval_id}", pending)
                 media_type = pending.get("media_type", "image")
+                # Update the type-specific field, not just 'prompt'
+                # — TTS uses 'text', Vision uses 'question', STT uses 'audio_url'
+                prompt_field_map = {"image": "prompt", "video": "prompt", "tts": "text", "stt": "audio_url", "vision": "question", "document": "filename"}
+                field = prompt_field_map.get(media_type, "prompt")
+                pending[field] = new_prompt
+                pending["prompt"] = new_prompt  # also update prompt for display consistency
+                cl.user_session.set(f"pending_media_{approval_id}", pending)
                 duration = pending.get("duration", 0)
                 await messenger.reply_image_approval(
                     new_prompt, approval_id, pending.get("agent_name", ""),

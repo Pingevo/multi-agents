@@ -46,6 +46,12 @@ URL_EXT_MAP = {
     ".mp3": "audio", ".wav": "audio", ".flac": "audio", ".ogg": "audio",
     ".m4a": "audio", ".aac": "audio",
     ".mp4": "video", ".mov": "video", ".webm": "video", ".mpeg": "video",
+    ".docx": "docx", ".xlsx": "xlsx", ".pptx": "pptx",
+    ".py": "code", ".js": "code", ".ts": "code", ".html": "code", ".htm": "code",
+    ".css": "code", ".yaml": "code", ".yml": "code", ".toml": "code",
+    ".sh": "code", ".sql": "code", ".ini": "code", ".cfg": "code",
+    ".json": "code", ".csv": "code", ".md": "code", ".txt": "code",
+    ".zip": "archive", ".tar": "archive", ".gz": "archive", ".7z": "archive",
 }
 
 def classify_url(url: str) -> str:

@@ -465,10 +465,19 @@ const ImageApprovalCard: React.FC<{
   onRetry?: () => void;
 }> = ({ msg, onApprove, onReject, onRetry }) => {
   const status = msg.approvalStatus as ImageApprovalStatus;
+  // Dynamic labels based on media type — without this, all cards say 'Image' regardless of actual media type
+  const mediaLabels: Record<string, { label: string; promptLabel: string }> = {
+    image: { label: 'Image', promptLabel: 'Prompt สำหรับสร้างภาพ:' },
+    video: { label: 'Video', promptLabel: 'Prompt สำหรับสร้างวิดีโอ:' },
+    tts:   { label: 'Audio', promptLabel: 'ข้อความสำหรับสร้างเสียง:' },
+    stt:   { label: 'Transcription', promptLabel: 'ไฟล์เสียง:' },
+    vision: { label: 'Vision', promptLabel: 'คำถามสำหรับวิเคราะห์ภาพ:' },
+  };
+  const meta = mediaLabels[msg.mediaType || 'image'] || mediaLabels.image;
   if (status === 'approved') {
     return (
       <div className="card" style={{ borderLeft: '4px solid var(--green)' }}>
-        <div className="card-hdr"><CheckCircle size={14} style={{ color: 'var(--green)' }} /> <span>Image Approved — กำลังสร้างภาพ...</span></div>
+        <div className="card-hdr"><CheckCircle size={14} style={{ color: 'var(--green)' }} /> <span>{meta.label} Approved — กำลังสร้าง...</span></div>
         <div className="card-body" style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px' }}>
           <Loader2 size={14} className="animate-spin" style={{ color: 'var(--ink3)' }} />
           <span style={{ fontSize: '11px', color: 'var(--ink3)' }}>กรุณารอสักครู่...</span>
@@ -482,7 +491,7 @@ const ImageApprovalCard: React.FC<{
       <div className="card" style={{ borderLeft: '4px solid var(--green)' }}>
         <div className="card-hdr">
           <ImageIcon size={14} style={{ color: 'var(--purple)' }} />
-          <span>Image Result — {msg.agentName || 'Agent'}</span>
+          <span>{meta.label} Result — {msg.agentName || 'Agent'}</span>
         </div>
         <div className="card-body">
           <div className="img-result">
@@ -501,7 +510,7 @@ const ImageApprovalCard: React.FC<{
   if (status === 'rejected') {
     return (
       <div className="card" style={{ borderLeft: '4px solid var(--red)' }}>
-        <div className="card-hdr"><XCircle size={14} style={{ color: 'var(--red)' }} /> <span>Image Rejected</span></div>
+        <div className="card-hdr"><XCircle size={14} style={{ color: 'var(--red)' }} /> <span>{meta.label} Rejected</span></div>
       </div>
     );
   }
@@ -509,14 +518,14 @@ const ImageApprovalCard: React.FC<{
     <div className="card" style={{ borderLeft: '4px solid var(--red)', background: 'rgba(160,48,32,0.03)' }}>
       <div className="card-hdr">
         <ImageIcon size={14} style={{ color: 'var(--purple)' }} />
-        <span>Image Approval — {msg.agentName || 'Agent'}</span>
+        <span>{meta.label} Approval — {msg.agentName || 'Agent'}</span>
       </div>
       <div className="card-body">
         {msg.imageError ? (
           <div style={{ color: 'var(--red)', fontSize: '11px' }}>⚠ {msg.imageError}</div>
         ) : (
           <div>
-            <div style={{ fontSize: '10px', color: 'var(--ink3)', marginBottom: '4px' }}>Prompt สำหรับสร้างภาพ:</div>
+            <div style={{ fontSize: '10px', color: 'var(--ink3)', marginBottom: '4px' }}>{meta.promptLabel}</div>
             <div className="img-prompt" style={{ whiteSpace: 'pre-wrap', maxHeight: '120px', overflowY: 'auto' }}>{msg.imagePrompt || ''}</div>
           </div>
         )}
@@ -554,7 +563,7 @@ const ImageResultCard: React.FC<{
     <div className="card">
       <div className="card-hdr">
         <ImageIcon size={14} style={{ color: 'var(--purple)' }} />
-        <span>Image Result — {msg.agentName || 'Agent'}</span>
+        <span>{(msg.mediaType === 'video' ? 'Video' : msg.mediaType === 'tts' ? 'Audio' : msg.mediaType === 'stt' ? 'Transcription' : msg.mediaType === 'vision' ? 'Vision' : 'Image')} Result — {msg.agentName || 'Agent'}</span>
       </div>
       <div className="card-body">
         <div className="img-result">
@@ -1203,7 +1212,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
               ))}
             </div>
           )}
-          <input ref={fileInputRef} type="file" multiple onChange={handleFileSelect} style={{ display: 'none' }} accept="image/*,audio/*,video/*,.pdf,.txt,.json,.csv,.doc,.docx,.md" />
+          <input ref={fileInputRef} type="file" multiple onChange={handleFileSelect} style={{ display: 'none' }} accept="image/*,audio/*,video/*,.pdf,.txt,.json,.csv,.doc,.docx,.md,.py,.js,.ts,.html,.css,.yaml,.yml,.toml,.sh,.sql,.ini,.cfg,.pptx,.xlsx,.zip,.tar,.gz" />
           {/* Input row */}
           <div className="ci-row">
             <button className="ci-plus" onClick={() => fileInputRef.current?.click()} disabled={disabled} title="Attach file">+</button>

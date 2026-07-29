@@ -1032,7 +1032,14 @@ function AppContent() {
           )
         );
         setIsProcessing(true);
-        addActivity('Generating image...');
+        // Type-aware activity message — without this, all media types say 'Generating image...'
+        const _mt = chatMessages.find(m => m.messageType === 'image_approval' && m.approvalId === approvalId)?.mediaType || 'image';
+        const _activityLabels: Record<string, string> = {
+          image: 'Generating image...', video: 'Generating video...',
+          tts: 'Generating audio...', stt: 'Transcribing audio...',
+          vision: 'Analyzing image...',
+        };
+        addActivity(_activityLabels[_mt] || 'Generating image...');
       } else if (name === 'reject_image') {
         const approvalId = payload?.approval_id;
         setChatMessages((prev) =>
@@ -1073,7 +1080,14 @@ function AppContent() {
           )
         );
         setIsProcessing(true);
-        addActivity('Retrying image generation...');
+        // Type-aware activity message for retry
+        const _rmt = chatMessages.find(m => m.messageType === 'image_approval' && m.approvalId === approvalId)?.mediaType || 'image';
+        const _retryLabels: Record<string, string> = {
+          image: 'Retrying image generation...', video: 'Retrying video generation...',
+          tts: 'Retrying audio generation...', stt: 'Retrying transcription...',
+          vision: 'Retrying vision analysis...',
+        };
+        addActivity(_retryLabels[_rmt] || 'Retrying image generation...');
       } else if (name === 'new_chat') {
         setChatMessages([]);
         updateState({ tasks: [], current_plan: null });

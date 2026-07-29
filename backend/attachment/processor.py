@@ -10,6 +10,18 @@ from backend.attachment.security import check_model_modality_support, llm_manage
 from backend.attachment.url import classify_url, download_with_limit, MAX_TEXT_LENGTH, AUDIO_FORMAT_MAP, _is_localhost_url, is_js_required_domain
 from backend.globals import DATA_DIR
 
+_VIDEO_MIME_MAP = {
+    ".mp4": "video/mp4", ".mov": "video/quicktime",
+    ".webm": "video/webm", ".mpeg": "video/mpeg", ".mpg": "video/mpeg",
+}
+
+def _video_mime_from_url(url: str) -> str:
+    url_lower = url.lower().split("?")[0]
+    for ext, mime in _VIDEO_MIME_MAP.items():
+        if url_lower.endswith(ext):
+            return mime
+    return "video/mp4"
+
 def _resolve_file_path(file_url: str, user_id: str | None = None) -> str:
     """Convert attachment URL to local file path.
 
@@ -78,6 +90,87 @@ def _extract_text_content(file_path: str, file_mime: str) -> str:
             return text[:MAX_TEXT_LENGTH] + ("[...truncated]" if len(text) > MAX_TEXT_LENGTH else "")
         except Exception as e:
             print(f"[ATTACHMENT] XLSX extraction failed: {_sanitize_error(e)}", flush=True)
+            return ""
+
+    # PPTX extraction — python-pptx reads slides and speaker notes
+    if file_mime == "application/vnd.openxmlformats-officedocument.presentationml.presentation" or file_path.endswith(".pptx"):
+        try:
+            from pptx import Presentation
+            prs = Presentation(file_path)
+            text_parts = []
+            for slide_num, slide in enumerate(prs.slides, 1):
+                text_parts.append(f"--- Slide {slide_num} ---")
+                for shape in slide.shapes:
+                    if shape.has_text_frame:
+                        for para in shape.text_frame.paragraphs:
+                            text = para.text.strip()
+                            if text:
+                                text_parts.append(text)
+                if slide.has_notes_slide:
+                    notes = slide.notes_slide.notes_text_frame.text.strip()
+                    if notes:
+                        text_parts.append(f"[Notes: {notes}]")
+            text = "\n".join(text_parts)
+            return text[:MAX_TEXT_LENGTH] + ("[...truncated]" if len(text) > MAX_TEXT_LENGTH else "")
+        except Exception as e:
+            print(f"[ATTACHMENT] PPTX extraction failed: {_sanitize_error(e)}", flush=True)
+            return ""
+
+    # Archive extraction — .zip/.tar/.gz: extract and concatenate text file contents
+    # Security: only extract text files (skip binaries), limit total output size
+    if file_path.endswith((".zip", ".tar", ".tar.gz", ".tgz")):
+        try:
+            import tempfile, tarfile, zipfile
+            text_parts = []
+            total_size = 0
+            if file_path.endswith(".zip"):
+                with zipfile.ZipFile(file_path, 'r') as zf:
+                    for info in zf.infolist():
+                        if info.is_dir() or info.file_size > 1024 * 1024:
+                            continue
+                        # Only extract text-like files to avoid binary noise
+                        if not info.filename.lower().endswith((
+                            ".txt", ".csv", ".json", ".xml", ".md", ".py", ".js",
+                            ".ts", ".html", ".css", ".yaml", ".yml", ".sh", ".sql",
+                            ".ini", ".cfg", ".svg", ".log",
+                        )):
+                            continue
+                        try:
+                            data = zf.read(info)
+                            decoded = data.decode("utf-8", errors="replace")
+                            text_parts.append(f"--- {info.filename} ---\n{decoded}")
+                            total_size += len(decoded)
+                            if total_size > MAX_TEXT_LENGTH:
+                                break
+                        except Exception:
+                            continue
+            else:  # .tar / .tar.gz
+                with tarfile.open(file_path, 'r:*') as tf:
+                    for member in tf.getmembers():
+                        if not member.isfile() or member.size > 1024 * 1024:
+                            continue
+                        if not member.name.lower().endswith((
+                            ".txt", ".csv", ".json", ".xml", ".md", ".py", ".js",
+                            ".ts", ".html", ".css", ".yaml", ".yml", ".sh", ".sql",
+                            ".ini", ".cfg", ".svg", ".log",
+                        )):
+                            continue
+                        try:
+                            f = tf.extractfile(member)
+                            if f:
+                                decoded = f.read().decode("utf-8", errors="replace")
+                                text_parts.append(f"--- {member.name} ---\n{decoded}")
+                                total_size += len(decoded)
+                                if total_size > MAX_TEXT_LENGTH:
+                                    break
+                        except Exception:
+                            continue
+            text = "\n\n".join(text_parts)
+            if text:
+                return text[:MAX_TEXT_LENGTH] + ("[...truncated]" if len(text) > MAX_TEXT_LENGTH else "")
+            return ""
+        except Exception as e:
+            print(f"[ATTACHMENT] Archive extraction failed: {_sanitize_error(e)}", flush=True)
             return ""
 
     # Default: read as text
@@ -275,7 +368,7 @@ async def process_attachment(file_url: str, file_name: str, file_mime: str, user
     if file_mime.startswith("video/"):
         try:
             file_size = os.path.getsize(file_path)
-            if file_size < 20 * 1024 * 1024:
+            if file_size < 50 * 1024 * 1024:
                 with open(file_path, "rb") as f:
                     file_bytes = f.read()
                 b64 = base64.b64encode(file_bytes).decode("utf-8")
@@ -301,9 +394,14 @@ async def process_attachment(file_url: str, file_name: str, file_mime: str, user
         file_mime.startswith("text/") or
         file_mime in ("application/json", "application/xml", "application/csv") or
         file_mime == "image/svg+xml" or
-        file_name.endswith((".txt", ".csv", ".json", ".xml", ".svg", ".md")) or
+        file_name.endswith((".txt", ".csv", ".json", ".xml", ".svg", ".md",
+                            ".py", ".js", ".ts", ".html", ".htm", ".css",
+                            ".yaml", ".yml", ".toml", ".sh", ".sql",
+                            ".ini", ".cfg", ".bat")) or
         file_name.endswith(".docx") or
         file_name.endswith(".xlsx") or
+        file_name.endswith(".pptx") or
+        file_name.endswith((".zip", ".tar", ".tar.gz", ".tgz")) or
         file_mime == "application/pdf"  # fallback if multimodal failed
     )
     if text_extractable:
@@ -468,7 +566,7 @@ async def process_url(url: str) -> dict:
     if url_type == "video":
         try:
             video_bytes = download_with_limit(url, timeout=60)
-            if len(video_bytes) < 20 * 1024 * 1024:
+            if len(video_bytes) < 50 * 1024 * 1024:
                 b64 = base64.b64encode(video_bytes).decode("utf-8")
                 crewai_files = {}
                 try:
@@ -478,7 +576,7 @@ async def process_url(url: str) -> dict:
                     pass
                 return {
                     "type": "multimodal",
-                    "content_blocks": [{"type": "video_url", "video_url": {"url": f"data:video/mp4;base64,{b64}"}}],
+                    "content_blocks": [{"type": "video_url", "video_url": {"url": f"data:{_video_mime_from_url(url)};base64,{b64}"}}],
                     "plugins": None,
                     "crewai_files": crewai_files or None,
                     "text_content": "",
@@ -512,6 +610,38 @@ async def process_url(url: str) -> dict:
                 "file_name": url,
                 "file_mime": "",
             }
+
+    # --- Document/Code/Archive URLs ---
+    if url_type in ("docx", "xlsx", "pptx", "code", "archive"):
+        try:
+            content_bytes = download_with_limit(url)
+            import tempfile
+            url_lower = url.lower().split("?")[0]
+            ext = os.path.splitext(url_lower)[1] or ".txt"
+            with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+                tmp.write(content_bytes)
+                tmp_path = tmp.name
+            try:
+                text = _extract_text_content(tmp_path, "application/octet-stream")
+                if not text:
+                    text = _extract_text_content(tmp_path, "")
+            finally:
+                os.unlink(tmp_path)
+            if text:
+                return {
+                    "type": "text",
+                    "content_blocks": [],
+                    "plugins": None,
+                    "crewai_files": None,
+                    "text_content": text,
+                    "context_text": f"[{url_type.title()} from {url}]",
+                    "required_modality": None,
+                    "file_name": url,
+                    "file_mime": "",
+                }
+        except Exception as e:
+            print(f"[ATTACHMENT] {url_type} URL download failed: {_sanitize_error(e)}", flush=True)
+            # Fall through to webpage scraping as fallback
 
     # --- Webpage ---
     if url_type == "webpage":
