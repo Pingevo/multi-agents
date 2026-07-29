@@ -8,11 +8,11 @@ import { LogOut } from 'lucide-react';
 import { formatResetDate } from '../utils/credits';
 
 const GRADIENTS = [
-  'from-accent to-purple-500',
-  'from-amber-500 to-red-500',
-  'from-emerald-500 to-cyan-500',
-  'from-pink-500 to-rose-500',
-  'from-blue-500 to-indigo-500',
+  'from-orange to-red',
+  'from-blue to-purple',
+  'from-green to-blue',
+  'from-amber to-orange',
+  'from-purple to-blue',
 ];
 
 function teamGradient(teamId: string) {
@@ -62,52 +62,52 @@ export const TeamListPage: React.FC<TeamListPageProps> = ({
   };
 
   return (
-    <div className="h-full w-full flex flex-col bg-bg">
+    <div className="h-full w-full flex flex-col bg-canvas">
       {/* Header */}
-      <header className="h-12 bg-surface border-b border-border flex items-center justify-between px-4 shrink-0">
+      <header className="h-12 bg-cream border-b border-line flex items-center justify-between px-4 shrink-0">
         <div className="flex items-center gap-2">
-          <Users className="w-5 h-5 text-accent" />
-          <h1 className="text-sm font-semibold text-text">Agent Teams</h1>
+          <Users className="w-5 h-5 text-orange" />
+          <h1 className="text-sm font-semibold text-ink">Agent Teams</h1>
         </div>
         <div className="flex items-center gap-3">
           {credits && (
-            <div className="flex items-center gap-1.5 text-xs text-text-2" title={`Daily: $${credits.usage_daily?.toFixed(4) ?? 0} | Weekly: $${credits.usage_weekly?.toFixed(4) ?? 0} | Monthly: $${credits.usage_monthly?.toFixed(4) ?? 0} | All-time: $${credits.usage?.toFixed(4) ?? 0}`}>
+            <div className="flex items-center gap-1.5 text-xs text-ink-2" title={`Daily: $${credits.usage_daily?.toFixed(4) ?? 0} | Weekly: $${credits.usage_weekly?.toFixed(4) ?? 0} | Monthly: $${credits.usage_monthly?.toFixed(4) ?? 0} | All-time: $${credits.usage?.toFixed(4) ?? 0}`}>
               <Wallet className="w-3.5 h-3.5" />
               {credits.limit !== null && credits.limit > 0 ? (
                 (() => {
                   const usedThisPeriod = (credits.limit ?? 0) - (credits.limit_remaining ?? 0);
                   const isLow = (credits.limit_remaining ?? 0) < 1;
                   return (
-                    <span className={isLow ? 'text-warning' : ''}>
+                    <span className={isLow ? 'text-amber' : ''}>
                       ${usedThisPeriod.toFixed(2)} / ${credits.limit?.toFixed(2) ?? '—'}
-                      {credits.limit_reset && <span className="text-text-3 ml-1">(รีเซ็ต {formatResetDate(credits.limit_reset)})</span>}
+                      {credits.limit_reset && <span className="text-ink-3 ml-1">(รีเซ็ต {formatResetDate(credits.limit_reset)})</span>}
                     </span>
                   );
                 })()
               ) : credits.is_free_tier ? (
-                <span className="text-warning">Free Tier</span>
+                <span className="text-amber">Free Tier</span>
               ) : (
                 <span>${credits.usage?.toFixed(2) ?? '—'} used</span>
               )}
             </div>
           )}
-          <div className="flex items-center gap-1.5 text-xs text-text-2">
-            <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-success' : 'bg-warning'} ${isConnected ? '' : 'animate-pulse'}`} />
+          <div className="flex items-center gap-1.5 text-xs text-ink-2">
+            <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green' : 'bg-amber'} ${isConnected ? '' : 'animate-pulse'}`} />
             <span>{systemStatus}</span>
           </div>
           {user && (
-            <div className="flex items-center gap-2 pl-3 ml-1 border-l border-border">
-              <div className="flex items-center gap-1.5 text-xs text-text-2">
+            <div className="flex items-center gap-2 pl-3 ml-1 border-l border-line">
+              <div className="flex items-center gap-1.5 text-xs text-ink-2">
                 {user.avatar_url ? (
                   <img src={user.avatar_url} alt="" className="w-5 h-5 rounded-full" />
                 ) : (
-                  <div className="w-5 h-5 rounded-full bg-accent/20 flex items-center justify-center text-[10px] font-medium text-accent">
+                  <div className="w-5 h-5 rounded-full bg-orange/20 flex items-center justify-center text-[10px] font-medium text-orange">
                     {user.username.charAt(0).toUpperCase()}
                   </div>
                 )}
                 <span>{user.username}</span>
               </div>
-              <button onClick={logout} className="p-1 text-text-2 hover:text-error transition-colors" title="Logout">
+              <button onClick={logout} className="p-1 text-ink-2 hover:text-red transition-colors" title="Logout">
                 <LogOut className="w-4 h-4" />
               </button>
             </div>
@@ -121,14 +121,14 @@ export const TeamListPage: React.FC<TeamListPageProps> = ({
           {/* Header */}
           <div className="flex items-center justify-between mb-8">
             <div>
-              <h1 className="text-2xl font-bold text-text">Teams</h1>
-              <p className="text-sm text-text-2 mt-1">เลือกทีมเพื่อเริ่มทำงาน หรือสร้างทีมใหม่</p>
+              <h1 className="text-2xl font-bold text-ink">Teams</h1>
+              <p className="text-sm text-ink-2 mt-1">เลือกทีมเพื่อเริ่มทำงาน หรือสร้างทีมใหม่</p>
             </div>
             <button
               onClick={onAICreateTeam}
-              className="flex items-center gap-2 px-4 py-2 bg-accent/10 text-accent border border-accent/30 rounded-lg text-sm font-medium hover:bg-accent/20 transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-orange/10 text-orange border border-orange/30 rounded-retro text-sm font-medium hover:bg-orange/20 transition-colors"
             >
-              <MessageSquare className="w-4 h-4 text-accent" />
+              <MessageSquare className="w-4 h-4 text-orange" />
               คุยกับ AI สร้างทีม
             </button>
           </div>
@@ -138,7 +138,7 @@ export const TeamListPage: React.FC<TeamListPageProps> = ({
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
               <button
                 onClick={onCreateTeam}
-                className="border border-dashed border-border rounded-xl flex flex-col items-center justify-center min-h-[200px] text-text-3 hover:text-text hover:border-accent/50 transition-colors"
+                className="border border-dashed border-line-2 rounded-retro-lg flex flex-col items-center justify-center min-h-[200px] text-ink-3 hover:text-ink hover:border-orange/50 transition-colors"
               >
                 <Plus className="w-8 h-8 mb-1" />
                 <span className="text-sm">สร้างทีมใหม่</span>
@@ -154,7 +154,7 @@ export const TeamListPage: React.FC<TeamListPageProps> = ({
                 return (
                   <div
                     key={team.id}
-                    className="bg-surface border border-border rounded-xl p-5 cursor-pointer hover:border-accent hover:bg-surface-2/30 transition-all group relative"
+                    className="bg-paper border border-line rounded-retro-lg p-5 cursor-pointer hover:border-orange hover:bg-cream/30 transition-all group relative shadow-retro"
                     onClick={() => onSelectTeam(team.id)}
                   >
                     {/* Delete action */}
@@ -162,13 +162,13 @@ export const TeamListPage: React.FC<TeamListPageProps> = ({
                       <div className="absolute top-4 right-4 flex items-center gap-1 z-10" onClick={(e) => e.stopPropagation()}>
                         <button
                           onClick={() => { onDeleteTeam(team.id); setConfirmDelete(null); }}
-                          className="px-2 py-1 bg-error text-white text-[10px] rounded font-medium"
+                          className="px-2 py-1 bg-red text-white text-[10px] rounded-retro-sm font-medium"
                         >
                           Confirm
                         </button>
                         <button
                           onClick={() => setConfirmDelete(null)}
-                          className="px-2 py-1 bg-surface-2 text-text-2 text-[10px] rounded font-medium border border-border"
+                          className="px-2 py-1 bg-cream-2 text-ink-2 text-[10px] rounded-retro-sm font-medium border border-line"
                         >
                           Cancel
                         </button>
@@ -176,7 +176,7 @@ export const TeamListPage: React.FC<TeamListPageProps> = ({
                     ) : (
                       <button
                         onClick={(e) => { e.stopPropagation(); setConfirmDelete(team.id); }}
-                        className="absolute top-4 right-4 p-1.5 rounded-md bg-surface-2 border border-border text-text-3 hover:text-error opacity-0 group-hover:opacity-100 transition-opacity"
+                        className="absolute top-4 right-4 p-1.5 rounded-retro-sm bg-cream-2 border border-line text-ink-3 hover:text-red opacity-0 group-hover:opacity-100 transition-opacity"
                         title="Delete team"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -184,16 +184,16 @@ export const TeamListPage: React.FC<TeamListPageProps> = ({
                     )}
 
                     <div className="flex items-center gap-3 mb-3">
-                      <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${teamGradient(team.id)} flex items-center justify-center text-lg font-bold text-white shrink-0`}>
+                      <div className={`w-10 h-10 rounded-retro-lg bg-gradient-to-br ${teamGradient(team.id)} flex items-center justify-center text-lg font-bold text-white shrink-0`}>
                         {team.name.charAt(0).toUpperCase()}
                       </div>
                       <div className="min-w-0 pr-10">
-                        <h3 className="text-[15px] font-semibold text-text truncate">{team.name}</h3>
-                        {team.description && <p className="text-xs text-text-2 truncate">{team.description}</p>}
+                        <h3 className="text-[15px] font-semibold text-ink truncate">{team.name}</h3>
+                        {team.description && <p className="text-xs text-ink-2 truncate">{team.description}</p>}
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-3 text-[11px] text-text-2 mb-3">
+                    <div className="flex items-center gap-3 text-[11px] text-ink-2 mb-3">
                       <span className="flex items-center gap-1">
                         <MessageSquare className="w-3 h-3" />
                         {(team as any).session_count ?? 0} sessions
@@ -201,25 +201,25 @@ export const TeamListPage: React.FC<TeamListPageProps> = ({
                       <span>📅 {timeAgo(team.created_at)}</span>
                     </div>
 
-                    <div className="flex flex-wrap gap-1.5 pt-3 border-t border-border">
+                    <div className="flex flex-wrap gap-1.5 pt-3 border-t border-line">
                       {displayAgents.slice(0, 8).map((agent) => (
                         <div
                           key={agent.id}
-                          className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] ${agent.is_manager ? 'bg-accent/10 border border-accent/30' : 'bg-surface-2'}`}
+                          className={`flex items-center gap-1 rounded-retro-sm px-2 py-1 text-[10px] ${agent.is_manager ? 'bg-purple/10 border border-purple/30' : 'bg-cream'}`}
                         >
-                          <div className={`w-1.5 h-1.5 rounded-full ${agent.status === 'Busy' ? 'bg-warning' : 'bg-success'}`} />
-                          <span className={`font-medium ${agent.is_manager ? 'text-purple-400' : 'text-text'}`}>{agent.name}</span>
-                          {agent.role && <span className="text-text-3 text-[9px]">{agent.role}</span>}
+                          <div className={`w-1.5 h-1.5 rounded-full ${agent.status === 'Busy' ? 'bg-amber' : 'bg-green'}`} />
+                          <span className={`font-medium ${agent.is_manager ? 'text-purple' : 'text-ink'}`}>{agent.name}</span>
+                          {agent.role && <span className="text-ink-3 text-[9px]">{agent.role}</span>}
                         </div>
                       ))}
                       {displayAgents.length > 8 && (
-                        <span className="text-[10px] text-text-3 px-1 py-1">+{displayAgents.length - 8}</span>
+                        <span className="text-[10px] text-ink-3 px-1 py-1">+{displayAgents.length - 8}</span>
                       )}
                     </div>
 
-                    <div className="flex items-center justify-between pt-3 mt-3 border-t border-border">
-                      <div className="flex items-center gap-1.5 text-[10px] text-text-2">
-                        <span className={`px-1.5 py-0.5 rounded text-[9px] ${team.manager_model && team.manager_model !== 'auto' ? 'bg-accent/15 text-purple-400' : 'bg-success/15 text-success'}`}>
+                    <div className="flex items-center justify-between pt-3 mt-3 border-t border-line">
+                      <div className="flex items-center gap-1.5 text-[10px] text-ink-2">
+                        <span className={`px-1.5 py-0.5 rounded-retro-sm text-[9px] ${team.manager_model && team.manager_model !== 'auto' ? 'bg-purple/15 text-purple' : 'bg-green/15 text-green'}`}>
                           {team.manager_model && team.manager_model !== 'auto' ? team.manager_model : 'Auto'}
                         </span>
                         <span>Manager model</span>
@@ -231,7 +231,7 @@ export const TeamListPage: React.FC<TeamListPageProps> = ({
               {/* Create team card */}
               <button
                 onClick={onCreateTeam}
-                className="border border-dashed border-border rounded-xl flex flex-col items-center justify-center min-h-[200px] text-text-3 hover:text-text hover:border-accent/50 transition-colors"
+                className="border border-dashed border-line-2 rounded-retro-lg flex flex-col items-center justify-center min-h-[200px] text-ink-3 hover:text-ink hover:border-orange/50 transition-colors"
               >
                 <Plus className="w-8 h-8 mb-1" />
                 <span className="text-sm">สร้างทีมใหม่</span>
