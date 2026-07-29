@@ -188,12 +188,16 @@ class MediaGenerationManager:
         if "b64_json" in item:
             import base64
             img_bytes = base64.b64decode(item["b64_json"])
-            return self._save_binary(img_bytes, "png", "img")
+            media_type = item.get("media_type", "image/png")
+            ext = media_type.split("/")[-1].replace("+xml", "")
+            return self._save_binary(img_bytes, ext, "img")
         elif "url" in item and item["url"]:
             img_resp = requests.get(item["url"], timeout=60)
             if img_resp.status_code != 200:
                 raise RuntimeError(f"Failed to download image: {img_resp.status_code}")
-            return self._save_binary(img_resp.content, "png", "img")
+            media_type = item.get("media_type", "image/png")
+            ext = media_type.split("/")[-1].replace("+xml", "")
+            return self._save_binary(img_resp.content, ext, "img")
         else:
             raise RuntimeError(f"OpenRouter image API returned no usable image data (keys: {list(item.keys())})")
 
@@ -256,4 +260,132 @@ class MediaGenerationManager:
                 raise RuntimeError(f"OpenRouter video generation failed: {poll_data.get('error', 'unknown')}")
         raise RuntimeError("OpenRouter video generation timed out after 5 minutes")
 
+    # ==================== TTS ====================
 
+    def generate_tts(self, text: str, voice: str = "alloy") -> str:
+        """Generate audio from text via OpenRouter TTS. Returns URL to saved audio file."""
+        if not text or not text.strip():
+            return "Error: Empty text for TTS generation"
+        if not self.tts_model:
+            return "Error: No TTS model selected"
+        try:
+            return self._openrouter_tts(text, voice)
+        except Exception as e:
+            print(f"[MediaGen] OpenRouter TTS failed: {_sanitize_error(e)}")
+            return f"Error: TTS generation failed: {_sanitize_error(e)}"
+
+    def _openrouter_tts(self, text: str, voice: str) -> str:
+        import base64 as _b64
+        payload = {
+            "model": self.tts_model,
+            "input": text,
+            "voice": voice,
+            "response_format": "mp3",
+        }
+        print(f"[MediaGen] POST {self.openrouter_base}/audio/speech model={self.tts_model}", flush=True)
+        resp = requests.post(
+            f"{self.openrouter_base}/audio/speech",
+            headers={
+                "Authorization": f"Bearer {self.openrouter_key}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=120,
+        )
+        if resp.status_code != 200:
+            raise RuntimeError(f"TTS API returned {resp.status_code}: {resp.text[:200]}")
+        # Response is raw audio bytes (Content-Type: audio/mpeg), NOT JSON
+        audio_bytes = resp.content
+        return self._save_binary(audio_bytes, "mp3", "tts")
+
+    # ==================== STT ====================
+
+    def generate_stt(self, audio_url: str, user_id: str = "") -> str:
+        """Transcribe audio via OpenRouter STT. Returns transcription text."""
+        if not self.stt_model:
+            return "Error: No STT model selected"
+        try:
+            return self._openrouter_stt(audio_url, user_id)
+        except Exception as e:
+            print(f"[MediaGen] OpenRouter STT failed: {_sanitize_error(e)}")
+            return f"Error: STT failed: {_sanitize_error(e)}"
+
+    def _openrouter_stt(self, audio_url: str, user_id: str) -> str:
+        import base64 as _b64
+        from backend.attachment.processor import _resolve_file_path
+        file_path = _resolve_file_path(audio_url, user_id=user_id)
+        with open(file_path, "rb") as f:
+            audio_bytes = f.read()
+        b64 = _b64.b64encode(audio_bytes).decode("utf-8")
+        url_lower = audio_url.lower().split("?")[0]
+        audio_format = "mp3"
+        for ext, fmt in [(".mp3", "mp3"), (".wav", "wav"), (".flac", "flac"),
+                         (".ogg", "ogg"), (".m4a", "m4a"), (".aac", "aac"), (".webm", "webm")]:
+            if url_lower.endswith(ext):
+                audio_format = fmt
+                break
+        print(f"[MediaGen] POST {self.openrouter_base}/audio/transcriptions model={self.stt_model}", flush=True)
+        resp = requests.post(
+            f"{self.openrouter_base}/audio/transcriptions",
+            headers={
+                "Authorization": f"Bearer {self.openrouter_key}",
+                "Content-Type": "application/json",
+            },
+            json={"model": self.stt_model, "input_audio": {"data": b64, "format": audio_format}},
+            timeout=60,
+        )
+        if resp.status_code != 200:
+            raise RuntimeError(f"STT API returned {resp.status_code}: {resp.text[:200]}")
+        result = resp.json()
+        return result.get("text", "")
+
+    # ==================== Vision ====================
+
+    def generate_vision(self, image_url: str, question: str, user_id: str = "") -> str:
+        """Analyze an image via OpenRouter Vision (chat completions). Returns analysis text."""
+        if not self.vision_model:
+            return "Error: No vision model selected"
+        try:
+            return self._openrouter_vision(image_url, question, user_id)
+        except Exception as e:
+            print(f"[MediaGen] OpenRouter Vision failed: {_sanitize_error(e)}")
+            return f"Error: Vision analysis failed: {_sanitize_error(e)}"
+
+    def _openrouter_vision(self, image_url: str, question: str, user_id: str) -> str:
+        import base64 as _b64
+        resolved_url = image_url
+        if image_url.startswith("/api/media/") or ("localhost" in image_url and "/api/media/" in image_url):
+            from backend.attachment.processor import _resolve_file_path
+            file_path = _resolve_file_path(image_url, user_id=user_id)
+            with open(file_path, "rb") as f:
+                img_bytes = f.read()
+            b64 = _b64.b64encode(img_bytes).decode("utf-8")
+            url_lower = image_url.lower().split("?")[0]
+            mime_map = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                        ".webp": "image/webp", ".gif": "image/gif"}
+            mime = "image/png"
+            for ext, m in mime_map.items():
+                if url_lower.endswith(ext):
+                    mime = m
+                    break
+            resolved_url = f"data:{mime};base64,{b64}"
+        print(f"[MediaGen] POST {self.openrouter_base}/chat/completions model={self.vision_model}", flush=True)
+        resp = requests.post(
+            f"{self.openrouter_base}/chat/completions",
+            headers={
+                "Authorization": f"Bearer {self.openrouter_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": self.vision_model,
+                "messages": [{"role": "user", "content": [
+                    {"type": "text", "text": question},
+                    {"type": "image_url", "image_url": {"url": resolved_url}},
+                ]}],
+            },
+            timeout=60,
+        )
+        if resp.status_code != 200:
+            raise RuntimeError(f"Vision API returned {resp.status_code}: {resp.text[:200]}")
+        data = resp.json()
+        return data["choices"][0]["message"]["content"]

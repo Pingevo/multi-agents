@@ -264,7 +264,7 @@ const TaskAgentCard: React.FC<{
       {pendingApprovals.map(pa => (
         <div key={pa.approvalId} style={{ marginTop: '4px', cursor: 'pointer' }} onClick={() => onNavigate?.()}>
           {pa.approvalStatus === 'pending' && (
-            <div style={{ fontSize: '10px', color: 'var(--ink2)', marginBottom: '2px' }}>🖼️ {pa.prompt} — <span style={{ color: 'var(--purple)' }}>คลิกเพื่ออนุมัติใน Chat</span></div>
+            <div style={{ fontSize: '10px', color: 'var(--ink2)', marginBottom: '2px' }}>{pa.mediaType === 'video' ? '🎬' : pa.mediaType === 'tts' ? '🔊' : pa.mediaType === 'stt' ? '�' : pa.mediaType === 'vision' ? '👁️' : '�️'} {pa.prompt} — <span style={{ color: 'var(--purple)' }}>คลิกเพื่ออนุมัติใน Chat</span></div>
           )}
           {pa.approvalStatus === 'error' && (
             <div style={{ fontSize: '10px', color: 'var(--red)', marginBottom: '2px' }}>⚠ {pa.imageError} — <span style={{ color: 'var(--amber)' }}>คลิกเพื่อ Retry ใน Chat</span></div>
@@ -275,11 +275,13 @@ const TaskAgentCard: React.FC<{
         </div>
       ))}
 
-      {/* Image results */}
+      {/* Image results — type-aware rendering: video→<video>, tts→<audio>, else→<img> */}
       {imageResults.map((ir, i) => (
         <div key={i} style={{ marginTop: '4px' }}>
           {ir.mediaType === 'video' ? (
             <video src={withMediaToken(ir.imageUrl)} controls style={{ width: '100%', borderRadius: '3px', border: '1px solid var(--line)' }} />
+          ) : ir.mediaType === 'tts' ? (
+            <audio src={withMediaToken(ir.imageUrl)} controls style={{ width: '100%' }} />
           ) : (
             <img src={withMediaToken(ir.imageUrl)} alt={ir.prompt} style={{ width: '100%', borderRadius: '3px', border: '1px solid var(--line)' }} />
           )}
@@ -415,7 +417,15 @@ const isPending = (n: NotificationItem): boolean => {
 
 const getNotifIcon = (n: NotificationItem): string => {
   if (n.messageType === 'plan') return '📋';
-  if (n.messageType === 'image_approval') return '🖼️';
+  // Type-aware icon — matches NotificationsWindow logic
+  if (n.messageType === 'image_approval') {
+    const mt = n.mediaType || 'image';
+    if (mt === 'video') return '🎬';
+    if (mt === 'tts') return '🔊';
+    if (mt === 'stt') return '📝';
+    if (mt === 'vision') return '👁️';
+    return '🖼️';
+  }
   if (n.messageType === 'agent_review') return '🔍';
   if (n.messageType === 'tuning_proposal') return '🔧';
   return '🔔';
@@ -423,7 +433,15 @@ const getNotifIcon = (n: NotificationItem): string => {
 
 const getNotifTitle = (n: NotificationItem): string => {
   if (n.messageType === 'plan') return 'Plan Approval';
-  if (n.messageType === 'image_approval') return 'Image Generation';
+  // Type-aware title — matches NotificationsWindow logic
+  if (n.messageType === 'image_approval') {
+    const mt = n.mediaType || 'image';
+    if (mt === 'video') return 'Video Generation';
+    if (mt === 'tts') return 'Text-to-Speech';
+    if (mt === 'stt') return 'Audio Transcription';
+    if (mt === 'vision') return 'Vision Analysis';
+    return 'Image Generation';
+  }
   if (n.messageType === 'agent_review') return 'Agent Review';
   if (n.messageType === 'tuning_proposal') return 'Tuning Proposal';
   return 'Notification';

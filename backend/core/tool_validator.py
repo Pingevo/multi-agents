@@ -219,3 +219,38 @@ async def validate_tool_usage(
                 agent_outputs[i]["output"] = (
                     output[:500] + "\n\n[เอกสารถูกสร้างเป็นไฟล์แล้ว — ดูในส่วนดาวน์โหลด]"
                 )
+
+        # --- text_to_speech (TTS) ---
+        # If agent had TTS tool but didn't call it, extract text from output
+        if "text_to_speech" in tools:
+            has_tts = any(r.get("type") == "tts" for r in media_tool_results)
+            if not has_tts and len(output) > 20:
+                # TTS fallback: extract text content from agent output
+                # Use LLM extraction to get the text that should be spoken
+                tts_text = None
+                if llm_manager:
+                    print(f"[TOOL-VALIDATOR] Agent '{agent_name}' had text_to_speech but didn't call it — trying LLM extraction", flush=True)
+                    tts_text = await _llm_extract_prompt(output, llm_manager, "tts")
+                if not tts_text:
+                    # Fallback: use the output directly if it's short enough
+                    if len(output) <= 500:
+                        tts_text = output.strip()
+                if tts_text:
+                    print(f"[TOOL-VALIDATOR] Creating TTS result for '{agent_name}'", flush=True)
+                    media_tool_results.append({
+                        "type": "tts",
+                        "text": tts_text,
+                        "voice": "alloy",
+                        "agent_name": agent_name,
+                        "model": "",
+                    })
+
+        # --- transcribe_audio (STT) ---
+        # STT requires an audio_url that the agent can't generate from text.
+        # Only attempt fallback if user's original message contained audio attachments.
+        # Skip for now — no reliable way to extract audio_url from text output.
+
+        # --- analyze_image (Vision) ---
+        # Vision requires an image_url that the agent can't generate from text.
+        # Only attempt fallback if user's original message contained image attachments.
+        # Skip for now — no reliable way to extract image_url from text output.

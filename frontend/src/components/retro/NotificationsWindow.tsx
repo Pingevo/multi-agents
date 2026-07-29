@@ -30,7 +30,15 @@ const getTargetWindow = (_n: NotificationItem): 'chat' | 'tasks' => {
 
 const getIcon = (n: NotificationItem): string => {
   if (n.messageType === 'plan') return '📋';
-  if (n.messageType === 'image_approval') return '🖼️';
+  // Type-aware icon — without this, all media approvals show 🖼️ even for TTS/STT/Vision
+  if (n.messageType === 'image_approval') {
+    const mt = n.mediaType || 'image';
+    if (mt === 'video') return '🎬';
+    if (mt === 'tts') return '🔊';
+    if (mt === 'stt') return '📝';
+    if (mt === 'vision') return '�️';
+    return '�🖼️';
+  }
   if (n.messageType === 'agent_review') return '🔍';
   if (n.messageType === 'tuning_proposal') return '🔧';
   return '🔔';
@@ -38,7 +46,15 @@ const getIcon = (n: NotificationItem): string => {
 
 const getTitle = (n: NotificationItem): string => {
   if (n.messageType === 'plan') return 'Plan Approval';
-  if (n.messageType === 'image_approval') return 'Image Generation';
+  // Type-aware title — without this, all media approvals say 'Image Generation'
+  if (n.messageType === 'image_approval') {
+    const mt = n.mediaType || 'image';
+    if (mt === 'video') return 'Video Generation';
+    if (mt === 'tts') return 'Text-to-Speech';
+    if (mt === 'stt') return 'Audio Transcription';
+    if (mt === 'vision') return 'Vision Analysis';
+    return 'Image Generation';
+  }
   if (n.messageType === 'agent_review') return 'Agent Review';
   if (n.messageType === 'tuning_proposal') return 'Tuning Proposal';
   return 'Notification';

@@ -122,6 +122,7 @@ export interface NotificationItem {
   planAgents?: PlanAgent[];
   planType?: string;
   imagePrompt?: string;
+  mediaType?: string;  // Media type for image_approval notifications (image/video/tts/stt/vision)
   agentName?: string;
   agentRole?: string;
   reviewId?: string;

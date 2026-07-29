@@ -811,12 +811,21 @@ const ImageApprovalCard: React.FC<{
 }> = ({ prompt, agentName, approvalStatus, mediaType = 'image', duration = 0, model = '', imageError = '', mediaCatalog, mediaSearchResults, onFetchMediaCatalog, onSearchModels, onApprove, onReject, onRetry }) => {
   const isPending = approvalStatus === 'pending';
   const isError = approvalStatus === 'error';
-  const isVideo = mediaType === 'video';
-  const label = isVideo ? 'Video' : 'Image';
+  // Media type metadata — labels, icons, and catalog keys for all supported media types
+  // Without this mapping, TTS/STT/Vision would show 'Image' labels and fetch wrong model catalogs
+  const mediaTypeMeta: Record<string, { label: string; icon: string; promptLabel: string; catalogKey: string }> = {
+    image:   { label: 'Image',   icon: '🖼️', promptLabel: 'Prompt',      catalogKey: 'image' },
+    video:   { label: 'Video',   icon: '🎬', promptLabel: 'Prompt',      catalogKey: 'video' },
+    tts:     { label: 'Audio',   icon: '🔊', promptLabel: 'Text',        catalogKey: 'tts' },
+    stt:     { label: 'Transcription', icon: '📝', promptLabel: 'Audio URL', catalogKey: 'stt' },
+    vision:  { label: 'Vision',  icon: '👁️', promptLabel: 'Question',   catalogKey: 'vision' },
+  };
+  const meta = mediaTypeMeta[mediaType] || mediaTypeMeta.image;
+  const label = meta.label;
   const [selectedModel, setSelectedModel] = useState(model);
   const [pickerOpen, setPickerOpen] = useState(false);
   const modelBtnRef = useRef<HTMLButtonElement>(null);
-  const catalogKey = isVideo ? 'video' : 'image';
+  const catalogKey = meta.catalogKey;
   return (
     <div className={`rounded-xl border bg-surface/80 backdrop-blur-sm overflow-hidden ${isPending ? 'border-purple-400/30' : isError ? 'border-danger/40' : 'border-border'}`}>
       <div className="flex items-center justify-between px-3 py-2 bg-purple-500/5 border-b border-purple-400/20">
@@ -830,8 +839,8 @@ const ImageApprovalCard: React.FC<{
       </div>
       <div className="p-3 space-y-2">
         <div className="text-xs text-text-2">
-          Prompt: <span className="text-text italic">"{prompt}"</span>
-          {isVideo && duration > 0 && <span className="ml-1 text-[10px] text-text-3">({duration}s)</span>}
+          {meta.promptLabel}: <span className="text-text italic">"{prompt}"</span>
+          {mediaType === 'video' && duration > 0 && <span className="ml-1 text-[10px] text-text-3">({duration}s)</span>}
         </div>
         {model && !isPending && (
           <div className="flex items-center gap-1 text-[10px] text-text-2">
@@ -880,7 +889,7 @@ const ImageApprovalCard: React.FC<{
             </div>
             <div className="flex gap-2">
               <button onClick={() => onApprove?.(selectedModel || undefined)} className="px-3 py-1 rounded-md bg-purple-500 text-white text-xs font-medium hover:bg-purple-600 transition-colors">
-                {isVideo ? '🎬' : '🖼️'} Generate
+                {meta.icon} Generate
               </button>
               <button onClick={onReject} className="px-3 py-1 rounded-md bg-surface-2 text-text-2 text-xs font-medium border border-border hover:bg-surface-3 transition-colors">
                 ❌ Cancel
@@ -1520,10 +1529,16 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
 
                     // image_approval — show in chat
                     if (msgType === 'image_approval') {
+                      // Type-aware avatar icon — without this, all media types show <Image> icon
+                      const _approvalIcon: Record<string, React.ReactNode> = {
+                        image: <Image className="w-3.5 h-3.5" />, video: <Video className="w-3.5 h-3.5" />,
+                        tts: <Volume2 className="w-3.5 h-3.5" />, stt: <FileText className="w-3.5 h-3.5" />,
+                        vision: <Eye className="w-3.5 h-3.5" />,
+                      };
                       return (
                         <div key={msg.id} className="flex gap-2 flex-row max-w-[75%]">
                           <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 bg-surface-2 border border-border text-purple-400">
-                            <Image className="w-3.5 h-3.5" />
+                            {_approvalIcon[msg.mediaType || 'image'] || <Image className="w-3.5 h-3.5" />}
                           </div>
                           <div className="flex-1 min-w-0">
                             <ImageApprovalCard
@@ -1549,10 +1564,16 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
 
                     // image_result — show in chat
                     if (msgType === 'image_result') {
+                      // Type-aware avatar icon — same as image_approval
+                      const _resultIcon: Record<string, React.ReactNode> = {
+                        image: <Image className="w-3.5 h-3.5" />, video: <Video className="w-3.5 h-3.5" />,
+                        tts: <Volume2 className="w-3.5 h-3.5" />, stt: <FileText className="w-3.5 h-3.5" />,
+                        vision: <Eye className="w-3.5 h-3.5" />,
+                      };
                       return (
                         <div key={msg.id} className="flex gap-2 flex-row max-w-[75%]">
                           <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 bg-surface-2 border border-border text-purple-400">
-                            <Image className="w-3.5 h-3.5" />
+                            {_resultIcon[msg.mediaType || 'image'] || <Image className="w-3.5 h-3.5" />}
                           </div>
                           <div className="flex-1 min-w-0">
                             <ImageResultCard
@@ -1921,7 +1942,7 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
                 multiple
                 onChange={handleFileSelect}
                 className="hidden"
-                accept="image/*,audio/*,video/*,.pdf,.txt,.json,.csv,.doc,.docx,.md"
+                accept="image/*,audio/*,video/*,.pdf,.txt,.json,.csv,.doc,.docx,.md,.py,.js,.ts,.html,.css,.yaml,.yml,.toml,.sh,.sql,.ini,.cfg,.pptx,.xlsx,.zip,.tar,.gz"
               />
               <div className="flex items-center gap-2">
                 <button
