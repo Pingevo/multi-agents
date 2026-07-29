@@ -87,13 +87,14 @@ from backend.attachment.url import MAX_URL_DOWNLOAD_SIZE, AUDIO_FORMAT_MAP, MAX_
 # ============================================================
 # HTTP upload endpoint
 # ============================================================
-_ATTACH_DIR = os.path.join(os.path.dirname(__file__), "public", "attachments")
-os.makedirs(_ATTACH_DIR, exist_ok=True)
+# Legacy fallback directory — used when no auth token (dev mode)
+_LEGACY_ATTACH_DIR = os.path.join(os.path.dirname(__file__), "public", "attachments")
+os.makedirs(_LEGACY_ATTACH_DIR, exist_ok=True)
 
 
 @_cl_server.app.post("/api/upload")
 async def _http_upload_file(request: Request):
-    """Receive a file upload via HTTP and return a public URL."""
+    """Receive a file upload via HTTP and return a URL."""
     try:
         content_type = request.headers.get("content-type", "")
         if content_type.startswith("multipart/form-data"):
@@ -113,13 +114,28 @@ async def _http_upload_file(request: Request):
                 return JSONResponse({"error": "No file_data provided"}, status_code=400)
             file_bytes = base64.b64decode(file_data.split(",")[-1] if "," in file_data else file_data)
 
+        # Per-user isolation: extract user_id from auth token and save to data/users/{uid}/attachments/
+        # — prevents cross-user data leakage when multiple users share the same server.
+        auth_header = request.headers.get("authorization", "")
+        user_id = None
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+            user_id = _session_mgr.verify_token(token)
+
+        if user_id:
+            attach_dir = os.path.join(user_data_dir(user_id), "attachments")
+            url_prefix = "/api/media/attachments"
+        else:
+            attach_dir = _LEGACY_ATTACH_DIR
+            url_prefix = "/public/attachments"
+
         safe_name = re.sub(r'[^a-zA-Z0-9._-]', '_', file_name)
         unique_name = f"{uuid.uuid4().hex[:8]}_{safe_name}"
-        filepath = os.path.join(_ATTACH_DIR, unique_name)
+        filepath = os.path.join(attach_dir, unique_name)
         with open(filepath, "wb") as f:
             f.write(file_bytes)
-        file_url = f"/public/attachments/{unique_name}"
-        print(f"[UPLOAD] Saved {file_name} → {file_url}", flush=True)
+        file_url = f"{url_prefix}/{unique_name}"
+        print(f"[UPLOAD] Saved {file_name} → {file_url} (user={user_id or 'dev'})", flush=True)
         return JSONResponse({"url": file_url, "name": file_name, "mime": file_mime})
     except Exception as e:
         print(f"[UPLOAD] Failed: {_sanitize_error(e)}", flush=True)

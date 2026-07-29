@@ -106,13 +106,16 @@ class ExecutionOrchestrator:
         tool_registry: ToolRegistry,
         progress_callback=None,
         agent_progress_callback=None,
+        user_id: str | None = None,
     ):
         self.llm_manager = llm_manager
         self.tool_registry = tool_registry
         self.agent_factory = AgentFactory(llm_manager, tool_registry)
         self._progress_callback = progress_callback
         self._agent_progress_callback = agent_progress_callback
-        self._media_gen_manager = MediaGenerationManager(llm_manager)
+        # Pass user_id to MediaGenerationManager for per-user media isolation
+        # — generated files stored in data/users/{uid}/generated/ instead of shared public/generated/
+        self._media_gen_manager = MediaGenerationManager(llm_manager, user_id=user_id)
         self._event_handlers: list[tuple] = []
         self._agent_specs: list[dict] = []
         self._main_loop: asyncio.AbstractEventLoop | None = None

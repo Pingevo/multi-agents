@@ -149,7 +149,7 @@ async def execute_multi_agent_task(
         if selected_model and llm_manager._is_openrouter():
             llm_manager.set_selected_model(selected_model)
         tool_registry = ToolRegistry()
-        orchestrator = ExecutionOrchestrator(llm_manager, tool_registry, update_progress, update_agent_progress)
+        orchestrator = ExecutionOrchestrator(llm_manager, tool_registry, update_progress, update_agent_progress, user_id=cl.user_session.get("user_id"))
         cl.user_session.set("orchestrator", orchestrator)
         pre_assigned = cl.user_session.get("pre_assigned_models")
         print(f"[DEBUG-EXEC] Starting with {len(agent_specs)} agents, pre_assigned={pre_assigned}", flush=True)
@@ -468,7 +468,7 @@ async def execute_task_with_agent(
     try:
         llm_manager = LLMManager()
         tool_registry = ToolRegistry()
-        orchestrator = ExecutionOrchestrator(llm_manager, tool_registry, update_progress)
+        orchestrator = ExecutionOrchestrator(llm_manager, tool_registry, update_progress, user_id=cl.user_session.get("user_id"))
         result = await orchestrator.run_async(user_input, [agent_spec], task_id=task_id, task_title=user_input[:80], messenger=messenger)
         task_result = result
 
@@ -1139,7 +1139,7 @@ async def on_message(message: cl.Message):
                 print(f"[APPROVE] Generating {media_type}, model_override={model_override or cl.user_session.get('ai_image_model')}, prompt={prompt[:60]}...", flush=True)
                 try:
                     llm_mgr = LLMManager()
-                    gen_mgr = MediaGenerationManager(llm_mgr)
+                    gen_mgr = MediaGenerationManager(llm_mgr, user_id=cl.user_session.get("user_id"))
                     resolved_image_model = model_override or cl.user_session.get("ai_image_model") or ""
                     resolved_video_model = model_override or cl.user_session.get("ai_video_model") or ""
                     print(f"[APPROVE] Resolved models: image={resolved_image_model!r}, video={resolved_video_model!r}, ai_image_model={cl.user_session.get('ai_image_model')!r}", flush=True)
@@ -1198,7 +1198,7 @@ async def on_message(message: cl.Message):
                 _debug(f"[DEBUG-RETRY] Retrying {media_type} for prompt: {prompt[:80]}...", flush=True)
                 try:
                     llm_mgr = LLMManager()
-                    gen_mgr = MediaGenerationManager(llm_mgr)
+                    gen_mgr = MediaGenerationManager(llm_mgr, user_id=cl.user_session.get("user_id"))
                     retry_image_model = cl.user_session.get("ai_image_model") or ""
                     retry_video_model = cl.user_session.get("ai_video_model") or ""
                     gen_mgr.set_models(
@@ -1682,7 +1682,17 @@ async def on_message(message: cl.Message):
             file_mime = payload.get("file_mime", "application/octet-stream")
             if file_data and file_name:
                 import base64
-                attach_dir = os.path.join(os.path.dirname(__file__), "public", "attachments")
+                # Per-user isolation: save attachments to data/users/{uid}/attachments/
+                # — prevents cross-user data leakage when multiple users share the same server.
+                _uid = cl.user_session.get("user_id")
+                if _uid:
+                    attach_dir = os.path.join(user_data_dir(_uid), "attachments")
+                    _url_prefix = "/api/media/attachments"
+                else:
+                    # Dev mode fallback — use project root public/attachments/ (fixes pre-existing bug
+                    # where os.path.dirname(__file__) resolved to backend/handlers/ instead of project root)
+                    attach_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "public", "attachments")
+                    _url_prefix = "/public/attachments"
                 os.makedirs(attach_dir, exist_ok=True)
                 # Sanitize filename
                 safe_name = re.sub(r'[^a-zA-Z0-9._-]', '_', file_name)
@@ -1692,7 +1702,7 @@ async def on_message(message: cl.Message):
                     file_bytes = base64.b64decode(file_data.split(",")[-1] if "," in file_data else file_data)
                     with open(filepath, "wb") as f:
                         f.write(file_bytes)
-                    file_url = f"/public/attachments/{unique_name}"
+                    file_url = f"{_url_prefix}/{unique_name}"
                     if messenger:
                         payload_resp = chat_reply(ChatReplyFileResult(
                             fileUrl=file_url,
@@ -1802,7 +1812,7 @@ async def on_message(message: cl.Message):
     last_attachments = cl.user_session.get("last_attachments") or []
     attachment_urls = set(a["file_url"] for a in last_attachments)
     for att in last_attachments:
-        att_ctx = await process_attachment(att["file_url"], att["file_name"], att["file_mime"])
+        att_ctx = await process_attachment(att["file_url"], att["file_name"], att["file_mime"], user_id=cl.user_session.get("user_id"))
         print(f"[ATTACHMENT] Processed {att['file_name']} → type={att_ctx['type']}", flush=True)
         all_contexts.append(att_ctx)
 

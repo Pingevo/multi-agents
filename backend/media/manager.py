@@ -1,21 +1,24 @@
 """MediaGenerationManager — image/video/TTS/STT/vision via OpenRouter."""
 
+import io
 import os
 import time
 import uuid
 import requests
 from backend.utils import _sanitize_error
 from backend.credit_logger import log_llm_call
+from backend.globals import DATA_DIR
 
 class MediaGenerationManager:
     """จัดการ media generation ผ่าน OpenRouter API เท่านั้น
     AI เป็นตัวเลือก model สำหรับ image, video, TTS, STT, และ vision analysis
     """
 
-    PUBLIC_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "public", "generated")
-    BASE_URL_FOR_CLIENT = "/public/generated"
+    # Legacy fallback paths — used when user_id is None (dev mode without auth)
+    _LEGACY_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "public", "generated")
+    _LEGACY_BASE_URL = "/public/generated"
 
-    def __init__(self, llm_manager: 'LLMManager'):
+    def __init__(self, llm_manager: 'LLMManager', user_id: str | None = None):
         self.openrouter_key = llm_manager.api_key
         self.openrouter_base = llm_manager.base_url.rstrip("/")
         self.image_model = ""  # Set per run via set_models()
@@ -23,7 +26,15 @@ class MediaGenerationManager:
         self.tts_model = ""  # Set per run via set_models()
         self.stt_model = ""  # Set per run via set_models()
         self.vision_model = ""  # Set per run via set_models()
-        os.makedirs(self.PUBLIC_DIR, exist_ok=True)
+        # Per-user isolation: store generated media in data/users/{uid}/generated/
+        # — prevents cross-user data leakage when multiple users share the same server.
+        if user_id:
+            self.gen_dir = os.path.join(DATA_DIR, "users", user_id, "generated")
+            self.base_url = "/api/media/generated"
+        else:
+            self.gen_dir = self._LEGACY_DIR
+            self.base_url = self._LEGACY_BASE_URL
+        os.makedirs(self.gen_dir, exist_ok=True)
 
     def set_models(self, image_model: str = "", video_model: str = "",
                    tts_model: str = "", stt_model: str = "", vision_model: str = ""):
@@ -36,10 +47,10 @@ class MediaGenerationManager:
 
     def _save_binary(self, content: bytes, ext: str, prefix: str = "gen") -> str:
         filename = f"{prefix}_{uuid.uuid4().hex[:8]}.{ext}"
-        filepath = os.path.join(self.PUBLIC_DIR, filename)
+        filepath = os.path.join(self.gen_dir, filename)
         with open(filepath, "wb") as f:
             f.write(content)
-        return f"{self.BASE_URL_FOR_CLIENT}/{filename}"
+        return f"{self.base_url}/{filename}"
 
     def generate_image(self, prompt: str, width: int = 1024, height: int = 1024) -> str:
         """Generate an image via OpenRouter. Returns a URL to the saved file, or an error message."""
@@ -101,7 +112,7 @@ class MediaGenerationManager:
             return self._save_binary(self._pil_to_bytes(img, 'JPEG'), 'jpg', 'placeholder_image')
         except Exception as e:
             print(f"[MediaGen] Placeholder image generation failed: {e}")
-            return f"{self.BASE_URL_FOR_CLIENT}/placeholder_image.jpg"
+            return f"{self.base_url}/placeholder_image.jpg"
 
     def _placeholder_video(self, prompt: str, width: int, height: int, duration: int) -> str:
         """Generate a placeholder image representing a video generation locally with Pillow."""
@@ -127,7 +138,7 @@ class MediaGenerationManager:
             return self._save_binary(self._pil_to_bytes(img, 'JPEG'), 'jpg', 'placeholder_video')
         except Exception as e:
             print(f"[MediaGen] Placeholder video generation failed: {e}")
-            return f"{self.BASE_URL_FOR_CLIENT}/placeholder_video.jpg"
+            return f"{self.base_url}/placeholder_video.jpg"
 
     @staticmethod
     def _pil_to_bytes(img, fmt='JPEG'):

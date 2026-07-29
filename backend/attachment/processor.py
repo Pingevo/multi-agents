@@ -8,10 +8,34 @@ import requests
 from backend.utils import _sanitize_error
 from backend.attachment.security import check_model_modality_support, llm_manager_tier_check
 from backend.attachment.url import classify_url, download_with_limit, MAX_TEXT_LENGTH, AUDIO_FORMAT_MAP, _is_localhost_url, is_js_required_domain
+from backend.globals import DATA_DIR
 
-def _resolve_file_path(file_url: str) -> str:
-    """Convert attachment URL to local file path."""
+def _resolve_file_path(file_url: str, user_id: str | None = None) -> str:
+    """Convert attachment URL to local file path.
+
+    Handles both new /api/media/ URLs (per-user isolation) and legacy /public/ URLs.
+    """
     _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+    # Per-user isolation: /api/media/ URLs resolve to data/users/{uid}/ directory
+    if file_url.startswith("/api/media/") or (file_url.startswith("http") and "/api/media/" in file_url):
+        if user_id:
+            from urllib.parse import urlparse
+            if file_url.startswith("http"):
+                parsed = urlparse(file_url)
+                path = parsed.path.lstrip("/")
+            else:
+                path = file_url.lstrip("/")
+            # path is like "api/media/attachments/filename" or "api/media/generated/filename"
+            # strip "api/media/" prefix and join with data/users/{uid}/
+            relative = path.replace("api/media/", "", 1)
+            return os.path.join(DATA_DIR, "users", user_id, relative)
+        # Fallback: no user_id — shouldn't happen for new URLs, but resolve via project root
+        if file_url.startswith("http"):
+            from urllib.parse import urlparse
+            parsed = urlparse(file_url)
+            return os.path.join(_PROJECT_ROOT, parsed.path.lstrip("/"))
+        return os.path.join(_PROJECT_ROOT, file_url.lstrip("/"))
+    # Legacy /public/ URLs — resolve from project root (backward compat)
     if file_url.startswith("http"):
         from urllib.parse import urlparse
         parsed = urlparse(file_url)
@@ -119,7 +143,7 @@ async def scrape_with_playwright(url: str, timeout: int = 30) -> str:
             await browser.close()
 
 
-async def process_attachment(file_url: str, file_name: str, file_mime: str) -> dict:
+async def process_attachment(file_url: str, file_name: str, file_mime: str, user_id: str | None = None) -> dict:
     """Process an uploaded file and return AI-consumable context.
 
     Returns:
@@ -135,7 +159,7 @@ async def process_attachment(file_url: str, file_name: str, file_mime: str) -> d
             "file_mime": str,
         }
     """
-    file_path = _resolve_file_path(file_url)
+    file_path = _resolve_file_path(file_url, user_id=user_id)
 
     if not os.path.exists(file_path):
         print(f"[ATTACHMENT] File not found: {file_path}", flush=True)

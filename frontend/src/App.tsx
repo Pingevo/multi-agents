@@ -926,7 +926,10 @@ function AppContent() {
           try {
             const res = await fetch(`${BACKEND_URL}/api/upload`, {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: {
+                'Content-Type': 'application/json',
+                ...(token ? { Authorization: `Bearer ${token}` } : {}),
+              },
               body: JSON.stringify({
                 file_data: att.url,
                 file_name: att.name,
