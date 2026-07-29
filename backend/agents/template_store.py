@@ -5,18 +5,31 @@ import os
 from datetime import datetime
 from pathlib import Path
 
+from backend.globals import resolve_data_path
+
 
 class TaskTemplateStore:
     """Persist task templates so users can reuse common prompts."""
 
     def __init__(self, user_id: str = "default"):
         self.user_id = user_id
-        self.file = Path(f"data/task_templates_{user_id}.json")
+        # Use per-user directory (data/users/{uid}/) instead of flat file in data/
+        # — prevents cross-user data leakage when multiple users share the same server.
+        self.file = Path(resolve_data_path("task_templates.json", user_id=user_id))
         self.file.parent.mkdir(parents=True, exist_ok=True)
         self.templates: list[dict] = []
         self._load()
 
+    def _migrate_old_path(self):
+        """One-time migration: move data/task_templates_{user_id}.json to new per-user path."""
+        old_file = Path(f"data/task_templates_{self.user_id}.json")
+        if old_file.exists() and not self.file.exists():
+            self.file.parent.mkdir(parents=True, exist_ok=True)
+            old_file.rename(self.file)
+            print(f"[TaskTemplateStore] Migrated {old_file} -> {self.file}", flush=True)
+
     def _load(self):
+        self._migrate_old_path()
         if self.file.exists():
             try:
                 self.templates = json.loads(self.file.read_text(encoding="utf-8"))

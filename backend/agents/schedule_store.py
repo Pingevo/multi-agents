@@ -4,18 +4,31 @@ import json
 from datetime import datetime
 from pathlib import Path
 
+from backend.globals import resolve_data_path
+
 
 class ScheduledTaskStore:
     """Store scheduled/recurring tasks for a user."""
 
     def __init__(self, user_id: str = "default"):
         self.user_id = user_id
-        self.file = Path(f"data/scheduled_tasks_{user_id}.json")
+        # Use per-user directory (data/users/{uid}/) instead of flat file in data/
+        # — prevents cross-user data leakage when multiple users share the same server.
+        self.file = Path(resolve_data_path("scheduled_tasks.json", user_id=user_id))
         self.file.parent.mkdir(parents=True, exist_ok=True)
         self.tasks: list[dict] = []
         self._load()
 
+    def _migrate_old_path(self):
+        """One-time migration: move data/scheduled_tasks_{user_id}.json to new per-user path."""
+        old_file = Path(f"data/scheduled_tasks_{self.user_id}.json")
+        if old_file.exists() and not self.file.exists():
+            self.file.parent.mkdir(parents=True, exist_ok=True)
+            old_file.rename(self.file)
+            print(f"[ScheduledTaskStore] Migrated {old_file} -> {self.file}", flush=True)
+
     def _load(self):
+        self._migrate_old_path()
         if self.file.exists():
             try:
                 self.tasks = json.loads(self.file.read_text(encoding="utf-8"))

@@ -49,15 +49,17 @@ class BackgroundScheduler:
     async def _check_and_run(self):
         """Check all users' scheduled tasks and run due ones."""
         from pathlib import Path
+        from backend.globals import DATA_DIR
 
-        data_dir = Path("data")
+        data_dir = Path(DATA_DIR) / "users"
         if not data_dir.exists():
             return
 
-        # Find all scheduled task files
-        sched_files = list(data_dir.glob("scheduled_tasks_*.json"))
-        for f in sched_files:
-            user_id = f.stem.replace("scheduled_tasks_", "")
+        # Scan per-user directories: data/users/{uid}/scheduled_tasks.json
+        # — matches the new isolated directory structure (Issue #41).
+        # Previously scanned data/scheduled_tasks_*.json which was flat-file per user.
+        for sched_file in data_dir.glob("*/scheduled_tasks.json"):
+            user_id = sched_file.parent.name
             try:
                 store = ScheduledTaskStore(user_id=user_id)
                 due = store.get_due_tasks()

@@ -1464,8 +1464,16 @@ async def on_message(message: cl.Message):
                 last_input = _ctx.get("user_input", "") if _ctx else ""
                 last_result = _ctx.get("result", "") if _ctx else ""
                 user_id = cl.user_session.get("user_id", "default")
-                ratings_file = Path(f"data/task_ratings_{user_id}.json")
+                # Use per-user directory (data/users/{uid}/) for ratings —
+                # prevents cross-user data leakage when multiple users share the same server.
+                from backend.globals import resolve_data_path
+                ratings_file = Path(resolve_data_path("task_ratings.json", user_id=user_id))
                 ratings_file.parent.mkdir(parents=True, exist_ok=True)
+                # Migrate old flat file to per-user path if it exists (one-time)
+                old_ratings = Path(f"data/task_ratings_{user_id}.json")
+                if old_ratings.exists() and not ratings_file.exists():
+                    old_ratings.rename(ratings_file)
+                    print(f"[ratings] Migrated {old_ratings} -> {ratings_file}", flush=True)
                 ratings = []
                 if ratings_file.exists():
                     try:
