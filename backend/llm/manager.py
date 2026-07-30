@@ -424,19 +424,26 @@ class LLMManager:
         if not model_id:
             return self.get_llm()
         if self._is_in_cooldown():
-            # If openrouter/free is in cooldown, try rotator's best free model first
+            # Only apply cooldown to openrouter/free (the routing model) —
+            # free models share rate limits so backing off makes sense.
+            # For specific user-selected models (e.g., paid models), don't switch
+            # to fallback without user consent — the manager should respect user's choice.
+            # If the model fails, error handling in the caller will catch it.
             if model_id == "openrouter/free":
                 ranking = self._get_rotator().get_ranking()
                 if ranking:
                     best = ranking[0]
                     print(f"[LLMManager] openrouter/free in cooldown — using rotator best: {best}", flush=True)
                     return self._get_rotator().build_crewai_llm(best)
-            return self._build_llm(
-                self.fallback_provider,
-                self.fallback_model,
-                self.fallback_base_url,
-                self.fallback_api_key,
-            )
+                # No rotator models available — fall through to fallback
+                return self._build_llm(
+                    self.fallback_provider,
+                    self.fallback_model,
+                    self.fallback_base_url,
+                    self.fallback_api_key,
+                )
+            # Non-free model: ignore cooldown, respect user's selection
+            print(f"[LLMManager] Cooldown active but using user-selected model: {model_id}", flush=True)
         is_free = ":free" in model_id or model_id == "openrouter/free"
         if not is_free:
             print(f"[LLMManager] WARNING: build_llm_for_model using PAID model: {model_id!r}", flush=True)
