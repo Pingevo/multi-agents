@@ -28,6 +28,7 @@ from crewai import LLM
 from chainlit import server as _cl_server
 from fastapi import Request, Query
 from fastapi.responses import JSONResponse, FileResponse
+from fastapi.middleware.cors import CORSMiddleware
 import base64
 import re
 import uuid
@@ -83,6 +84,16 @@ from backend.auth.session import SessionManager
 # Constants needed by tests and handlers
 URL_REGEX = r'https?://[^\s<>"{}|\\^`]+'
 from backend.attachment.url import MAX_URL_DOWNLOAD_SIZE, AUDIO_FORMAT_MAP, MAX_TEXT_LENGTH
+
+# CORS — allow frontend dev server (port 5173) to call backend API (port 8000).
+# Without this, browser blocks cross-origin requests and auth fails silently.
+_cl_server.app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # ============================================================
 # HTTP upload endpoint
