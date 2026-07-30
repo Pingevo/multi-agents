@@ -9,7 +9,7 @@ interface AgentConfigModalProps {
   agent: Agent | null;
   availableTools: Array<{ name: string; description: string }>;
   onClose: () => void;
-  onSave: (data: { agent_id: string; name: string; role: string; goal: string; persona: string; model: string; tools: string[]; expertise?: string[]; personality?: Record<string, string>; brand_context?: Record<string, string>; output_format?: string; quality_criteria?: string; review_iterations?: number; max_iter?: number; max_retry_limit?: number; allow_delegation?: boolean }) => void;
+  onSave: (data: { agent_id: string; name: string; role: string; goal: string; persona: string; model: string; tools: string[]; expertise?: string[]; personality?: Record<string, string>; brand_context?: Record<string, string>; output_format?: string; quality_criteria?: string; review_iterations?: number | null; max_iter?: number; max_retry_limit?: number; allow_delegation?: boolean }) => void;
   onAction?: (name: string, payload?: Record<string, any>) => void;
   modelCatalog?: Record<string, ModelCatalogEntry[]>;
   modelSearchResults?: ModelCatalogEntry[];
@@ -128,7 +128,7 @@ function Tooltip({ field }: { field: string }) {
       </span>
       {show && pos && createPortal(
         <div
-          className="fixed z-[9999] w-64 p-2.5 bg-bg border border-border rounded-lg shadow-xl pointer-events-none"
+          className="fixed z-[999999] w-64 p-2.5 bg-bg border border-border rounded-lg shadow-xl pointer-events-none"
           style={{ left: Math.max(8, pos.x - 260), top: pos.y + 18 }}
         >
           <div className="text-[11px] text-text-2 leading-relaxed mb-1">{info.desc}</div>
@@ -193,9 +193,9 @@ export const AgentConfigModal: React.FC<AgentConfigModalProps> = ({
   const [brandContext, setBrandContext] = useState<Record<string, string>>({});
   const [outputFormat, setOutputFormat] = useState('');
   const [qualityCriteria, setQualityCriteria] = useState('');
-  const [reviewIterations, setReviewIterations] = useState(3);
-  const [maxIter, setMaxIter] = useState(20);
-  const [maxRetryLimit, setMaxRetryLimit] = useState(3);
+  const [reviewIterations, setReviewIterations] = useState<number | null>(null); // null = unlimited
+  const [maxIter, setMaxIter] = useState(25); // CrewAI default
+  const [maxRetryLimit, setMaxRetryLimit] = useState(3); // CrewAI default
   const [allowDelegation, setAllowDelegation] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -221,8 +221,8 @@ export const AgentConfigModal: React.FC<AgentConfigModalProps> = ({
       setBrandContext((agent as any).brand_context || {});
       setOutputFormat((agent as any).output_format || '');
       setQualityCriteria((agent as any).quality_criteria || '');
-      setReviewIterations((agent as any).review_iterations ?? 3);
-      setMaxIter((agent as any).max_iter ?? 20);
+      setReviewIterations((agent as any).review_iterations ?? null);
+      setMaxIter((agent as any).max_iter ?? 25);
       setMaxRetryLimit((agent as any).max_retry_limit ?? 3);
       setAllowDelegation((agent as any).allow_delegation ?? false);
       setIsEditing(false);
@@ -502,28 +502,49 @@ export const AgentConfigModal: React.FC<AgentConfigModalProps> = ({
             )}
           </FieldRow>
 
-          {/* Review Iterations */}
+          {/* Review Iterations — null = unlimited (∞ toggle) */}
           <FieldRow label="Review Iterations" field="review_iterations">
             {isEditing ? (
-              <input type="number" min={1} max={10} value={reviewIterations} onChange={(e) => setReviewIterations(parseInt(e.target.value) || 3)} className={inputCls} />
+              <div className="flex items-center gap-2">
+                <label className="flex items-center gap-1 cursor-pointer text-[10px] text-text-3">
+                  <input
+                    type="checkbox"
+                    checked={reviewIterations === null}
+                    onChange={(e) => setReviewIterations(e.target.checked ? null : NaN)}
+                    className="accent-orange w-2.5 h-2.5"
+                  />
+                  ∞ ไม่จำกัด
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={50}
+                  value={reviewIterations ?? ''}
+                  disabled={reviewIterations === null}
+                  onChange={(e) => setReviewIterations(parseInt(e.target.value))}
+                  className={`${inputCls} disabled:opacity-40 ${
+                    reviewIterations !== null && isNaN(reviewIterations) ? 'border-red-500' : ''
+                  }`}
+                />
+              </div>
             ) : (
-              <DisplayValue value={String(reviewIterations)} />
+              <DisplayValue value={reviewIterations === null ? '∞ ไม่จำกัด' : String(reviewIterations)} />
             )}
           </FieldRow>
 
-          {/* Max Iter */}
+          {/* Max Iter — CrewAI requires a number, default 25 */}
           <FieldRow label="Max Iterations" field="max_iter">
             {isEditing ? (
-              <input type="number" min={1} max={100} value={maxIter} onChange={(e) => setMaxIter(parseInt(e.target.value) || 20)} className={inputCls} />
+              <input type="number" min={1} max={500} value={maxIter} onChange={(e) => setMaxIter(parseInt(e.target.value) || 25)} className={inputCls} />
             ) : (
               <DisplayValue value={String(maxIter)} />
             )}
           </FieldRow>
 
-          {/* Max Retry Limit */}
+          {/* Max Retry Limit — CrewAI requires a number, default 3 */}
           <FieldRow label="Max Retry Limit" field="max_retry_limit">
             {isEditing ? (
-              <input type="number" min={0} max={10} value={maxRetryLimit} onChange={(e) => setMaxRetryLimit(parseInt(e.target.value) || 3)} className={inputCls} />
+              <input type="number" min={0} max={50} value={maxRetryLimit} onChange={(e) => setMaxRetryLimit(parseInt(e.target.value) || 3)} className={inputCls} />
             ) : (
               <DisplayValue value={String(maxRetryLimit)} />
             )}

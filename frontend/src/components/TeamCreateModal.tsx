@@ -1,8 +1,127 @@
 import { useState, useRef } from 'react';
-import { X, Cpu, ChevronDown, Plus, Trash2, Wrench, User, Users, LayoutTemplate } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { X, Cpu, ChevronDown, Plus, Trash2, Wrench, User, Users, LayoutTemplate, Info } from 'lucide-react';
 import { ModelPicker, PROVIDER_FAVICONS, getProvider, findModelName } from './ModelPicker';
 import type { ModelCatalogEntry } from './ModelPicker';
 import type { ToolCatalogEntry } from '../types/platform';
+
+const FIELD_TOOLTIPS: Record<string, { desc: string; example: string }> = {
+  name: {
+    desc: 'ชื่อที่ใช้แสดงในระบบและเรียกในแผนงาน ชื่อนี้จะถูกใช้เป็น identifier ของ agent',
+    example: 'เช่น Content Writer, Data Analyst, Image Generator',
+  },
+  role: {
+    desc: 'บทบาทหลักของ agent กำหนดว่า agent ทำหน้าที่อะไรในทีม ส่งผลต่อการที่ Manager เลือก agent ตัวไหนมาทำงาน',
+    example: 'เช่น Writer, Researcher, Reviewer, Designer',
+  },
+  goal: {
+    desc: 'เป้าหมายหลักของ agent — สิ่งที่ agent ต้องทำให้สำเร็จในแต่ละ task กำหนดทิศทางการทำงานและการตัดสินใจ',
+    example: 'เช่น เขียนบทความที่อ่านง่าย น่าสนใจ และถูกต้องตามหลักการ SEO',
+  },
+  persona: {
+    desc: 'บุคลิกและสไตล์การทำงานของ agent กำหนดว่า agent จะคิดและตอบอย่างไร ส่งผลโดยตรงต่อโทนและคุณภาพของผลลัพธ์',
+    example: 'เช่น ครีเอทีฟ ชอบคิดนอกกรอบ เน้นความแปลกใหม่ ใส่ใจรายละเอียด',
+  },
+  model: {
+    desc: 'โมเดล AI ที่ agent ใช้ โมเดลที่ทรงพลังกว่าให้ผลลัพธ์ดีกว่าแต่ใช้เครดิตมากกว่า เลือกตามความเหมาะสมของงาน',
+    example: 'เช่น Auto (ให้ระบบเลือก), Google Gemini 3.5 Flash (เร็วประหยัด), Claude Sonnet 5 (คุณภาพสูง)',
+  },
+  tools: {
+    desc: 'เครื่องมือที่ agent ใช้ได้ เครื่องมือเพิ่มความสามารถให้ agent เช่น ค้นหาเว็บ สร้างภาพ วิเคราะห์ไฟล์',
+    example: 'เช่น web_search (ค้นหาเว็บ), generate_image (สร้างภาพ), analyze_document (วิเคราะห์ไฟล์)',
+  },
+  expertise: {
+    desc: 'ความเชี่ยวชาญเฉพาะด้านของ agent ช่วยให้ Manager เลือก agent ที่เหมาะสมกับงานนั้นๆ',
+    example: 'เช่น SEO, Marketing, Data Science, UX Writing',
+  },
+  'personality.tone': {
+    desc: 'น้ำเสียงในการสื่อสารของ agent กำหนดว่าผลลัพธ์จะออกมาเป็นแบบไหน',
+    example: 'เช่น เป็นทางการ, เป็นกันเอง, มืออาชีพ, สนุกสนาน',
+  },
+  'personality.communication_style': {
+    desc: 'รูปแบบการสื่อสาร — ว่า agent จะนำเสนอข้อมูลอย่างไร',
+    example: 'เช่น กระชับไปที่ประเด็น, อธิบายละเอียด, เล่าเรื่อง, ใช้ bullet points',
+  },
+  'personality.language': {
+    desc: 'ภาษาที่ agent ใช้ในการทำงานและตอบกลับ',
+    example: 'เช่น ไทย, English, ไทย-อังกฤษ (Bilingual)',
+  },
+  'brand.brand_name': {
+    desc: 'ชื่อแบรนด์ที่ agent ควรอ้างถึงในการทำงาน ส่งผลต่อการใช้คำและสไตล์ในผลลัพธ์',
+    example: 'เช่น ACME Corp, บริษัท สยาม จำกัด',
+  },
+  'brand.guidelines': {
+    desc: 'แนวทางของแบรนด์ที่ agent ต้องปฏิบัติตาม เช่น กฎการใช้โลโก้ สี หรือคำที่ต้อง/ห้ามใช้',
+    example: 'เช่น ใช้สีหลัก #FF0000, ห้ามใช้คำว่า "ถูกที่สุด", เน้นความพรีเมียม',
+  },
+  'brand.target_audience': {
+    desc: 'กลุ่มเป้าหมายของเนื้อหาที่ agent สร้าง กำหนดระดับความซับซ้อนและภาษาที่ใช้',
+    example: 'เช่น วัยรุ่น 18-25 ปี, ผู้บริหารระดับสูง, นักลงทุนมือใหม่',
+  },
+  output_format: {
+    desc: 'รูปแบบผลลัพธ์ที่ agent ต้องส่งออก Manager จะตรวจสอบว่าผลลัพธ์เป็นไปตามรูปแบบนี้',
+    example: 'เช่น Markdown report with headings, JSON array, bullet point summary',
+  },
+  quality_criteria: {
+    desc: 'เกณฑ์คุณภาพที่ Manager ใช้ตรวจสอบผลลัพธ์ของ agent — ถ้าไม่ผ่านเกณฑ์จะสั่งแก้',
+    example: 'เช่น 1. ต้องมีแหล่งอ้างอิง 2. ห้ามมีคำกว้างๆ 3. ต้องมีตัวเลข/ข้อมูลเฉพาะ',
+  },
+  review_iterations: {
+    desc: 'จำนวนรอบสูงสุดที่ Manager จะตรวจและสั่งแก้งานของ agent',
+    example: 'เช่น 3 (ตรวจ 3 รอบ), 5 (ตรวจเข้มข้น), 1 (ตรวจครั้งเดียว)',
+  },
+  max_iter: {
+    desc: 'จำนวนรอบสูงสุดที่ agent จะคิดและใช้เครื่องมือในแต่ละ task',
+    example: 'เช่น 25 (ค่าเริ่มต้น CrewAI), 5 (งานง่าย), 50 (งานซับซ้อน)',
+  },
+  max_retry_limit: {
+    desc: 'จำนวนครั้งสูงสุดที่ agent จะลองใหม่ถ้าเกิด error ระหว่างทำงาน',
+    example: 'เช่น 3 (ค่าเริ่มต้น CrewAI), 0 (ไม่ลองใหม่), 5 (งานที่ error บ่อย)',
+  },
+  allow_delegation: {
+    desc: 'อนุญาตให้ agent มอบหมายงานบางส่วนให้ agent ตัวอื่นในทีมทำแทน',
+    example: 'เปิด = agent สามารถ delegate ได้, ปิด = agent ต้องทำเองทั้งหมด',
+  },
+};
+
+function Tooltip({ field }: { field: string }) {
+  const [show, setShow] = useState(false);
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  const iconRef = useRef<HTMLSpanElement>(null);
+  const info = FIELD_TOOLTIPS[field];
+  if (!info) return null;
+
+  const handleEnter = () => {
+    if (iconRef.current) {
+      const rect = iconRef.current.getBoundingClientRect();
+      setPos({ x: rect.left, y: rect.top });
+    }
+    setShow(true);
+  };
+
+  return (
+    <>
+      <span
+        ref={iconRef}
+        onMouseEnter={handleEnter}
+        onMouseLeave={() => setShow(false)}
+        className="inline-flex items-center cursor-help"
+      >
+        <Info className="w-[10px] h-[10px] text-ink-3 hover:text-orange transition-colors" />
+      </span>
+      {show && pos && createPortal(
+        <div
+          className="fixed z-[999999] w-[220px] px-2 py-1.5 bg-cream border border-line rounded-retro-sm shadow-[2px_2px_6px_rgba(0,0,0,0.15)] pointer-events-none"
+          style={{ left: Math.max(8, pos.x - 230), top: pos.y + 16 }}
+        >
+          <div className="text-[10px] text-ink leading-relaxed mb-0.5">{info.desc}</div>
+          <div className="text-[9px] text-orange italic">ตัวอย่าง: {info.example}</div>
+        </div>,
+        document.body
+      )}
+    </>
+  );
+}
 
 interface AgentEntry {
   name: string;
@@ -253,7 +372,7 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
                 <Users className="w-3.5 h-3.5" /> ทีม
               </div>
               <div>
-                <label className="block text-xs font-medium text-ink-2 mb-1.5">ชื่อทีม *</label>
+                <label className="flex items-center gap-1 text-xs font-medium text-ink-2 mb-1.5">ชื่อทีม *</label>
                 <input
                   type="text"
                   value={name}
@@ -264,7 +383,7 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-ink-2 mb-1.5">คำอธิบาย</label>
+                <label className="flex items-center gap-1 text-xs font-medium text-ink-2 mb-1.5">คำอธิบาย</label>
                 <textarea
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
@@ -292,7 +411,7 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
                     anchorRef={inputBarRef}
                   />
                 )}
-                <label className="block text-xs font-medium text-ink-2 mb-1.5">โมเดล</label>
+                <label className="flex items-center gap-1 text-xs font-medium text-ink-2 mb-1.5">โมเดล <Tooltip field="model" /></label>
                 <button
                   type="button"
                   onClick={handleOpenModelPicker}
@@ -325,7 +444,7 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
                   coordination because Manager would try to do the work itself
                   instead of delegating */}
               <div>
-                <label className="block text-xs font-medium text-ink-2 mb-1.5">Persona ของ Manager</label>
+                <label className="flex items-center gap-1 text-xs font-medium text-ink-2 mb-1.5">Persona ของ Manager <Tooltip field="persona" /></label>
                 <textarea
                   value={managerPersona}
                   onChange={(e) => setManagerPersona(e.target.value)}
@@ -339,7 +458,7 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
                   specify what domains the Manager should understand when
                   coordinating and delegating */}
               <div>
-                <label className="block text-xs font-medium text-ink-2 mb-1.5">Expertise ของ Manager (คั่นด้วยจุลภาค)</label>
+                <label className="flex items-center gap-1 text-xs font-medium text-ink-2 mb-1.5">Expertise ของ Manager (คั่นด้วยจุลภาค) <Tooltip field="expertise" /></label>
                 <input
                   type="text"
                   value={managerExpertise.join(', ')}
@@ -351,10 +470,10 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
 
               {/* Manager Personality */}
               <div className="space-y-1.5">
-                <label className="block text-xs font-medium text-ink-2">Personality ของ Manager</label>
+                <label className="text-xs font-medium text-ink-2">Personality ของ Manager</label>
                 <div className="grid grid-cols-3 gap-2">
                   <div>
-                    <label className="block text-[9px] text-ink-3 mb-0.5">Tone</label>
+                    <label className="flex items-center gap-1 text-[9px] text-ink-3 mb-0.5">Tone <Tooltip field="personality.tone" /></label>
                     <input
                       type="text"
                       value={managerPersonality.tone}
@@ -364,7 +483,7 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
                     />
                   </div>
                   <div>
-                    <label className="block text-[9px] text-ink-3 mb-0.5">Communication</label>
+                    <label className="flex items-center gap-1 text-[9px] text-ink-3 mb-0.5">Communication <Tooltip field="personality.communication_style" /></label>
                     <input
                       type="text"
                       value={managerPersonality.communication_style}
@@ -374,7 +493,7 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
                     />
                   </div>
                   <div>
-                    <label className="block text-[9px] text-ink-3 mb-0.5">Language</label>
+                    <label className="flex items-center gap-1 text-[9px] text-ink-3 mb-0.5">Language <Tooltip field="personality.language" /></label>
                     <input
                       type="text"
                       value={managerPersonality.language}
@@ -388,10 +507,10 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
 
               {/* Manager Brand Context */}
               <div className="space-y-1.5">
-                <label className="block text-xs font-medium text-ink-2">Brand Context ของ Manager</label>
+                <label className="text-xs font-medium text-ink-2">Brand Context ของ Manager</label>
                 <div className="grid grid-cols-3 gap-2">
                   <div>
-                    <label className="block text-[9px] text-ink-3 mb-0.5">Brand Name</label>
+                    <label className="flex items-center gap-1 text-[9px] text-ink-3 mb-0.5">Brand Name <Tooltip field="brand.brand_name" /></label>
                     <input
                       type="text"
                       value={managerBrandContext.brand_name}
@@ -400,7 +519,7 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
                     />
                   </div>
                   <div>
-                    <label className="block text-[9px] text-ink-3 mb-0.5">Guidelines</label>
+                    <label className="flex items-center gap-1 text-[9px] text-ink-3 mb-0.5">Guidelines <Tooltip field="brand.guidelines" /></label>
                     <input
                       type="text"
                       value={managerBrandContext.guidelines}
@@ -409,7 +528,7 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
                     />
                   </div>
                   <div>
-                    <label className="block text-[9px] text-ink-3 mb-0.5">Target Audience</label>
+                    <label className="flex items-center gap-1 text-[9px] text-ink-3 mb-0.5">Target Audience <Tooltip field="brand.target_audience" /></label>
                     <input
                       type="text"
                       value={managerBrandContext.target_audience}
@@ -492,7 +611,7 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
                     <div className="px-3 pb-3 space-y-2.5 border-t border-line pt-3">
                       <div className="grid grid-cols-2 gap-2">
                         <div>
-                          <label className="block text-[10px] text-ink-3 mb-0.5">ชื่อ (ว่าง = auto)</label>
+                          <label className="flex items-center gap-1 text-[10px] text-ink-3 mb-0.5">ชื่อ (ว่าง = auto) <Tooltip field="name" /></label>
                           <input
                             type="text"
                             value={agent.name}
@@ -502,7 +621,7 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
                           />
                         </div>
                         <div>
-                          <label className="block text-[10px] text-ink-3 mb-0.5">Role *</label>
+                          <label className="flex items-center gap-1 text-[10px] text-ink-3 mb-0.5">Role * <Tooltip field="role" /></label>
                           <input
                             type="text"
                             value={agent.role}
@@ -513,7 +632,7 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
                         </div>
                       </div>
                       <div>
-                        <label className="block text-[10px] text-ink-3 mb-0.5">เป้าหมาย</label>
+                        <label className="flex items-center gap-1 text-[10px] text-ink-3 mb-0.5">เป้าหมาย <Tooltip field="goal" /></label>
                         <input
                           type="text"
                           value={agent.goal}
@@ -523,7 +642,7 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
                         />
                       </div>
                       <div>
-                        <label className="block text-[10px] text-ink-3 mb-0.5">Persona / Backstory</label>
+                        <label className="flex items-center gap-1 text-[10px] text-ink-3 mb-0.5">Persona / Backstory <Tooltip field="persona" /></label>
                         <textarea
                           value={agent.persona}
                           onChange={(e) => updateAgent(idx, 'persona', e.target.value)}
@@ -544,7 +663,7 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
                             anchorRef={{ current: agentModelRefs.current[idx] }}
                           />
                         )}
-                        <label className="block text-[10px] text-ink-3 mb-0.5">Model (ว่าง = auto)</label>
+                        <label className="flex items-center gap-1 text-[10px] text-ink-3 mb-0.5">Model (ว่าง = auto) <Tooltip field="model" /></label>
                         <button
                           type="button"
                           onClick={() => handleOpenAgentModelPicker(idx)}
@@ -572,7 +691,7 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
                         </button>
                       </div>
                       <div>
-                        <label className="block text-[10px] text-ink-3 mb-1">Tools</label>
+                        <label className="flex items-center gap-1 text-[10px] text-ink-3 mb-1">Tools <Tooltip field="tools" /></label>
                         <div className="grid grid-cols-2 gap-1 max-h-32 overflow-y-auto">
                           {availableTools.map((tool) => {
                             const checked = agent.tools.includes(tool.name);
@@ -601,7 +720,7 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
 
                       {/* Expertise */}
                       <div>
-                        <label className="block text-[10px] text-ink-3 mb-0.5">Expertise (คั่นด้วยจุลภาค)</label>
+                        <label className="flex items-center gap-1 text-[10px] text-ink-3 mb-0.5">Expertise (คั่นด้วยจุลภาค) <Tooltip field="expertise" /></label>
                         <input
                           type="text"
                           value={agent.expertise.join(', ')}
@@ -613,10 +732,10 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
 
                       {/* Personality */}
                       <div className="space-y-1.5">
-                        <label className="block text-[10px] text-ink-3">Personality</label>
+                        <label className="text-[10px] text-ink-3 mb-1">Personality</label>
                         <div className="grid grid-cols-3 gap-2">
                           <div>
-                            <label className="block text-[9px] text-ink-3 mb-0.5">Tone</label>
+                            <label className="flex items-center gap-1 text-[9px] text-ink-3 mb-0.5">Tone <Tooltip field="personality.tone" /></label>
                             <input
                               type="text"
                               value={agent.personality.tone}
@@ -626,7 +745,7 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
                             />
                           </div>
                           <div>
-                            <label className="block text-[9px] text-ink-3 mb-0.5">Communication</label>
+                            <label className="flex items-center gap-1 text-[9px] text-ink-3 mb-0.5">Communication <Tooltip field="personality.communication_style" /></label>
                             <input
                               type="text"
                               value={agent.personality.communication_style}
@@ -636,7 +755,7 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
                             />
                           </div>
                           <div>
-                            <label className="block text-[9px] text-ink-3 mb-0.5">Language</label>
+                            <label className="flex items-center gap-1 text-[9px] text-ink-3 mb-0.5">Language <Tooltip field="personality.language" /></label>
                             <input
                               type="text"
                               value={agent.personality.language}
@@ -650,10 +769,10 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
 
                       {/* Brand Context */}
                       <div className="space-y-1.5">
-                        <label className="block text-[10px] text-ink-3">Brand Context</label>
+                        <label className="text-[10px] text-ink-3 mb-1">Brand Context</label>
                         <div className="grid grid-cols-3 gap-2">
                           <div>
-                            <label className="block text-[9px] text-ink-3 mb-0.5">Brand Name</label>
+                            <label className="flex items-center gap-1 text-[9px] text-ink-3 mb-0.5">Brand Name <Tooltip field="brand.brand_name" /></label>
                             <input
                               type="text"
                               value={agent.brand_context.brand_name}
@@ -662,7 +781,7 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
                             />
                           </div>
                           <div>
-                            <label className="block text-[9px] text-ink-3 mb-0.5">Guidelines</label>
+                            <label className="flex items-center gap-1 text-[9px] text-ink-3 mb-0.5">Guidelines <Tooltip field="brand.guidelines" /></label>
                             <input
                               type="text"
                               value={agent.brand_context.guidelines}
@@ -671,7 +790,7 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
                             />
                           </div>
                           <div>
-                            <label className="block text-[9px] text-ink-3 mb-0.5">Target Audience</label>
+                            <label className="flex items-center gap-1 text-[9px] text-ink-3 mb-0.5">Target Audience <Tooltip field="brand.target_audience" /></label>
                             <input
                               type="text"
                               value={agent.brand_context.target_audience}
@@ -684,25 +803,25 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
 
                       {/* Output Format */}
                       <div>
-                        <label className="block text-[10px] text-ink-3 mb-0.5">Output Format</label>
-                        <input
-                          type="text"
+                        <label className="flex items-center gap-1 text-[10px] text-ink-3 mb-0.5">Output Format <Tooltip field="output_format" /></label>
+                        <textarea
                           value={agent.output_format}
                           onChange={(e) => updateAgent(idx, 'output_format', e.target.value)}
-                          placeholder="เช่น [Hook] [Body] [CTA] [Hashtags]"
-                          className="w-full px-2 py-1.5 bg-paper border border-line rounded-retro-sm text-xs text-ink placeholder-ink-3 focus:outline-none focus:border-orange"
+                          placeholder="เช่น Markdown report with headings, JSON array, bullet point summary"
+                          rows={2}
+                          className="w-full px-2 py-1.5 bg-paper border border-line rounded-retro-sm text-xs text-ink placeholder-ink-3 focus:outline-none focus:border-orange resize-none"
                         />
                       </div>
 
                       {/* Quality Criteria */}
                       <div>
-                        <label className="block text-[10px] text-ink-3 mb-0.5">Quality Criteria</label>
-                        <input
-                          type="text"
+                        <label className="flex items-center gap-1 text-[10px] text-ink-3 mb-0.5">Quality Criteria <Tooltip field="quality_criteria" /></label>
+                        <textarea
                           value={agent.quality_criteria}
                           onChange={(e) => updateAgent(idx, 'quality_criteria', e.target.value)}
-                          placeholder="เช่น 1. ต้องมี Hook 2. ต้องมี CTA"
-                          className="w-full px-2 py-1.5 bg-paper border border-line rounded-retro-sm text-xs text-ink placeholder-ink-3 focus:outline-none focus:border-orange"
+                          placeholder="เช่น 1. ต้องมีแหล่งอ้างอิง 2. ห้ามมีคำกว้างๆ 3. ต้องมีตัวเลข/ข้อมูลเฉพาะ"
+                          rows={3}
+                          className="w-full px-2 py-1.5 bg-paper border border-line rounded-retro-sm text-xs text-ink placeholder-ink-3 focus:outline-none focus:border-orange resize-none"
                         />
                       </div>
 
@@ -711,7 +830,7 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
                       <div className="grid grid-cols-3 gap-2">
                         <div>
                           <label className="flex items-center justify-between mb-0.5">
-                            <span className="text-[10px] text-ink-3">Review Iterations</span>
+                            <span className="flex items-center gap-1 text-[10px] text-ink-3">Review Iterations <Tooltip field="review_iterations" /></span>
                             <label className="flex items-center gap-1 cursor-pointer">
                               <input
                                 type="checkbox"
@@ -735,7 +854,7 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
                           />
                         </div>
                         <div>
-                          <label className="block text-[10px] text-ink-3 mb-0.5">Max Iterations</label>
+                          <label className="flex items-center gap-1 text-[10px] text-ink-3 mb-0.5">Max Iterations <Tooltip field="max_iter" /></label>
                           <input
                             type="number"
                             min={1}
@@ -746,7 +865,7 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
                           />
                         </div>
                         <div>
-                          <label className="block text-[10px] text-ink-3 mb-0.5">Max Retry</label>
+                          <label className="flex items-center gap-1 text-[10px] text-ink-3 mb-0.5">Max Retry <Tooltip field="max_retry_limit" /></label>
                           <input
                             type="number"
                             min={0}
@@ -767,7 +886,7 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
                             onChange={(e) => updateAgent(idx, 'allow_delegation', e.target.checked)}
                             className="accent-orange"
                           />
-                          <span className="text-[10px] text-ink-2">Allow Delegation</span>
+                          <span className="flex items-center gap-1 text-[10px] text-ink-2">Allow Delegation <Tooltip field="allow_delegation" /></span>
                         </label>
                       </div>
                     </div>

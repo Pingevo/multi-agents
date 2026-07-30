@@ -164,7 +164,7 @@ function Tooltip({ field }: { field: string }) {
         <div
           style={{
             position: 'fixed',
-            zIndex: 99999,
+            zIndex: 999999,
             width: '220px',
             padding: '6px 8px',
             background: 'var(--cream)',
@@ -279,9 +279,9 @@ const AgentConfigForm: React.FC<{
   const [brandContext, setBrandContext] = useState<Record<string, string>>((agent as any).brand_context || {});
   const [outputFormat, setOutputFormat] = useState((agent as any).output_format || '');
   const [qualityCriteria, setQualityCriteria] = useState((agent as any).quality_criteria || '');
-  const [reviewIterations, setReviewIterations] = useState((agent as any).review_iterations ?? 3);
-  const [maxIter, setMaxIter] = useState((agent as any).max_iter ?? 20);
-  const [maxRetryLimit, setMaxRetryLimit] = useState((agent as any).max_retry_limit ?? 3);
+  const [reviewIterations, setReviewIterations] = useState<number | null>((agent as any).review_iterations ?? null); // null = unlimited
+  const [maxIter, setMaxIter] = useState((agent as any).max_iter ?? 25); // CrewAI default
+  const [maxRetryLimit, setMaxRetryLimit] = useState((agent as any).max_retry_limit ?? 3); // CrewAI default
   const [allowDelegation, setAllowDelegation] = useState((agent as any).allow_delegation ?? false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const modelBtnRef = useRef<HTMLButtonElement>(null);
@@ -481,19 +481,42 @@ const AgentConfigForm: React.FC<{
         <textarea value={qualityCriteria} onChange={e => setQualityCriteria(e.target.value)} rows={3} className={textareaCls} placeholder="เช่น 1. ต้องมี Hook 2. ต้องมี CTA 3. ใช้ภาษาวัยรุ่น" />
       </FieldRow>
 
-      {/* Review Iterations */}
+      {/* Review Iterations — null = unlimited (∞ toggle) */}
       <FieldRow label="Review Iterations" field="review_iterations">
-        <input type="number" min={1} max={10} value={reviewIterations} onChange={e => setReviewIterations(parseInt(e.target.value) || 3)} className={inputCls} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontSize: '10px', color: 'var(--ink3)' }}>
+            <input
+              type="checkbox"
+              checked={reviewIterations === null}
+              onChange={e => setReviewIterations(e.target.checked ? null : NaN)}
+              style={{ accentColor: 'var(--orange)', width: '10px', height: '10px' }}
+            />
+            ∞ ไม่จำกัด
+          </label>
+          <input
+            type="number"
+            min={1}
+            max={50}
+            value={reviewIterations ?? ''}
+            disabled={reviewIterations === null}
+            onChange={e => setReviewIterations(parseInt(e.target.value))}
+            className={inputCls}
+            style={{
+              ...reviewIterations !== null && isNaN(reviewIterations) ? { borderColor: 'red' } : {},
+              opacity: reviewIterations === null ? 0.4 : 1,
+            }}
+          />
+        </div>
       </FieldRow>
 
-      {/* Max Iter */}
+      {/* Max Iter — CrewAI requires a number, default 25 */}
       <FieldRow label="Max Iterations" field="max_iter">
-        <input type="number" min={1} max={100} value={maxIter} onChange={e => setMaxIter(parseInt(e.target.value) || 20)} className={inputCls} />
+        <input type="number" min={1} max={500} value={maxIter} onChange={e => setMaxIter(parseInt(e.target.value) || 25)} className={inputCls} />
       </FieldRow>
 
-      {/* Max Retry Limit */}
+      {/* Max Retry Limit — CrewAI requires a number, default 3 */}
       <FieldRow label="Max Retry Limit" field="max_retry_limit">
-        <input type="number" min={0} max={10} value={maxRetryLimit} onChange={e => setMaxRetryLimit(parseInt(e.target.value) || 3)} className={inputCls} />
+        <input type="number" min={0} max={50} value={maxRetryLimit} onChange={e => setMaxRetryLimit(parseInt(e.target.value) || 3)} className={inputCls} />
       </FieldRow>
 
       {/* Allow Delegation */}
@@ -697,15 +720,15 @@ const AgentDetailView: React.FC<{
       </FieldRow>
 
       <FieldRow label="Review Iterations" field="review_iterations">
-        <DisplayValue value={agent.review_iterations != null ? String(agent.review_iterations) : ''} />
+        <DisplayValue value={agent.review_iterations == null ? '∞ ไม่จำกัด' : String(agent.review_iterations)} />
       </FieldRow>
 
       <FieldRow label="Max Iterations" field="max_iter">
-        <DisplayValue value={agent.max_iter != null ? String(agent.max_iter) : ''} />
+        <DisplayValue value={agent.max_iter != null ? String(agent.max_iter) : '—'} />
       </FieldRow>
 
       <FieldRow label="Max Retry Limit" field="max_retry_limit">
-        <DisplayValue value={agent.max_retry_limit != null ? String(agent.max_retry_limit) : ''} />
+        <DisplayValue value={agent.max_retry_limit != null ? String(agent.max_retry_limit) : '—'} />
       </FieldRow>
 
       <FieldRow label="Allow Delegation" field="allow_delegation">
@@ -765,8 +788,9 @@ const AddAgentForm: React.FC<{
   // Advanced fields — user can set these when creating an agent
   const [outputFormat, setOutputFormat] = useState('');
   const [qualityCriteria, setQualityCriteria] = useState('');
-  const [reviewIterations, setReviewIterations] = useState(3);
-  const [maxIter, setMaxIter] = useState(20);
+  // null = unlimited (Manager reviews until quality passes) — matches TeamCreateModal/AgentConfigModal
+  const [reviewIterations, setReviewIterations] = useState<number | null>(null);
+  const [maxIter, setMaxIter] = useState(25); // CrewAI default
   const [maxRetryLimit, setMaxRetryLimit] = useState(3);
   const [allowDelegation, setAllowDelegation] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState('');
@@ -784,8 +808,8 @@ const AddAgentForm: React.FC<{
       setExpertise([]); setPersonality({}); setBrandContext({});
       // Reset advanced fields too — otherwise stale values from a previous
       // edit persist when switching templates, which is confusing for users.
-      setOutputFormat(''); setQualityCriteria(''); setReviewIterations(3);
-      setMaxIter(20); setMaxRetryLimit(3); setAllowDelegation(false);
+      setOutputFormat(''); setQualityCriteria(''); setReviewIterations(null);
+      setMaxIter(25); setMaxRetryLimit(3); setAllowDelegation(false);
       return;
     }
     const tmpl = TEMPLATES.find(t => t.id === templateId);
@@ -811,7 +835,7 @@ const AddAgentForm: React.FC<{
       output_format: outputFormat.trim(),
       quality_criteria: qualityCriteria.trim(),
       review_iterations: reviewIterations,
-      max_iter: maxIter,
+      max_iter: maxIter ?? 25,
       max_retry_limit: maxRetryLimit,
       allow_delegation: allowDelegation,
     });
@@ -989,15 +1013,35 @@ const AddAgentForm: React.FC<{
       </FieldRow>
 
       <FieldRow label="Review Iterations" field="review_iterations">
-        <input type="number" value={reviewIterations} onChange={e => setReviewIterations(Number(e.target.value))} className={inputCls} min={1} max={10} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <input
+            type="number"
+            value={reviewIterations ?? ''}
+            onChange={e => setReviewIterations(e.target.value === '' ? null : Number(e.target.value))}
+            className={inputCls}
+            min={1}
+            max={50}
+            disabled={reviewIterations === null}
+            style={{ opacity: reviewIterations === null ? 0.4 : 1 }}
+          />
+          <label style={{ display: 'flex', alignItems: 'center', gap: '3px', cursor: 'pointer', fontSize: '10px', color: 'var(--ink3)', whiteSpace: 'nowrap' }}>
+            <input
+              type="checkbox"
+              checked={reviewIterations === null}
+              onChange={e => setReviewIterations(e.target.checked ? null : 3)}
+              style={{ accentColor: 'var(--orange)', width: '10px', height: '10px' }}
+            />
+            ∞ ไม่จำกัด
+          </label>
+        </div>
       </FieldRow>
 
       <FieldRow label="Max Iterations" field="max_iter">
-        <input type="number" value={maxIter} onChange={e => setMaxIter(Number(e.target.value))} className={inputCls} min={1} max={50} />
+        <input type="number" value={maxIter} onChange={e => setMaxIter(Number(e.target.value) || 25)} className={inputCls} min={1} max={500} />
       </FieldRow>
 
       <FieldRow label="Max Retry Limit" field="max_retry_limit">
-        <input type="number" value={maxRetryLimit} onChange={e => setMaxRetryLimit(Number(e.target.value))} className={inputCls} min={0} max={10} />
+        <input type="number" value={maxRetryLimit} onChange={e => setMaxRetryLimit(Number(e.target.value) || 3)} className={inputCls} min={0} max={50} />
       </FieldRow>
 
       <FieldRow label="Allow Delegation" field="allow_delegation">

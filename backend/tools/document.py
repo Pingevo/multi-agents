@@ -47,6 +47,14 @@ def generate_document(filename: str, content: str, doc_type: str = "markdown") -
         if "." not in filename_clean.rsplit("/", 1)[-1]:
             filename_clean += ".html"
 
+    # Dedup by filename — when Manager rejects output and agent is re-run,
+    # it calls generate_document again with the same filename, creating
+    # duplicate file download cards. Skip if this filename already exists.
+    existing_filenames = {r.get("filename", "") for r in _media_tool_results if r.get("type") == "document"}
+    if filename_clean in existing_filenames:
+        print(f"[DEDUP] Skipping duplicate document: {filename_clean}", flush=True)
+        return f"[DOCUMENT_READY]\nFilename: {filename_clean}\nType: {doc_type_clean}\nLength: {len(content_clean)} chars"
+
     if _progress_callback:
         _progress_callback(100, f"📄 สร้างเอกสาร {filename_clean} แล้ว")
 
