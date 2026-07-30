@@ -94,58 +94,6 @@ class LLMManager:
         self._selected_model = model_id
         print(f"[LLMManager] User selected model: {model_id}")
 
-    _model_context_cache: dict[str, int] = {}
-    # Cache for max_completion_tokens (output limit) — separate from context_length (input limit)
-    # Fix: previously used context_length * 0.75 as max_tokens, which sent values like 750K to
-    # OpenRouter when the model only supports 128K output tokens, causing empty responses.
-    _model_max_output_cache: dict[str, int] = {}
-
-    def _get_max_tokens(self, model_id: str) -> int:
-        """Get max_tokens (output limit) for a model.
-
-        Uses top_provider.max_completion_tokens from OpenRouter API — this is the actual
-        output token limit, NOT context_length (which is the input limit).
-        Falls back to LLM_MAX_TOKENS env var (default 8192) if unavailable.
-        """
-        if not model_id:
-            return int(os.getenv("LLM_MAX_TOKENS", "8192"))
-
-        # Check output token cache first
-        if model_id in self._model_max_output_cache:
-            return self._model_max_output_cache[model_id]
-
-        # Try fetching from OpenRouter API
-        if self._is_openrouter():
-            try:
-                resp = requests.get(
-                    f"{self.base_url}/models",
-                    headers={"Authorization": f"Bearer {self.api_key}"},
-                    timeout=10,
-                )
-                if resp.status_code == 200:
-                    models = resp.json().get("data", [])
-                    for m in models:
-                        mid = m.get("id", "")
-                        # Cache context_length (input limit) for other uses
-                        ctx = m.get("context_length", 0) or 0
-                        self._model_context_cache[mid] = ctx
-                        # Cache max_completion_tokens (output limit) — this is what we need for max_tokens
-                        max_out = (m.get("top_provider") or {}).get("max_completion_tokens", 0) or 0
-                        if max_out > 0:
-                            self._model_max_output_cache[mid] = max_out
-                    # Now check output token cache
-                    if model_id in self._model_max_output_cache:
-                        max_tok = self._model_max_output_cache[model_id]
-                        print(f"[LLMManager] max_tokens for {model_id}: {max_tok} (max_completion_tokens from API)", flush=True)
-                        return max_tok
-                    else:
-                        print(f"[LLMManager] max_completion_tokens not found for {model_id}, using fallback", flush=True)
-            except Exception as e:
-                print(f"[LLMManager] Failed to fetch model info: {_sanitize_error(e)}", flush=True)
-
-        # Fallback — safe default, not context_length * 0.75 which can exceed output limits
-        return int(os.getenv("LLM_MAX_TOKENS", "8192"))
-
     def _is_in_cooldown(self) -> bool:
         import time
         return time.time() < self._fallback_until
@@ -185,7 +133,6 @@ class LLMManager:
                     ],
                 }],
                 temperature=self.temperature,
-                max_tokens=self._get_max_tokens(model_id),
             )
             log_llm_call(model_id, response.usage, caller=caller, prompt_preview=prompt)
             content = response.choices[0].message.content or ""
@@ -214,7 +161,7 @@ class LLMManager:
             raise RuntimeError("No model available for multimodal call")
         client = OpenAI(base_url=self.base_url, api_key=self.api_key, max_retries=0, timeout=120)
         messages = [{"role": "user", "content": [{"type": "text", "text": prompt}] + content_blocks}]
-        kwargs = {"model": model_id, "messages": messages, "temperature": self.temperature, "max_tokens": self._get_max_tokens(model_id)}
+        kwargs = {"model": model_id, "messages": messages, "temperature": self.temperature}
         if plugins:
             kwargs["extra_body"] = {"plugins": plugins}
         try:
@@ -241,7 +188,7 @@ class LLMManager:
             raise RuntimeError("No model available for multimodal streaming")
         client = OpenAI(base_url=self.base_url, api_key=self.api_key, max_retries=0, timeout=120)
         messages = [{"role": "user", "content": [{"type": "text", "text": prompt}] + content_blocks}]
-        kwargs = {"model": model_id, "messages": messages, "temperature": self.temperature, "max_tokens": self._get_max_tokens(model_id), "stream": True, "stream_options": {"include_usage": True}}
+        kwargs = {"model": model_id, "messages": messages, "temperature": self.temperature, "stream": True, "stream_options": {"include_usage": True}}
         if plugins:
             kwargs["extra_body"] = {"plugins": plugins}
         try:
@@ -285,7 +232,6 @@ class LLMManager:
                         model=model_id,
                         messages=[{"role": "user", "content": prompt}],
                         temperature=self.temperature,
-                        max_tokens=self._get_max_tokens(model_id),
                         stream=True,
                         stream_options={"include_usage": True},
                     )
@@ -362,6 +308,11 @@ class LLMManager:
             if not is_free:
                 print(f"[LLMManager] WARNING: _build_llm using PAID model: {model!r} (full={full_model!r})", flush=True)
             print(f"[LLMManager] _build_llm: provider={provider}, model={model!r}, full_model={full_model!r}", flush=True)
+            # Don't send max_tokens — let OpenRouter use the model's default output limit.
+            # Previously sent max_completion_tokens (e.g., 128K) which caused 402 credit errors
+            # when user credits couldn't cover that many output tokens.
+            # Empty stream responses were caused by openrouter/free routing to non-working models,
+            # NOT by missing max_tokens — that's handled by rotator fallback.
             llm = LLM(
                 model=full_model,
                 base_url=base_url,
@@ -369,7 +320,6 @@ class LLMManager:
                 temperature=self.temperature,
                 max_retries=0,
                 stream=True,
-                max_tokens=self._get_max_tokens(model),
                 additional_params=additional_params,
             )
             # Override supports_multimodal using OpenRouter catalog cache
@@ -461,7 +411,6 @@ class LLMManager:
                         model=model_id,
                         messages=[{"role": "user", "content": prompt}],
                         temperature=self.temperature,
-                        max_tokens=self._get_max_tokens(model_id),
                     )
                     log_llm_call(model_id, response.usage, caller=caller, prompt_preview=prompt)
                     return response.choices[0].message.content or ""
@@ -541,5 +490,6 @@ class LLMManager:
 def _is_rate_limit_error(error: Exception) -> bool:
     """Check if an exception is a rate limit error from OpenRouter or similar."""
     msg = str(error).lower()
-    keywords = ["rate limit", "rate_limit", "429", "too many requests", "quota exceeded"]
+    # Include 402 (insufficient credits) so credit exhaustion triggers fallback path
+    keywords = ["rate limit", "rate_limit", "429", "too many requests", "quota exceeded", "402", "more credits"]
     return any(kw in msg for kw in keywords)
