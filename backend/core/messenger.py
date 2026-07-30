@@ -548,6 +548,14 @@ class StateMessenger:
         ))
         # Add resolved model name for adaptive mode display
         payload["payload"]["resolvedModel"] = resolved_model
+        # Add upload limit from Chainlit config so frontend doesn't hardcode it
+        try:
+            from chainlit.config import config as cl_config
+            payload["payload"]["uploadLimitMb"] = (
+                cl_config.features.spontaneous_file_upload.max_size_mb or 500
+            )
+        except Exception:
+            payload["payload"]["uploadLimitMb"] = 500
         await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
 
     async def reply_tuning_proposal(self, proposals: list[dict]):

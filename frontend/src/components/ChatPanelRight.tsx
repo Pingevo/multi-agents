@@ -58,6 +58,7 @@ interface ChatPanelRightProps {
   fillContainer?: boolean;
   mentionText?: string;
   onMentionConsumed?: () => void;
+  uploadLimitMb?: number;
 }
 
 // ============================================================
@@ -1071,6 +1072,7 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
   fillContainer = false,
   mentionText,
   onMentionConsumed,
+  uploadLimitMb = 500, // Default until backend sends actual value via model catalog
 }) => {
   const [width, setWidth] = useState(360);
   const [input, setInput] = useState('');
@@ -1247,10 +1249,50 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
     const newPreviews: Array<string> = [];
     let processed = 0;
     const total = files.length;
+
+    // Early warning: check if selected model supports the file's modality
+    // Uses input_modalities from OpenRouter API (no hardcoded model names)
+    const mimeToModality = (mime: string): string | null => {
+      if (mime.startsWith('image/') && mime !== 'image/svg+xml') return 'image';
+      if (mime.startsWith('audio/')) return 'audio';
+      if (mime.startsWith('video/')) return 'video';
+      if (mime === 'application/pdf') return 'pdf';
+      return null;
+    };
+    const findModelEntry = (modelId: string): ModelCatalogEntry | null => {
+      for (const provider of Object.keys(modelCatalog)) {
+        const found = modelCatalog[provider].find(m => m.id === modelId);
+        if (found) return found;
+      }
+      for (const m of modelSearchResults) {
+        if (m.id === modelId) return m;
+      }
+      return null;
+    };
+    if (selectedModel) {
+      const modelEntry = findModelEntry(selectedModel);
+      if (modelEntry) {
+        const supportedModalities = modelEntry.input_modalities || [];
+        for (let i = 0; i < total; i++) {
+          const file = files[i];
+          const modality = mimeToModality(file.type || '');
+          if (modality && !supportedModalities.includes(modality)) {
+            console.warn(`[Upload] Model '${selectedModel}' may not support ${modality} input (file: ${file.name})`);
+            const warningDiv = document.createElement('div');
+            warningDiv.style.cssText = 'position:fixed;bottom:20px;right:20px;background:#f59e0b;color:#fff;padding:10px 16px;border-radius:8px;font-size:13px;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,0.3);max-width:400px;';
+            warningDiv.textContent = `⚠️ โมเดล '${selectedModel}' อาจไม่รองรับไฟล์ ${modality} (${file.name}) — แนะนำให้เปลี่ยนโมเดลหรือสร้าง Agent ถอดเสียง`;
+            document.body.appendChild(warningDiv);
+            setTimeout(() => warningDiv.remove(), 5000);
+            break;
+          }
+        }
+      }
+    }
+
     for (let i = 0; i < total; i++) {
       const file = files[i];
-      if (file.size > 20 * 1024 * 1024) {
-        alert(`File "${file.name}" too large. Maximum 20MB.`);
+      if (file.size > uploadLimitMb * 1024 * 1024) {
+        alert(`File "${file.name}" too large. Maximum ${uploadLimitMb}MB.`);
         processed++;
         if (processed === total) {
           if (newAttachments.length > 0) {

@@ -446,6 +446,7 @@ function AppContent() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [selectedModel, setSelectedModel] = useState<string>('');
   const [resolvedModel, setResolvedModel] = useState<string>('');
+  const [uploadLimitMb, setUploadLimitMb] = useState<number>(500); // Default until backend sends actual value
   const [thinkingText, setThinkingText] = useState<string>('');
   const [thinkingDuration, setThinkingDuration] = useState<number | null>(null);
   const [isThinking, setIsThinking] = useState(false);
@@ -796,6 +797,9 @@ function AppContent() {
           }
           if (reply.modelCatalogResolved) {
             setResolvedModel(reply.modelCatalogResolved);
+          }
+          if ((reply as any).uploadLimitMb) {
+            setUploadLimitMb((reply as any).uploadLimitMb);
           }
           // Also store catalog data in separate state for persistence across chat resets
           if (reply.modelCatalogRecommended) {
@@ -1304,6 +1308,7 @@ function AppContent() {
         mediaCatalog={modelCatalogData.mediaCatalog}
         mediaSearchResults={modelCatalogData.mediaSearchResults}
         taskItems={(tasks || []) as any}
+        uploadLimitMb={uploadLimitMb}
       />
       <TeamCreateModal
         open={showCreateModal}

@@ -56,6 +56,7 @@ interface RetroDesktopProps {
   mediaCatalog: Record<string, ModelCatalogEntry[]>;
   mediaSearchResults: ModelCatalogEntry[];
   taskItems?: TaskItem[];
+  uploadLimitMb?: number;
 }
 
 const windowConfig: Record<WindowId, { title: string; icon: string; width: number; height: number }> = {
@@ -302,6 +303,7 @@ const DesktopInner: React.FC<RetroDesktopProps> = (props) => {
             preloadedMediaCatalog={props.mediaCatalog}
             preloadedMediaSearchResults={props.mediaSearchResults}
             onViewTasks={() => handleOpenWindow('tasks')}
+            uploadLimitMb={props.uploadLimitMb}
           />
         );
       case 'tasks':

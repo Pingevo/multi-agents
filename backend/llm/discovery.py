@@ -178,3 +178,46 @@ class ModelDiscoveryService:
 
         return "\n".join(lines) if lines else "none"
 
+    def fetch_video_models(self) -> list[dict]:
+        """Fetch video generation models from OpenRouter's dedicated endpoint.
+
+        Video models (Veo, Kling, Sora, Seedance, etc.) are NOT listed in the
+        regular /models endpoint with output_modalities=["video"] — they require
+        a separate GET /videos/models call. Each model returns pricing_skus
+        (price per second) instead of per-token pricing.
+        """
+        try:
+            resp = requests.get(
+                f"{self.base_url}/videos/models",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                timeout=15,
+            )
+            if resp.status_code == 200:
+                return resp.json().get("data", [])
+            print(f"[ModelDiscovery] Video models endpoint returned {resp.status_code}")
+            return []
+        except Exception as e:
+            print(f"[ModelDiscovery] Video models fetch error: {_sanitize_error(e)}")
+            return []
+
+    def fetch_image_models(self) -> list[dict]:
+        """Fetch image generation models from OpenRouter's dedicated endpoint.
+
+        Image models (GPT Image, FLUX, Recraft, etc.) are listed in a separate
+        GET /images/models endpoint with pricing_skus for image generation,
+        not per-token text pricing.
+        """
+        try:
+            resp = requests.get(
+                f"{self.base_url}/images/models",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                timeout=15,
+            )
+            if resp.status_code == 200:
+                return resp.json().get("data", [])
+            print(f"[ModelDiscovery] Image models endpoint returned {resp.status_code}")
+            return []
+        except Exception as e:
+            print(f"[ModelDiscovery] Image models fetch error: {_sanitize_error(e)}")
+            return []
+
