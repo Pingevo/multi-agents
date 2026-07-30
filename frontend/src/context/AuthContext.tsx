@@ -25,7 +25,12 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 const TOKEN_KEY = 'auth_token';
 const USER_KEY = 'auth_user';
 
-const BACKEND_URL = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:8000';
+// Backend API runs on port 8000 — in dev mode frontend is on 5173,
+// so window.location.origin would point to the wrong port.
+// In production both are served from the same origin.
+const BACKEND_URL = typeof window !== 'undefined' && window.location.port === '5173'
+  ? 'http://localhost:8000'
+  : (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:8000');
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
