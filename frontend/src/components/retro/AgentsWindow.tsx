@@ -604,7 +604,9 @@ const AgentDetailView: React.FC<{
         </div>
       </FieldRow>
 
-      {/* Tools */}
+      {/* Tools — hidden for Manager because Manager delegates tasks and
+          does not execute tools directly */}
+      {!mgr && (
       <FieldRow label="Tools" field="tools">
         {agent.tools && agent.tools.length > 0 ? (
           <div className="ad-tools">
@@ -614,6 +616,7 @@ const AgentDetailView: React.FC<{
           <DisplayValue value="" />
         )}
       </FieldRow>
+      )}
 
       {/* Expertise */}
       <FieldRow label="Expertise" field="expertise">
