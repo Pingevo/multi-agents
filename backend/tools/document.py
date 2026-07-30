@@ -11,10 +11,18 @@ def generate_document(filename: str, content: str, doc_type: str = "markdown") -
     Call this tool when you need to produce a structured document — reports,
     plans, scripts, articles, or any text deliverable that the user can download.
 
+    Important format limitations:
+    - This tool ONLY supports three formats: "markdown", "text", or "html".
+    - It DOES NOT support binary formats like PDF, Word (.docx), or Excel.
+    - If the user requests a PDF, you must use "markdown" or "html" instead
+      as the best alternative, and explicitly inform the user in your chat
+      response that you generated an alternative format because PDF
+      generation is not currently supported by your tools.
+
     Args:
         filename: Name of the file (e.g. "marketing-plan.md", "report.txt")
         content: Full text content of the document
-        doc_type: Format type — "markdown", "text", or "html"
+        doc_type: Format type — MUST be exactly "markdown", "text", or "html". Do NOT use "pdf".
 
     Returns a confirmation that the document is ready for download.
     """

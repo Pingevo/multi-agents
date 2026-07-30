@@ -308,9 +308,11 @@ export const AgentConfigModal: React.FC<AgentConfigModalProps> = ({
             )}
           </FieldRow>
 
-          {/* Role */}
+          {/* Role — locked to "Manager" for manager agents because backend expects
+              this exact role to identify the manager; changing it would break
+              team coordination logic (check_resources, model sync, etc.) */}
           <FieldRow label="Role" field="role">
-            {isEditing ? (
+            {isEditing && !isManager ? (
               <input value={role} onChange={(e) => setRole(e.target.value)} className={inputCls} />
             ) : (
               <DisplayValue value={role} />
@@ -376,7 +378,10 @@ export const AgentConfigModal: React.FC<AgentConfigModalProps> = ({
             </div>
           </FieldRow>
 
-          {/* Tools */}
+          {/* Tools — hidden for Manager because Manager delegates tasks to workers
+              and does not execute tools directly; showing tool checkboxes would
+              mislead users into thinking Manager can use them */}
+          {!isManager && (
           <FieldRow label="Tools" field="tools">
             {isEditing ? (
               <div className="space-y-1.5">
@@ -405,6 +410,7 @@ export const AgentConfigModal: React.FC<AgentConfigModalProps> = ({
               </div>
             )}
           </FieldRow>
+          )}
 
           {/* Expertise */}
           <FieldRow label="Expertise" field="expertise">
@@ -477,7 +483,11 @@ export const AgentConfigModal: React.FC<AgentConfigModalProps> = ({
             </div>
           </div>
 
-          {/* Output Format */}
+          {/* Advanced settings — hidden for Manager because these are worker-level
+              task execution settings; Manager only coordinates and delegates,
+              so output_format/quality_criteria/review_iterations don't apply */}
+          {!isManager && (
+          <>
           <FieldRow label="Output Format" field="output_format">
             {isEditing ? (
               <textarea value={outputFormat} onChange={(e) => setOutputFormat(e.target.value)} rows={2} className={textareaCls} placeholder="เช่น [Hook] [Body] [CTA] [Hashtags]" />
@@ -533,6 +543,8 @@ export const AgentConfigModal: React.FC<AgentConfigModalProps> = ({
               <DisplayValue value={allowDelegation ? 'อนุญาต' : 'ไม่อนุญาต'} />
             )}
           </FieldRow>
+          </>
+          )}
 
           {/* Learnings (auto-generated, read-only) */}
           <div className="py-2.5 border-b border-border">

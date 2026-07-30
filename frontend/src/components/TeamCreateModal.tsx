@@ -279,16 +279,11 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
                   <ChevronDown className={`w-3.5 h-3.5 shrink-0 transition-transform ${modelPickerOpen ? 'rotate-180' : ''}`} />
                 </button>
               </div>
-              <div>
-                <label className="block text-xs font-medium text-ink-2 mb-1.5">เป้าหมายของ Manager</label>
-                <input
-                  type="text"
-                  value={managerGoal}
-                  onChange={(e) => setManagerGoal(e.target.value)}
-                  placeholder="ค่าเริ่มต้น: ประสานงานทีมเพื่อทำงานตามคำขอให้สำเร็จ"
-                  className="w-full px-3 py-2 bg-cream border border-line rounded-retro text-sm text-ink placeholder-ink-3 focus:outline-none focus:ring-2 focus:ring-orange/50 focus:border-transparent"
-                />
-              </div>
+              {/* Manager Goal removed — backend sets a default goal automatically
+                  ("Coordinate the team to accomplish user tasks efficiently");
+                  letting users override it with task-specific goals breaks team
+                  coordination because Manager would try to do the work itself
+                  instead of delegating */}
               <div>
                 <label className="block text-xs font-medium text-ink-2 mb-1.5">Persona ของ Manager</label>
                 <textarea
