@@ -62,6 +62,9 @@ interface TeamCreateModalProps {
     manager_model: string;
     manager_persona: string;
     manager_goal: string;
+    manager_expertise: string[];
+    manager_personality: { tone: string; communication_style: string; language: string };
+    manager_brand_context: { brand_name: string; guidelines: string; target_audience: string };
     agents: AgentEntry[];
   }) => void;
   onFetchModelCatalog?: () => void;
@@ -90,6 +93,10 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
   const [managerModel, setManagerModel] = useState('');
   const [managerPersona, setManagerPersona] = useState('');
   const [managerGoal, setManagerGoal] = useState('');
+  // Manager extra fields — same set as worker agents for consistency
+  const [managerExpertise, setManagerExpertise] = useState<string[]>([]);
+  const [managerPersonality, setManagerPersonality] = useState({ tone: '', communication_style: '', language: '' });
+  const [managerBrandContext, setManagerBrandContext] = useState({ brand_name: '', guidelines: '', target_audience: '' });
   const [agents, setAgents] = useState<AgentEntry[]>([]);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [expandedAgent, setExpandedAgent] = useState<number | null>(null);
@@ -108,6 +115,9 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
       manager_model: managerModel || 'auto',
       manager_persona: managerPersona.trim(),
       manager_goal: managerGoal.trim(),
+      manager_expertise: managerExpertise,
+      manager_personality: managerPersonality,
+      manager_brand_context: managerBrandContext,
       agents: agents.filter(a => a.role.trim()),
     });
     setName('');
@@ -115,6 +125,9 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
     setManagerModel('');
     setManagerPersona('');
     setManagerGoal('');
+    setManagerExpertise([]);
+    setManagerPersonality({ tone: '', communication_style: '', language: '' });
+    setManagerBrandContext({ brand_name: '', guidelines: '', target_audience: '' });
     setAgents([]);
     setExpandedAgent(null);
     onClose();
@@ -314,6 +327,91 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
                   rows={2}
                   className="w-full px-3 py-2 bg-cream border border-line rounded-retro text-sm text-ink placeholder-ink-3 focus:outline-none focus:ring-2 focus:ring-orange/50 focus:border-transparent resize-none"
                 />
+              </div>
+
+              {/* Manager Expertise — same field as worker agents, lets user
+                  specify what domains the Manager should understand when
+                  coordinating and delegating */}
+              <div>
+                <label className="block text-xs font-medium text-ink-2 mb-1.5">Expertise ของ Manager (คั่นด้วยจุลภาค)</label>
+                <input
+                  type="text"
+                  value={managerExpertise.join(', ')}
+                  onChange={(e) => setManagerExpertise(e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
+                  placeholder="เช่น Project Management, Marketing Strategy"
+                  className="w-full px-3 py-2 bg-cream border border-line rounded-retro text-sm text-ink placeholder-ink-3 focus:outline-none focus:ring-2 focus:ring-orange/50 focus:border-transparent"
+                />
+              </div>
+
+              {/* Manager Personality */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-medium text-ink-2">Personality ของ Manager</label>
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <label className="block text-[9px] text-ink-3 mb-0.5">Tone</label>
+                    <input
+                      type="text"
+                      value={managerPersonality.tone}
+                      onChange={(e) => setManagerPersonality({ ...managerPersonality, tone: e.target.value })}
+                      placeholder="เช่น professional"
+                      className="w-full px-2 py-1.5 bg-cream border border-line rounded-retro-sm text-xs text-ink placeholder-ink-3 focus:outline-none focus:border-orange"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] text-ink-3 mb-0.5">Communication</label>
+                    <input
+                      type="text"
+                      value={managerPersonality.communication_style}
+                      onChange={(e) => setManagerPersonality({ ...managerPersonality, communication_style: e.target.value })}
+                      placeholder="เช่น concise"
+                      className="w-full px-2 py-1.5 bg-cream border border-line rounded-retro-sm text-xs text-ink placeholder-ink-3 focus:outline-none focus:border-orange"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] text-ink-3 mb-0.5">Language</label>
+                    <input
+                      type="text"
+                      value={managerPersonality.language}
+                      onChange={(e) => setManagerPersonality({ ...managerPersonality, language: e.target.value })}
+                      placeholder="เช่น th, en"
+                      className="w-full px-2 py-1.5 bg-cream border border-line rounded-retro-sm text-xs text-ink placeholder-ink-3 focus:outline-none focus:border-orange"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Manager Brand Context */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-medium text-ink-2">Brand Context ของ Manager</label>
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <label className="block text-[9px] text-ink-3 mb-0.5">Brand Name</label>
+                    <input
+                      type="text"
+                      value={managerBrandContext.brand_name}
+                      onChange={(e) => setManagerBrandContext({ ...managerBrandContext, brand_name: e.target.value })}
+                      className="w-full px-2 py-1.5 bg-cream border border-line rounded-retro-sm text-xs text-ink placeholder-ink-3 focus:outline-none focus:border-orange"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] text-ink-3 mb-0.5">Guidelines</label>
+                    <input
+                      type="text"
+                      value={managerBrandContext.guidelines}
+                      onChange={(e) => setManagerBrandContext({ ...managerBrandContext, guidelines: e.target.value })}
+                      className="w-full px-2 py-1.5 bg-cream border border-line rounded-retro-sm text-xs text-ink placeholder-ink-3 focus:outline-none focus:border-orange"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] text-ink-3 mb-0.5">Target Audience</label>
+                    <input
+                      type="text"
+                      value={managerBrandContext.target_audience}
+                      onChange={(e) => setManagerBrandContext({ ...managerBrandContext, target_audience: e.target.value })}
+                      className="w-full px-2 py-1.5 bg-cream border border-line rounded-retro-sm text-xs text-ink placeholder-ink-3 focus:outline-none focus:border-orange"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
 

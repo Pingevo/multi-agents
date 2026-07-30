@@ -567,6 +567,9 @@ async def on_action_create_team(action: cl.Action):
     manager_model = payload.get("manager_model", "auto")
     manager_persona = payload.get("manager_persona", "").strip()
     manager_goal = payload.get("manager_goal", "").strip()
+    manager_expertise = payload.get("manager_expertise", [])
+    manager_personality = payload.get("manager_personality", {})
+    manager_brand_context = payload.get("manager_brand_context", {})
     agents_list = payload.get("agents", [])
 
     # Reset state — might be stuck in STATE_AWAITING_APPROVAL from AI modal flow
@@ -599,6 +602,9 @@ async def on_action_create_team(action: cl.Action):
         "tools": [],
         "team_id": team["id"],
         "is_manager": True,
+        "expertise": manager_expertise,
+        "personality": manager_personality,
+        "brand_context": manager_brand_context,
     })
     team_registry.add_agent(team["id"], manager_agent["id"])
 
