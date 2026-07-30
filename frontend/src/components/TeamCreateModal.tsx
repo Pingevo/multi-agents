@@ -12,6 +12,15 @@ interface AgentEntry {
   tools: string[];
   model: string;
   template_id?: string;
+  expertise: string[];
+  personality: { tone: string; communication_style: string; language: string };
+  brand_context: { brand_name: string; guidelines: string; target_audience: string };
+  output_format: string;
+  quality_criteria: string;
+  review_iterations: number;
+  max_iter: number;
+  max_retry_limit: number;
+  allow_delegation: boolean;
 }
 
 interface AgentTemplate {
@@ -112,7 +121,14 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
   };
 
   const addAgent = () => {
-    const newAgent: AgentEntry = { name: '', role: '', goal: '', persona: '', tools: [], model: '' };
+    const newAgent: AgentEntry = {
+      name: '', role: '', goal: '', persona: '', tools: [], model: '',
+      expertise: [],
+      personality: { tone: '', communication_style: '', language: '' },
+      brand_context: { brand_name: '', guidelines: '', target_audience: '' },
+      output_format: '', quality_criteria: '',
+      review_iterations: 3, max_iter: 20, max_retry_limit: 3, allow_delegation: false,
+    };
     setAgents([...agents, newAgent]);
     setExpandedAgent(agents.length);
   };
@@ -126,6 +142,11 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
       tools: template.spec.tools,
       model: template.spec.model,
       template_id: template.id,
+      expertise: [],
+      personality: { tone: '', communication_style: '', language: '' },
+      brand_context: { brand_name: '', guidelines: '', target_audience: '' },
+      output_format: '', quality_criteria: '',
+      review_iterations: 3, max_iter: 20, max_retry_limit: 3, allow_delegation: false,
     };
     setAgents([...agents, newAgent]);
     setExpandedAgent(agents.length);
@@ -136,7 +157,7 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
     setExpandedAgent(null);
   };
 
-  const updateAgent = (idx: number, field: keyof AgentEntry, value: string | string[]) => {
+  const updateAgent = (idx: number, field: keyof AgentEntry, value: any) => {
     setAgents(agents.map((a, i) => i === idx ? { ...a, [field]: value } : a));
   };
 
@@ -472,6 +493,163 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
                             );
                           })}
                         </div>
+                      </div>
+
+                      {/* Expertise */}
+                      <div>
+                        <label className="block text-[10px] text-ink-3 mb-0.5">Expertise (คั่นด้วยจุลภาค)</label>
+                        <input
+                          type="text"
+                          value={agent.expertise.join(', ')}
+                          onChange={(e) => updateAgent(idx, 'expertise', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
+                          placeholder="เช่น SEO, Marketing, Data Science"
+                          className="w-full px-2 py-1.5 bg-paper border border-line rounded-retro-sm text-xs text-ink placeholder-ink-3 focus:outline-none focus:border-orange"
+                        />
+                      </div>
+
+                      {/* Personality */}
+                      <div className="space-y-1.5">
+                        <label className="block text-[10px] text-ink-3">Personality</label>
+                        <div className="grid grid-cols-3 gap-2">
+                          <div>
+                            <label className="block text-[9px] text-ink-3 mb-0.5">Tone</label>
+                            <input
+                              type="text"
+                              value={agent.personality.tone}
+                              onChange={(e) => updateAgent(idx, 'personality', { ...agent.personality, tone: e.target.value })}
+                              placeholder="เช่น professional"
+                              className="w-full px-2 py-1.5 bg-paper border border-line rounded-retro-sm text-xs text-ink placeholder-ink-3 focus:outline-none focus:border-orange"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[9px] text-ink-3 mb-0.5">Communication</label>
+                            <input
+                              type="text"
+                              value={agent.personality.communication_style}
+                              onChange={(e) => updateAgent(idx, 'personality', { ...agent.personality, communication_style: e.target.value })}
+                              placeholder="เช่น concise"
+                              className="w-full px-2 py-1.5 bg-paper border border-line rounded-retro-sm text-xs text-ink placeholder-ink-3 focus:outline-none focus:border-orange"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[9px] text-ink-3 mb-0.5">Language</label>
+                            <input
+                              type="text"
+                              value={agent.personality.language}
+                              onChange={(e) => updateAgent(idx, 'personality', { ...agent.personality, language: e.target.value })}
+                              placeholder="เช่น th, en"
+                              className="w-full px-2 py-1.5 bg-paper border border-line rounded-retro-sm text-xs text-ink placeholder-ink-3 focus:outline-none focus:border-orange"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Brand Context */}
+                      <div className="space-y-1.5">
+                        <label className="block text-[10px] text-ink-3">Brand Context</label>
+                        <div className="grid grid-cols-3 gap-2">
+                          <div>
+                            <label className="block text-[9px] text-ink-3 mb-0.5">Brand Name</label>
+                            <input
+                              type="text"
+                              value={agent.brand_context.brand_name}
+                              onChange={(e) => updateAgent(idx, 'brand_context', { ...agent.brand_context, brand_name: e.target.value })}
+                              className="w-full px-2 py-1.5 bg-paper border border-line rounded-retro-sm text-xs text-ink placeholder-ink-3 focus:outline-none focus:border-orange"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[9px] text-ink-3 mb-0.5">Guidelines</label>
+                            <input
+                              type="text"
+                              value={agent.brand_context.guidelines}
+                              onChange={(e) => updateAgent(idx, 'brand_context', { ...agent.brand_context, guidelines: e.target.value })}
+                              className="w-full px-2 py-1.5 bg-paper border border-line rounded-retro-sm text-xs text-ink placeholder-ink-3 focus:outline-none focus:border-orange"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[9px] text-ink-3 mb-0.5">Target Audience</label>
+                            <input
+                              type="text"
+                              value={agent.brand_context.target_audience}
+                              onChange={(e) => updateAgent(idx, 'brand_context', { ...agent.brand_context, target_audience: e.target.value })}
+                              className="w-full px-2 py-1.5 bg-paper border border-line rounded-retro-sm text-xs text-ink placeholder-ink-3 focus:outline-none focus:border-orange"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Output Format */}
+                      <div>
+                        <label className="block text-[10px] text-ink-3 mb-0.5">Output Format</label>
+                        <input
+                          type="text"
+                          value={agent.output_format}
+                          onChange={(e) => updateAgent(idx, 'output_format', e.target.value)}
+                          placeholder="เช่น [Hook] [Body] [CTA] [Hashtags]"
+                          className="w-full px-2 py-1.5 bg-paper border border-line rounded-retro-sm text-xs text-ink placeholder-ink-3 focus:outline-none focus:border-orange"
+                        />
+                      </div>
+
+                      {/* Quality Criteria */}
+                      <div>
+                        <label className="block text-[10px] text-ink-3 mb-0.5">Quality Criteria</label>
+                        <input
+                          type="text"
+                          value={agent.quality_criteria}
+                          onChange={(e) => updateAgent(idx, 'quality_criteria', e.target.value)}
+                          placeholder="เช่น 1. ต้องมี Hook 2. ต้องมี CTA"
+                          className="w-full px-2 py-1.5 bg-paper border border-line rounded-retro-sm text-xs text-ink placeholder-ink-3 focus:outline-none focus:border-orange"
+                        />
+                      </div>
+
+                      {/* Numeric settings */}
+                      <div className="grid grid-cols-3 gap-2">
+                        <div>
+                          <label className="block text-[10px] text-ink-3 mb-0.5">Review Iterations</label>
+                          <input
+                            type="number"
+                            min={1}
+                            max={10}
+                            value={agent.review_iterations}
+                            onChange={(e) => updateAgent(idx, 'review_iterations', parseInt(e.target.value) || 3)}
+                            className="w-full px-2 py-1.5 bg-paper border border-line rounded-retro-sm text-xs text-ink focus:outline-none focus:border-orange"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] text-ink-3 mb-0.5">Max Iterations</label>
+                          <input
+                            type="number"
+                            min={1}
+                            max={100}
+                            value={agent.max_iter}
+                            onChange={(e) => updateAgent(idx, 'max_iter', parseInt(e.target.value) || 20)}
+                            className="w-full px-2 py-1.5 bg-paper border border-line rounded-retro-sm text-xs text-ink focus:outline-none focus:border-orange"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] text-ink-3 mb-0.5">Max Retry</label>
+                          <input
+                            type="number"
+                            min={0}
+                            max={10}
+                            value={agent.max_retry_limit}
+                            onChange={(e) => updateAgent(idx, 'max_retry_limit', parseInt(e.target.value) || 3)}
+                            className="w-full px-2 py-1.5 bg-paper border border-line rounded-retro-sm text-xs text-ink focus:outline-none focus:border-orange"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Allow Delegation */}
+                      <div>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={agent.allow_delegation}
+                            onChange={(e) => updateAgent(idx, 'allow_delegation', e.target.checked)}
+                            className="accent-orange"
+                          />
+                          <span className="text-[10px] text-ink-2">Allow Delegation</span>
+                        </label>
                       </div>
                     </div>
                   )}

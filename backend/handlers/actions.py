@@ -617,6 +617,15 @@ async def on_action_create_team(action: cl.Action):
             "model": agent_entry.get("model", "").strip(),
             "team_id": team["id"],
             "template_id": agent_entry.get("template_id", ""),
+            "expertise": agent_entry.get("expertise", []),
+            "personality": agent_entry.get("personality", {}),
+            "brand_context": agent_entry.get("brand_context", {}),
+            "output_format": agent_entry.get("output_format", ""),
+            "quality_criteria": agent_entry.get("quality_criteria", ""),
+            "review_iterations": agent_entry.get("review_iterations", 3),
+            "max_iter": agent_entry.get("max_iter", 20),
+            "max_retry_limit": agent_entry.get("max_retry_limit", 3),
+            "allow_delegation": agent_entry.get("allow_delegation", False),
         }
         new_agent = registry.add_agent(agent_spec)
         team_registry.add_agent(team["id"], new_agent["id"])
