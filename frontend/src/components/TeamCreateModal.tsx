@@ -140,7 +140,7 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
       personality: { tone: '', communication_style: '', language: '' },
       brand_context: { brand_name: '', guidelines: '', target_audience: '' },
       output_format: '', quality_criteria: '',
-      review_iterations: 3, max_iter: 20, max_retry_limit: 3, allow_delegation: false,
+      review_iterations: 0, max_iter: 0, max_retry_limit: 0, allow_delegation: false,
     };
     setAgents([...agents, newAgent]);
     setExpandedAgent(agents.length);
@@ -159,7 +159,7 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
       personality: { tone: '', communication_style: '', language: '' },
       brand_context: { brand_name: '', guidelines: '', target_audience: '' },
       output_format: '', quality_criteria: '',
-      review_iterations: 3, max_iter: 20, max_retry_limit: 3, allow_delegation: false,
+      review_iterations: 0, max_iter: 0, max_retry_limit: 0, allow_delegation: false,
     };
     setAgents([...agents, newAgent]);
     setExpandedAgent(agents.length);
@@ -703,35 +703,35 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({
                       {/* Numeric settings */}
                       <div className="grid grid-cols-3 gap-2">
                         <div>
-                          <label className="block text-[10px] text-ink-3 mb-0.5">Review Iterations</label>
-                          <input
-                            type="number"
-                            min={1}
-                            max={10}
-                            value={agent.review_iterations}
-                            onChange={(e) => updateAgent(idx, 'review_iterations', parseInt(e.target.value) || 3)}
-                            className="w-full px-2 py-1.5 bg-paper border border-line rounded-retro-sm text-xs text-ink focus:outline-none focus:border-orange"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-[10px] text-ink-3 mb-0.5">Max Iterations</label>
-                          <input
-                            type="number"
-                            min={1}
-                            max={100}
-                            value={agent.max_iter}
-                            onChange={(e) => updateAgent(idx, 'max_iter', parseInt(e.target.value) || 20)}
-                            className="w-full px-2 py-1.5 bg-paper border border-line rounded-retro-sm text-xs text-ink focus:outline-none focus:border-orange"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-[10px] text-ink-3 mb-0.5">Max Retry</label>
+                          <label className="block text-[10px] text-ink-3 mb-0.5">Review Iterations <span className="text-ink-3/60">(0 = ไม่จำกัด)</span></label>
                           <input
                             type="number"
                             min={0}
-                            max={10}
+                            max={50}
+                            value={agent.review_iterations}
+                            onChange={(e) => updateAgent(idx, 'review_iterations', parseInt(e.target.value) || 0)}
+                            className="w-full px-2 py-1.5 bg-paper border border-line rounded-retro-sm text-xs text-ink focus:outline-none focus:border-orange"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] text-ink-3 mb-0.5">Max Iterations <span className="text-ink-3/60">(0 = ไม่จำกัด)</span></label>
+                          <input
+                            type="number"
+                            min={0}
+                            max={500}
+                            value={agent.max_iter}
+                            onChange={(e) => updateAgent(idx, 'max_iter', parseInt(e.target.value) || 0)}
+                            className="w-full px-2 py-1.5 bg-paper border border-line rounded-retro-sm text-xs text-ink focus:outline-none focus:border-orange"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] text-ink-3 mb-0.5">Max Retry <span className="text-ink-3/60">(0 = ไม่ลองใหม่)</span></label>
+                          <input
+                            type="number"
+                            min={0}
+                            max={50}
                             value={agent.max_retry_limit}
-                            onChange={(e) => updateAgent(idx, 'max_retry_limit', parseInt(e.target.value) || 3)}
+                            onChange={(e) => updateAgent(idx, 'max_retry_limit', parseInt(e.target.value) || 0)}
                             className="w-full px-2 py-1.5 bg-paper border border-line rounded-retro-sm text-xs text-ink focus:outline-none focus:border-orange"
                           />
                         </div>

@@ -309,9 +309,9 @@ class CentralManager:
             '      "model": "choose from: google/gemini-3.5-flash, anthropic/claude-sonnet-5, openai/gpt-5.6-luna",\n'
             '      "output_format": "format specification for output (optional, e.g. [Hook] [Body] [CTA] [Hashtags])",\n'
             '      "quality_criteria": "criteria for quality checking (optional, e.g. 1. Must have hook 2. Must have CTA)",\n'
-            '      "review_iterations": 3,\n'
-            '      "max_iter": 20,\n'
-            '      "max_retry_limit": 3,\n'
+            '      "review_iterations": 0,\n'
+            '      "max_iter": 0,\n'
+            '      "max_retry_limit": 0,\n'
             '      "allow_delegation": false\n'
             "    }\n"
             "  ]\n"
@@ -348,9 +348,9 @@ class CentralManager:
             '      "template_id": "template id if using a predefined template (optional)",\n'
             '      "output_format": "format specification for output (optional, e.g. [Hook] [Body] [CTA] [Hashtags])",\n'
             '      "quality_criteria": "criteria for quality checking (optional, e.g. 1. Must have hook 2. Must have CTA)",\n'
-            '      "review_iterations": 3,\n'
-            '      "max_iter": 20,\n'
-            '      "max_retry_limit": 3,\n'
+            '      "review_iterations": 0,\n'
+            '      "max_iter": 0,\n'
+            '      "max_retry_limit": 0,\n'
             '      "allow_delegation": false\n'
             "    }\n"
             "  ],\n"
@@ -530,9 +530,9 @@ class CentralManager:
                                 "reuse_existing": item.get("reuse_existing", False),
                                 "output_format": item.get("output_format", "").strip(),
                                 "quality_criteria": item.get("quality_criteria", "").strip(),
-                                "review_iterations": item.get("review_iterations", 3) if isinstance(item.get("review_iterations"), (int, float)) else 3,
-                                "max_iter": item.get("max_iter", 20) if isinstance(item.get("max_iter"), (int, float)) else 20,
-                                "max_retry_limit": item.get("max_retry_limit", 3) if isinstance(item.get("max_retry_limit"), (int, float)) else 3,
+                                "review_iterations": item.get("review_iterations", 0) if isinstance(item.get("review_iterations"), (int, float)) else 0,
+                                "max_iter": item.get("max_iter", 0) if isinstance(item.get("max_iter"), (int, float)) else 0,
+                                "max_retry_limit": item.get("max_retry_limit", 0) if isinstance(item.get("max_retry_limit"), (int, float)) else 0,
                                 "allow_delegation": item.get("allow_delegation", False) if isinstance(item.get("allow_delegation"), bool) else False,
                             })
                     if not agents:
@@ -683,9 +683,9 @@ class CentralManager:
             "- depends_on (list of agent names this agent depends on)\n"
             "- output_format (format specification for agent output, e.g. [Hook] [Body] [CTA] [Hashtags])\n"
             "- quality_criteria (criteria for quality checking, e.g. 1. Must have hook 2. Must have CTA)\n"
-            "- review_iterations (int, minimum Manager review rounds, default 3)\n"
-            "- max_iter (int, max agent thinking iterations, default 20)\n"
-            "- max_retry_limit (int, max agent retries, default 3)\n"
+            "- review_iterations (int, max Manager review rounds, 0 = unlimited, default 0)\n"
+            "- max_iter (int, max agent thinking iterations, 0 = use system default, default 0)\n"
+            "- max_retry_limit (int, max agent retries, 0 = use system default, default 0)\n"
             "- allow_delegation (bool, allow agent to delegate to other agents, default false)\n\n"
             "Respond with ONLY this JSON (no other text):\n"
             "{\n"
@@ -907,9 +907,9 @@ class CentralManager:
             '      "template_id": "template id if using a predefined template (optional)",\n'
             '      "output_format": "format specification for output (optional, e.g. [Hook] [Body] [CTA] [Hashtags])",\n'
             '      "quality_criteria": "criteria for quality checking (optional, e.g. 1. Must have hook 2. Must have CTA)",\n'
-            '      "review_iterations": 3,\n'
-            '      "max_iter": 20,\n'
-            '      "max_retry_limit": 3,\n'
+            '      "review_iterations": 0,\n'
+            '      "max_iter": 0,\n'
+            '      "max_retry_limit": 0,\n'
             '      "allow_delegation": false\n'
             "    }\n"
             "  ],\n"
@@ -1178,9 +1178,9 @@ class CentralManager:
                         else user_input,
                         "output_format": "",
                         "quality_criteria": "",
-                        "review_iterations": 3,
-                        "max_iter": 20,
-                        "max_retry_limit": 3,
+                        "review_iterations": 0,
+                        "max_iter": 0,
+                        "max_retry_limit": 0,
                         "allow_delegation": False,
                     }
                 )

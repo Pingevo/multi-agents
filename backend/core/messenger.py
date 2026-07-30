@@ -99,9 +99,9 @@ class StateMessenger:
                 "template_id": a.get("template_id", ""),
                 "output_format": a.get("output_format", ""),
                 "quality_criteria": a.get("quality_criteria", ""),
-                "review_iterations": a.get("review_iterations", 3),
-                "max_iter": a.get("max_iter", 20),
-                "max_retry_limit": a.get("max_retry_limit", 3),
+                "review_iterations": a.get("review_iterations", 0),
+                "max_iter": a.get("max_iter", 0),
+                "max_retry_limit": a.get("max_retry_limit", 0),
                 "allow_delegation": a.get("allow_delegation", False),
             }
             for a in agents
