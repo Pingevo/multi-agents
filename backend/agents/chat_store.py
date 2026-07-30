@@ -108,10 +108,14 @@ class ChatStore:
         return None
 
     def save_settings(self, session_id: str, settings: dict):
-        """Save user settings (selected_model, force_tier, etc.) for a session"""
+        """Merge user settings into session — previously this REPLACED the entire
+        settings dict, causing data loss (e.g., selecting a model would erase
+        current_team_id, ai_image_model, etc.). Now merges to preserve existing keys."""
         session = self.get_session(session_id)
         if session:
-            session["settings"] = settings
+            existing = session.get("settings", {})
+            existing.update(settings)
+            session["settings"] = existing
             session["updated_at"] = datetime.now().isoformat()
             self._save()
 
@@ -165,5 +169,98 @@ class ChatStore:
 
         results.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
         return results
+
+    # ============================================================
+    # Pending media persistence — survives backend restart
+    # Without this, approve/retry buttons on media approval cards
+    # stop working after restart because pending_media is in-memory only
+    # ============================================================
+
+    def save_pending_media(self, session_id: str, approval_id: str, pending_data: dict):
+        """Persist pending media approval data so it survives backend restart."""
+        session = self.get_session(session_id)
+        if session:
+            if "pending_media" not in session:
+                session["pending_media"] = {}
+            session["pending_media"][approval_id] = pending_data
+            session["updated_at"] = datetime.now().isoformat()
+            self._save()
+
+    def get_pending_media(self, session_id: str, approval_id: str) -> dict | None:
+        """Retrieve pending media data by approval_id — used as fallback when cl.user_session is empty."""
+        session = self.get_session(session_id)
+        if session:
+            return session.get("pending_media", {}).get(approval_id)
+        return None
+
+    def get_all_pending_media(self, session_id: str) -> dict[str, dict]:
+        """Return all pending media for a session — used to restore on on_chat_start/switch_chat."""
+        session = self.get_session(session_id)
+        if session:
+            return session.get("pending_media", {})
+        return {}
+
+    def clear_pending_media(self, session_id: str, approval_id: str):
+        """Remove pending media after approve/retry completes — prevents stale data buildup."""
+        session = self.get_session(session_id)
+        if session and "pending_media" in session:
+            session["pending_media"].pop(approval_id, None)
+            session["updated_at"] = datetime.now().isoformat()
+            self._save()
+
+    # ============================================================
+    # Media tool results persistence — survives backend restart
+    # Needed to rebuild approval cards if they're lost from memory
+    # ============================================================
+
+    def save_media_tool_results(self, session_id: str, results: list[dict]):
+        """Persist media tool results so approval cards can be rebuilt after restart."""
+        session = self.get_session(session_id)
+        if session:
+            session["media_tool_results"] = results
+            session["updated_at"] = datetime.now().isoformat()
+            self._save()
+
+    def get_media_tool_results(self, session_id: str) -> list[dict]:
+        """Retrieve saved media tool results for a session."""
+        session = self.get_session(session_id)
+        if session:
+            return session.get("media_tool_results", [])
+        return []
+
+    def clear_media_tool_results(self, session_id: str):
+        """Clear media tool results after all approvals are processed."""
+        session = self.get_session(session_id)
+        if session:
+            session.pop("media_tool_results", None)
+            session["updated_at"] = datetime.now().isoformat()
+            self._save()
+
+    # ============================================================
+    # Tuning proposal persistence — survives backend restart
+    # ============================================================
+
+    def save_tuning_proposal(self, session_id: str, proposals: list[dict]):
+        """Persist tuning proposals so they survive restart."""
+        session = self.get_session(session_id)
+        if session:
+            session["pending_tuning_proposal"] = proposals
+            session["updated_at"] = datetime.now().isoformat()
+            self._save()
+
+    def get_tuning_proposal(self, session_id: str) -> list[dict] | None:
+        """Retrieve saved tuning proposals."""
+        session = self.get_session(session_id)
+        if session:
+            return session.get("pending_tuning_proposal")
+        return None
+
+    def clear_tuning_proposal(self, session_id: str):
+        """Clear tuning proposals after user accepts/rejects."""
+        session = self.get_session(session_id)
+        if session:
+            session.pop("pending_tuning_proposal", None)
+            session["updated_at"] = datetime.now().isoformat()
+            self._save()
 
 

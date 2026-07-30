@@ -530,6 +530,11 @@ async def on_action_confirm_tuning(action: cl.Action):
 
     print(f"[DEBUG-CONFIRM-TUNING] Applied {applied_count}/{len(proposals)} proposals", flush=True)
     cl.user_session.set("pending_tuning_proposal", None)
+    # Also clear from chat_store — prevents stale proposal data in JSON after confirm
+    _cs = cl.user_session.get("chat_store")
+    _sid = messenger.current_session_id if messenger else None
+    if _cs and _sid:
+        _cs.clear_tuning_proposal(_sid)
 
     if messenger:
         _tid = cl.user_session.get("current_team_id")
@@ -547,6 +552,11 @@ async def on_action_reject_tuning(action: cl.Action):
     """Reject tuning proposal — clear and return to idle."""
     messenger = get_messenger()
     cl.user_session.set("pending_tuning_proposal", None)
+    # Also clear from chat_store — prevents stale proposal data in JSON after reject
+    _cs = cl.user_session.get("chat_store")
+    _sid = messenger.current_session_id if messenger else None
+    if _cs and _sid:
+        _cs.clear_tuning_proposal(_sid)
     if messenger:
         messenger.update_persisted_message("tuning_proposal", {"tuningStatus": "rejected"})
         await messenger.notify("❌ ยกเลิกการปรับแต่ง agent")

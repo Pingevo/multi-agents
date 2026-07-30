@@ -309,6 +309,12 @@ async def execute_multi_agent_task(
                     if k not in ("type", "agent_name", "duration", "model") and k != prompt_field:
                         pending_data[k] = v
                 cl.user_session.set(f"pending_media_{approval_id}", pending_data)
+                # Also persist to chat_store so approve/retry works after backend restart
+                # — cl.user_session is in-memory and lost on restart, but chat_store is JSON-backed
+                _cs = cl.user_session.get("chat_store")
+                _sid = messenger.current_session_id if messenger else None
+                if _cs and _sid:
+                    _cs.save_pending_media(_sid, approval_id, pending_data)
                 # Pass the session ID at task start — prevents cross-session leak if user switched sessions
                 await messenger.reply_image_approval(
                     media_prompt, approval_id, agent_name,
@@ -391,6 +397,13 @@ async def execute_multi_agent_task(
 
             # Send notifications so NotificationsWindow shows pending media approvals
             await messenger.reply_notifications(team_id=cl.user_session.get("current_team_id"))
+
+            # Persist media_tool_results to chat_store — _g._media_tool_results is a global
+            # in-memory list that's lost on restart; without this, approval cards can't be rebuilt
+            _cs = cl.user_session.get("chat_store")
+            _sid = messenger.current_session_id if messenger else None
+            if _cs and _sid and _g._media_tool_results:
+                _cs.save_media_tool_results(_sid, _g._media_tool_results)
 
             # Update task status to review (user can review results)
             task_store = cl.user_session.get("task_store")
@@ -515,6 +528,11 @@ async def execute_task_with_agent(
 
     try:
         llm_manager = LLMManager()
+        # Set user's selected model on this instance — without this, the LLMManager
+        # uses the default routing model instead of the user's top-bar selection
+        _sel = cl.user_session.get("selected_model") or ""
+        if _sel and llm_manager._is_openrouter():
+            llm_manager.set_selected_model(_sel)
         tool_registry = ToolRegistry()
         orchestrator = ExecutionOrchestrator(llm_manager, tool_registry, update_progress, user_id=cl.user_session.get("user_id"))
         result = await orchestrator.run_async(user_input, [agent_spec], task_id=task_id, task_title=user_input[:80], messenger=messenger)
@@ -524,6 +542,12 @@ async def execute_task_with_agent(
         # via _build_last_task_context_from_chat_store, ensuring per-session isolation (Issue #30)
 
         if messenger:
+            # Persist media_tool_results if any — single-agent tasks can also generate media
+            _cs = cl.user_session.get("chat_store")
+            _sid = messenger.current_session_id if messenger else None
+            if _cs and _sid and _g._media_tool_results:
+                _cs.save_media_tool_results(_sid, _g._media_tool_results)
+
             cl.run_sync(
                 messenger.update_task(
                     task_id,
@@ -773,6 +797,122 @@ def _restore_conversation_history(session_id: str, chat_store: ChatStore) -> lis
     return history
 
 
+def _build_media_catalog_entries(models: list[dict], media_type: str) -> list[dict]:
+    """Convert raw model dicts from OpenRouter API into catalog entries for the frontend.
+
+    Handles two model formats:
+    - Regular /models endpoint: has 'pricing' with per-token fields (prompt, completion, etc.)
+    - Dedicated /videos/models or /images/models endpoints: has 'pricing_skus' with per-generation fields
+    """
+    entries = []
+    for m in models:
+        mid = m.get("id", "")
+        name = m.get("name", mid)
+        pricing = m.get("pricing", {})
+        pricing_skus = m.get("pricing_skus", {})
+
+        def _convert(price):
+            try:
+                return round(float(price) * 1_000_000, 6)
+            except (ValueError, TypeError):
+                return price if price else "?"
+
+        # Extract pricing — dedicated endpoints use pricing_skus, regular endpoint uses pricing
+        if media_type == "video" and pricing_skus:
+            # Video models: pricing_skus has per-second pricing (e.g. duration_seconds, duration_seconds_with_audio)
+            # Pick the most representative price — prefer with_audio, then base duration_seconds
+            video_sku = (
+                pricing_skus.get("duration_seconds_with_audio")
+                or pricing_skus.get("duration_seconds")
+                or pricing_skus.get("text_to_video_duration_seconds_720p")
+                or pricing_skus.get("duration_seconds_720p")
+                or pricing_skus.get("video_tokens")
+                or "?"
+            )
+            # Video pricing is per-second, not per-token — convert to display-friendly format
+            try:
+                video_price = round(float(video_sku), 4)
+            except (ValueError, TypeError):
+                video_price = video_sku
+            prompt_price = "?"
+            comp_price = "?"
+            image_price = "?"
+            image_output_price = "?"
+            video_output_price = video_price
+            audio_price = "?"
+            web_search_price = "?"
+        elif media_type == "image" and pricing_skus:
+            # Image models: pricing_skus has per-image pricing
+            image_sku = (
+                pricing_skus.get("generate")
+                or pricing_skus.get("image")
+                or pricing_skus.get("standard")
+                or "?"
+            )
+            try:
+                image_price = round(float(image_sku), 4)
+            except (ValueError, TypeError):
+                image_price = image_sku
+            prompt_price = "?"
+            comp_price = "?"
+            image_output_price = image_price
+            video_price = "?"
+            video_output_price = "?"
+            audio_price = "?"
+            web_search_price = "?"
+        else:
+            # Regular /models endpoint — per-token pricing
+            prompt_price = _convert(pricing.get("prompt", "?"))
+            comp_price = _convert(pricing.get("completion", "?"))
+            image_price = _convert(pricing.get("image", "?"))
+            image_output_price = _convert(pricing.get("image_output", "?"))
+            video_price = _convert(pricing.get("video", "?"))
+            video_output_price = _convert(pricing.get("video_output", "?"))
+            audio_price = _convert(pricing.get("audio", "?"))
+            web_search_price = _convert(pricing.get("web_search", "?"))
+
+        # For TTS/STT models from regular endpoint, text prices are misleading — show audio price instead
+        # — without this, the picker displays prompt/completion prices that don't reflect actual TTS/STT cost
+        if media_type in ("tts", "stt"):
+            prompt_price = "?"
+            comp_price = "?"
+
+        all_prices = [prompt_price, comp_price, image_price, image_output_price, video_price, video_output_price, audio_price, web_search_price]
+        known_prices = [p for p in all_prices if isinstance(p, (int, float))]
+        media_price_map = {
+            "image": image_price if isinstance(image_price, (int, float)) else image_output_price,
+            "video": video_price if isinstance(video_price, (int, float)) else video_output_price,
+            "search": web_search_price,
+            "tts": audio_price,
+            "stt": audio_price,
+            "vision": None,
+        }
+        media_price = media_price_map.get(media_type)
+        if media_price is not None:
+            is_free = isinstance(media_price, (int, float)) and media_price == 0 and all(p == 0 for p in known_prices)
+        else:
+            is_free = len(known_prices) > 0 and all(p == 0 for p in known_prices)
+
+        entries.append({
+            "id": mid,
+            "name": name,
+            "context_length": m.get("context_length", "?"),
+            "prompt_price": prompt_price,
+            "completion_price": comp_price,
+            "image_price": image_price,
+            "image_output_price": image_output_price,
+            "video_price": video_price,
+            "video_output_price": video_output_price,
+            "audio_price": audio_price,
+            "web_search_price": web_search_price,
+            "categories": [media_type],
+            "is_free": is_free,
+            "input_modalities": m.get("input_modalities", m.get("architecture", {}).get("input_modalities", [])),
+            "output_modalities": m.get("output_modalities", m.get("architecture", {}).get("output_modalities", [])),
+        })
+    return entries
+
+
 @cl.on_chat_start
 async def on_chat_start():
     # Disable CrewAI trace prompt — it blocks on stdin input in non-interactive mode
@@ -993,6 +1133,27 @@ async def on_chat_start():
                 cl.user_session.set("pre_assigned_models", pre_assigned)
             print(f"[DEBUG-RESTORE] Restored STATE_AWAITING_APPROVAL from pending plan", flush=True)
 
+    # Restore pending media from chat_store — cl.user_session is in-memory and lost on restart,
+    # but pending_media is needed for approve/retry buttons on existing approval cards.
+    # Without this, clicking approve after restart shows "ไม่พบคำขอสร้างสื่อ อาจหมดอายุแล้ว"
+    _restored_media = chat_store.get_all_pending_media(current_session_id)
+    if _restored_media:
+        for _aid, _pdata in _restored_media.items():
+            cl.user_session.set(f"pending_media_{_aid}", _pdata)
+        print(f"[DEBUG-RESTORE] Restored {len(_restored_media)} pending media items from chat_store", flush=True)
+
+    # Restore media_tool_results from chat_store — needed to rebuild approval cards if needed
+    _saved_results = chat_store.get_media_tool_results(current_session_id)
+    if _saved_results:
+        _g._media_tool_results = _saved_results
+        print(f"[DEBUG-RESTORE] Restored {len(_saved_results)} media_tool_results from chat_store", flush=True)
+
+    # Restore pending tuning proposal from chat_store
+    _saved_tuning = chat_store.get_tuning_proposal(current_session_id)
+    if _saved_tuning:
+        cl.user_session.set("pending_tuning_proposal", _saved_tuning)
+        print(f"[DEBUG-RESTORE] Restored tuning proposal from chat_store", flush=True)
+
     # Start background scheduler for recurring tasks
     scheduler = get_scheduler()
     await scheduler.start()
@@ -1007,75 +1168,46 @@ async def on_chat_start():
             selected = cl.user_session.get("selected_model") or ""
             await messenger.reply_model_catalog(recommended, [], selected)
 
-            # Also fetch and send media catalogs (image + video + search)
+            # Also fetch and send media catalogs (image + video + search + vision)
+            # Video and image models require dedicated endpoints — they don't appear in /models
+            # with output_modalities=["video"] or ["image"] on OpenRouter's API
             selector = ModelSelector(llm_mgr.api_key, llm_mgr.base_url)
             all_models = await loop.run_in_executor(None, selector._fetch_all_models)
             LLMManager.populate_multimodal_cache(all_models)
+            discovery = ModelDiscoveryService(base_url=llm_mgr.base_url, api_key=llm_mgr.api_key)
+
             for media_type in ("image", "video", "search", "vision"):
-                filtered = []
-                for m in all_models:
-                    arch = m.get("architecture", {})
-                    output_modalities = arch.get("output_modalities", [])
-                    input_modalities = arch.get("input_modalities", [])
-                    mid = m.get("id", "").lower()
-                    # Skip OpenRouter routing models — they are text-only, not real media models
-                    if mid.startswith("openrouter/"):
-                        continue
-                    if media_type == "image" and "image" in output_modalities:
-                        filtered.append(m)
-                    elif media_type == "video" and "video" in output_modalities:
-                        filtered.append(m)
-                    elif media_type == "vision" and "image" in input_modalities:
-                        filtered.append(m)
-                    elif media_type == "search":
-                        params = m.get("supported_parameters", [])
-                        search_keywords = ["sonar", "perplexity", "search", "online"]
-                        if "web_search" in params or any(kw in mid for kw in search_keywords):
+                if media_type == "video":
+                    # Video models are only available via dedicated /videos/models endpoint
+                    video_models = await loop.run_in_executor(None, discovery.fetch_video_models)
+                    entries = _build_media_catalog_entries(video_models, "video")
+                elif media_type == "image":
+                    # Image models are only available via dedicated /images/models endpoint
+                    image_models = await loop.run_in_executor(None, discovery.fetch_image_models)
+                    entries = _build_media_catalog_entries(image_models, "image")
+                else:
+                    # Search, vision, etc. still use regular /models endpoint
+                    filtered = []
+                    for m in all_models:
+                        arch = m.get("architecture", {})
+                        output_modalities = arch.get("output_modalities", [])
+                        input_modalities = arch.get("input_modalities", [])
+                        mid = m.get("id", "").lower()
+                        if mid.startswith("openrouter/"):
+                            continue
+                        if media_type == "vision" and "image" in input_modalities:
                             filtered.append(m)
-                if not filtered:
+                        elif media_type == "search":
+                            params = m.get("supported_parameters", [])
+                            search_keywords = ["sonar", "perplexity", "search", "online"]
+                            if "web_search" in params or any(kw in mid for kw in search_keywords):
+                                filtered.append(m)
+                    if not filtered:
+                        continue
+                    entries = _build_media_catalog_entries(filtered, media_type)
+
+                if not entries:
                     continue
-                entries = []
-                for m in filtered:
-                    mid = m.get("id", "")
-                    name = m.get("name", mid)
-                    pricing = m.get("pricing", {})
-                    def _convert(price):
-                        try:
-                            return round(float(price) * 1_000_000, 6)
-                        except (ValueError, TypeError):
-                            return price if price else "?"
-                    prompt_price = _convert(pricing.get("prompt", "?"))
-                    comp_price = _convert(pricing.get("completion", "?"))
-                    image_price = _convert(pricing.get("image", "?"))
-                    image_output_price = _convert(pricing.get("image_output", "?"))
-                    video_price = _convert(pricing.get("video", "?"))
-                    video_output_price = _convert(pricing.get("video_output", "?"))
-                    audio_price = _convert(pricing.get("audio", "?"))
-                    web_search_price = _convert(pricing.get("web_search", "?"))
-                    all_prices = [prompt_price, comp_price, image_price, image_output_price, video_price, video_output_price, audio_price, web_search_price]
-                    known_prices = [p for p in all_prices if isinstance(p, (int, float))]
-                    # For media models, the media-specific price must be known and 0 to be free
-                    media_price_map = {"image": image_price if isinstance(image_price, (int, float)) else image_output_price, "video": video_price if isinstance(video_price, (int, float)) else video_output_price, "search": web_search_price, "tts": audio_price, "stt": audio_price, "vision": None}
-                    media_price = media_price_map.get(media_type)
-                    if media_price is not None:
-                        is_free = isinstance(media_price, (int, float)) and media_price == 0 and all(p == 0 for p in known_prices)
-                    else:
-                        is_free = len(known_prices) > 0 and all(p == 0 for p in known_prices)
-                    entries.append({
-                        "id": mid,
-                        "name": name,
-                        "context_length": m.get("context_length", "?"),
-                        "prompt_price": prompt_price,
-                        "completion_price": comp_price,
-                        "image_price": image_price,
-                        "image_output_price": image_output_price,
-                        "video_price": video_price,
-                        "video_output_price": video_output_price,
-                        "audio_price": audio_price,
-                        "web_search_price": web_search_price,
-                        "categories": [media_type],
-                        "is_free": is_free,
-                    })
                 grouped = {media_type: entries}
                 print(f"[CHAT-START] Sending media catalog for {media_type}: {len(entries)} models", flush=True)
                 await messenger.reply_model_catalog(grouped, [], "", catalog_type="media")
@@ -1181,6 +1313,14 @@ async def on_message(message: cl.Message):
             if messenger:
                 await messenger.update_approval_status(approval_id, "approved")
             pending = cl.user_session.get(f"pending_media_{approval_id}")
+            # Fallback to chat_store if not in session — happens after backend restart
+            # — without this fallback, approve button silently fails with "ไม่พบคำขอสร้างสื่อ"
+            if not pending:
+                _cs = cl.user_session.get("chat_store")
+                _msgr = cl.user_session.get("messenger")
+                _sid = _msgr.current_session_id if _msgr else None
+                if _cs and _sid:
+                    pending = _cs.get_pending_media(_sid, approval_id)
             if pending and messenger:
                 prompt = pending["prompt"]
                 task_id = pending.get("task_id")
@@ -1278,6 +1418,13 @@ async def on_message(message: cl.Message):
             approval_id = payload.get("approval_id", "")
             _debug(f"[DEBUG-RETRY] approval_id={approval_id}", flush=True)
             pending = cl.user_session.get(f"pending_media_{approval_id}")
+            # Fallback to chat_store if not in session — happens after backend restart
+            if not pending:
+                _cs = cl.user_session.get("chat_store")
+                _msgr = cl.user_session.get("messenger")
+                _sid = _msgr.current_session_id if _msgr else None
+                if _cs and _sid:
+                    pending = _cs.get_pending_media(_sid, approval_id)
             if pending and messenger:
                 prompt = pending["prompt"]
                 task_id = pending.get("task_id")
@@ -1359,6 +1506,12 @@ async def on_message(message: cl.Message):
             new_prompt = payload.get("new_prompt", "").strip()
             if new_prompt and messenger:
                 pending = cl.user_session.get(f"pending_media_{approval_id}") or {}
+                # Fallback to chat_store if not in session — happens after backend restart
+                if not pending:
+                    _cs = cl.user_session.get("chat_store")
+                    _sid = messenger.current_session_id if messenger else None
+                    if _cs and _sid:
+                        pending = _cs.get_pending_media(_sid, approval_id) or {}
                 media_type = pending.get("media_type", "image")
                 # Update the type-specific field, not just 'prompt'
                 # — TTS uses 'text', Vision uses 'question', STT uses 'audio_url'
@@ -1367,6 +1520,11 @@ async def on_message(message: cl.Message):
                 pending[field] = new_prompt
                 pending["prompt"] = new_prompt  # also update prompt for display consistency
                 cl.user_session.set(f"pending_media_{approval_id}", pending)
+                # Also update in chat_store so edited prompt survives restart
+                _cs = cl.user_session.get("chat_store")
+                _sid = messenger.current_session_id if messenger else None
+                if _cs and _sid:
+                    _cs.save_pending_media(_sid, approval_id, pending)
                 duration = pending.get("duration", 0)
                 await messenger.reply_image_approval(
                     new_prompt, approval_id, pending.get("agent_name", ""),
@@ -1380,6 +1538,11 @@ async def on_message(message: cl.Message):
                 await messenger.update_approval_status(approval_id, "rejected")
                 await messenger.reply(f"❌ ยกเลิกการสร้างสื่อ (ID: {approval_id})")
                 cl.user_session.set(f"pending_media_{approval_id}", None)
+                # Also clear from chat_store — prevents stale pending data buildup in JSON
+                _cs = cl.user_session.get("chat_store")
+                _sid = messenger.current_session_id if messenger else None
+                if _cs and _sid:
+                    _cs.clear_pending_media(_sid, approval_id)
                 await messenger.reply_notifications(team_id=cl.user_session.get("current_team_id"))
         elif action_name == "approve_agent_result":
             review_id = payload.get("review_id", "")
@@ -1486,6 +1649,21 @@ async def on_message(message: cl.Message):
                     cl.user_session.set("state", STATE_IDLE)
                     cl.user_session.set("current_agent_specs", None)
                     cl.user_session.set("current_input", None)
+                # Restore pending media from chat_store — same as on_chat_start
+                # — without this, approve/retry buttons fail after switching sessions
+                _restored = messenger.chat_store.get_all_pending_media(session_id)
+                if _restored:
+                    for _aid, _pdata in _restored.items():
+                        cl.user_session.set(f"pending_media_{_aid}", _pdata)
+                    print(f"[DEBUG-RESTORE] Restored {len(_restored)} pending media for session {session_id}", flush=True)
+                # Restore media_tool_results — needed to rebuild approval cards
+                _saved_results = messenger.chat_store.get_media_tool_results(session_id)
+                if _saved_results:
+                    _g._media_tool_results = _saved_results
+                # Restore pending tuning proposal
+                _saved_tuning = messenger.chat_store.get_tuning_proposal(session_id)
+                if _saved_tuning:
+                    cl.user_session.set("pending_tuning_proposal", _saved_tuning)
         elif action_name == "rename_chat":
             session_id = payload.get("session_id", "")
             title = payload.get("title", "Untitled")
@@ -1638,77 +1816,42 @@ async def on_message(message: cl.Message):
             if llm_mgr._is_openrouter():
                 discovery = ModelDiscoveryService(base_url=llm_mgr.base_url, api_key=llm_mgr.api_key)
                 loop = asyncio.get_event_loop()
-                # Map media_type to discovery category
-                discovery_map = {
-                    "image": "output:image",
-                    "video": "output:video",
-                    "search": "output:search",
-                    "tts": "output:audio",
-                    "stt": "input:audio_input",
-                    "vision": "input:vision",
-                }
-                target = discovery_map.get(media_type, f"output:{media_type}")
-                filtered = []
-                if target.startswith("output:"):
-                    cat = target.split(":")[1]
-                    all_groups = await loop.run_in_executor(None, discovery.discover_all)
-                    filtered = all_groups.get(cat, [])
-                elif target.startswith("input:"):
-                    cat = target.split(":")[1]
-                    all_groups = await loop.run_in_executor(None, discovery.discover_input_capabilities)
-                    filtered = all_groups.get(cat, [])
-                # Fallback for search: if no models found by category, filter by web_search pricing
-                if media_type == "search" and not filtered:
-                    all_groups = all_groups if 'all_groups' in dir() else await loop.run_in_executor(None, discovery.discover_all)
-                    all_flat = []
-                    for group_models in all_groups.values():
-                        all_flat.extend(group_models)
-                    filtered = [m for m in all_flat if m.get("pricing", {}).get("web_search") and m["pricing"]["web_search"] not in ("0", 0, None, "")]
-                # Build catalog entries in the same format as ModelCatalog
-                entries = []
-                for m in filtered:
-                    mid = m["id"]
-                    pricing = m.get("pricing", {})
-                    def _convert_media(price):
-                        try:
-                            return round(float(price) * 1_000_000, 6)
-                        except (ValueError, TypeError):
-                            return price if price else "?"
-                    prompt_price = _convert_media(pricing.get("prompt", "?"))
-                    comp_price = _convert_media(pricing.get("completion", "?"))
-                    image_price = _convert_media(pricing.get("image", "?"))
-                    image_output_price = _convert_media(pricing.get("image_output", "?"))
-                    video_price = _convert_media(pricing.get("video", "?"))
-                    video_output_price = _convert_media(pricing.get("video_output", "?"))
-                    audio_price = _convert_media(pricing.get("audio", "?"))
-                    web_search_price = _convert_media(pricing.get("web_search", "?"))
-                    all_prices = [prompt_price, comp_price, image_price, image_output_price, video_price, video_output_price, audio_price, web_search_price]
-                    known_prices = [p for p in all_prices if isinstance(p, (int, float))]
-                    # For media models, the media-specific price must be known and 0 to be free
-                    media_price_map = {"image": image_price if isinstance(image_price, (int, float)) else image_output_price, "video": video_price if isinstance(video_price, (int, float)) else video_output_price, "search": web_search_price, "tts": audio_price, "stt": audio_price, "vision": None}
-                    media_price = media_price_map.get(media_type)
-                    if media_price is not None:
-                        is_free = isinstance(media_price, (int, float)) and media_price == 0 and all(p == 0 for p in known_prices)
-                    else:
-                        is_free = len(known_prices) > 0 and all(p == 0 for p in known_prices)
-                    entries.append({
-                        "id": mid,
-                        "name": m.get("name", mid),
-                        "context_length": m.get("context_length", "?"),
-                        "prompt_price": prompt_price,
-                        "completion_price": comp_price,
-                        "image_price": image_price,
-                        "image_output_price": image_output_price,
-                        "video_price": video_price,
-                        "video_output_price": video_output_price,
-                        "audio_price": audio_price,
-                        "web_search_price": web_search_price,
-                        "categories": [media_type],
-                        "is_free": is_free,
-                        "input_modalities": m.get("input_modalities", []),
-                        "output_modalities": m.get("output_modalities", []),
-                    })
-                # Group by category (media_type) so ModelPicker can render correctly
+
+                # Video and image models require dedicated endpoints — they don't appear
+                # in the regular /models endpoint with output_modalities filtering
+                if media_type == "video":
+                    video_models = await loop.run_in_executor(None, discovery.fetch_video_models)
+                    entries = _build_media_catalog_entries(video_models, "video")
+                elif media_type == "image":
+                    image_models = await loop.run_in_executor(None, discovery.fetch_image_models)
+                    entries = _build_media_catalog_entries(image_models, "image")
+                else:
+                    # Search, vision, tts, stt still use regular /models endpoint
+                    discovery_map = {
+                        "search": "output:search",
+                        "tts": "output:audio",
+                        "stt": "input:audio_input",
+                        "vision": "input:vision",
+                    }
+                    target = discovery_map.get(media_type, f"output:{media_type}")
+                    filtered = []
+                    if target.startswith("output:"):
+                        cat = target.split(":")[1]
+                        all_groups = await loop.run_in_executor(None, discovery.discover_all)
+                        filtered = all_groups.get(cat, [])
+                    elif target.startswith("input:"):
+                        cat = target.split(":")[1]
+                        all_groups = await loop.run_in_executor(None, discovery.discover_input_capabilities)
+                        filtered = all_groups.get(cat, [])
+                    # Fallback for search: if no models found by category, filter by web_search pricing
+                    if media_type == "search" and not filtered:
+                        all_groups = all_groups if 'all_groups' in dir() else await loop.run_in_executor(None, discovery.discover_all)
+                        all_flat = []
+                        for group_models in all_groups.values():
+                            all_flat.extend(group_models)
+                        filtered = [m for m in all_flat if m.get("pricing", {}).get("web_search") and m["pricing"]["web_search"] not in ("0", 0, None, "")]
+                    entries = _build_media_catalog_entries(filtered, media_type)
+
                 grouped = {media_type: entries}
                 if messenger:
                     await messenger.reply_model_catalog(grouped, [], "", catalog_type="media")
@@ -1753,9 +1896,11 @@ async def on_message(message: cl.Message):
             # Persist settings to chat store so they survive refresh
             messenger = cl.user_session.get("messenger")
             if messenger and messenger.current_session_id:
-                messenger.chat_store.save_settings(messenger.current_session_id, {
-                    "selected_model": model_id,
-                })
+                # Merge with existing settings — save_settings now merges, but
+                # be explicit to avoid overwriting current_team_id, ai_*_model, etc.
+                existing = messenger.chat_store.get_settings(messenger.current_session_id)
+                existing["selected_model"] = model_id
+                messenger.chat_store.save_settings(messenger.current_session_id, existing)
             # No chat reply — UI shows selection in the model button
         elif action_name == "change_agent_model":
             agent_name = payload.get("agent_name", "")
@@ -1992,17 +2137,42 @@ async def on_message(message: cl.Message):
     has_vision_input = "image" in required_modalities
     cl.user_session.set("has_vision_input", has_vision_input)
 
-    # Model compatibility check
+    # Model compatibility check — strip unsupported modalities to prevent LLM crash
     selected_model = cl.user_session.get("selected_model") or ""
     if selected_model and required_modalities and llm_manager_tier_check():
+        unsupported_modalities = set()
         for modality in required_modalities:
             if not check_model_modality_support(selected_model, modality):
+                unsupported_modalities.add(modality)
                 if messenger:
                     await messenger.reply(
                         f"⚠️ Model '{selected_model}' อาจไม่รองรับ {modality} input. "
                         f"แนะนำให้เปลี่ยน model เป็นที่รองรับ multimodal (เช่น Google Gemini)"
                     )
-                break
+        # Strip unsupported media blocks so the LLM doesn't receive data it can't process
+        # — without this, the model returns empty responses or crashes (e.g. GPT-5.6 + audio)
+        if unsupported_modalities and multimodal_blocks:
+            # Map modality names to content block types for filtering
+            block_type_map = {
+                "audio": "input_audio",
+                "video": "video_url",
+                "image": "image_url",
+            }
+            stripped_types = {block_type_map.get(m) for m in unsupported_modalities if block_type_map.get(m)}
+            if stripped_types:
+                original_count = len(multimodal_blocks)
+                multimodal_blocks = [
+                    b for b in multimodal_blocks
+                    if b.get("type") not in stripped_types
+                ]
+                # Clear plugins if we stripped all blocks (plugins are for multimodal only)
+                if not multimodal_blocks:
+                    multimodal_plugins = None
+                print(
+                    f"[ATTACHMENT] Stripped {original_count - len(multimodal_blocks)} unsupported "
+                    f"media block(s) for model '{selected_model}' (unsupported: {unsupported_modalities})",
+                    flush=True,
+                )
 
     # Build user_input_for_ai
     context_summary = " ".join(context_texts)
@@ -2263,6 +2433,11 @@ async def on_message(message: cl.Message):
 
                 # Store tuning proposal in session for confirm/reject actions
                 cl.user_session.set("pending_tuning_proposal", proposals)
+                # Also persist to chat_store — survives restart so confirm/reject still works
+                _cs = cl.user_session.get("chat_store")
+                _sid = messenger.current_session_id if messenger else None
+                if _cs and _sid:
+                    _cs.save_tuning_proposal(_sid, proposals)
 
                 # Store feedback as learning for each affected agent
                 for proposal in proposals:
