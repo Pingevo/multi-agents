@@ -324,9 +324,15 @@ const AgentConfigForm: React.FC<{
         <input value={name} onChange={e => setName(e.target.value)} className={inputCls} />
       </FieldRow>
 
-      {/* Role */}
+      {/* Role — locked to "Manager" for manager agents because backend expects
+          this exact role to identify the manager; changing it would break
+          team coordination logic (check_resources, model sync, etc.) */}
       <FieldRow label="Role" field="role">
-        <input value={role} onChange={e => setRole(e.target.value)} className={inputCls} />
+        {mgr ? (
+          <div className="ad-val" style={{ color: 'var(--ink2)' }}>{role}</div>
+        ) : (
+          <input value={role} onChange={e => setRole(e.target.value)} className={inputCls} />
+        )}
       </FieldRow>
 
       {/* Goal */}
@@ -378,7 +384,10 @@ const AgentConfigForm: React.FC<{
         </div>
       </FieldRow>
 
-      {/* Tools */}
+      {/* Tools — hidden for Manager because Manager delegates tasks to workers
+          and does not execute tools directly; showing tool checkboxes would
+          mislead users into thinking Manager can use them */}
+      {!mgr && (
       <FieldRow label="Tools" field="tools">
         <div style={{ maxHeight: '120px', overflowY: 'auto', border: '1px solid var(--line)', borderRadius: '3px', background: 'var(--paper)', padding: '4px' }}>
           {availableTools.length === 0 ? (
@@ -410,6 +419,7 @@ const AgentConfigForm: React.FC<{
           </div>
         )}
       </FieldRow>
+      )}
 
       {/* Expertise */}
       <FieldRow label="Expertise" field="expertise">
@@ -463,6 +473,11 @@ const AgentConfigForm: React.FC<{
         </div>
       </div>
 
+      {/* Advanced settings — hidden for Manager because these are worker-level
+          task execution settings; Manager only coordinates and delegates,
+          so output_format/quality_criteria/review_iterations don't apply */}
+      {!mgr && (
+      <>
       {/* Output Format */}
       <FieldRow label="Output Format" field="output_format">
         <textarea value={outputFormat} onChange={e => setOutputFormat(e.target.value)} rows={2} className={textareaCls} placeholder="เช่น [Hook] [Body] [CTA] [Hashtags]" />
@@ -495,6 +510,8 @@ const AgentConfigForm: React.FC<{
           <span style={{ fontSize: '11px', color: 'var(--ink2)' }}>{allowDelegation ? 'อนุญาต' : 'ไม่อนุญาต'}</span>
         </label>
       </FieldRow>
+      </>
+      )}
 
       {/* Learnings (read-only) */}
       <div className="ad-section">
