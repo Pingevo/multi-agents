@@ -628,9 +628,9 @@ async def on_action_create_team(action: cl.Action):
             "brand_context": agent_entry.get("brand_context", {}),
             "output_format": agent_entry.get("output_format", ""),
             "quality_criteria": agent_entry.get("quality_criteria", ""),
-            "review_iterations": agent_entry.get("review_iterations", 0),
-            "max_iter": agent_entry.get("max_iter", 0),
-            "max_retry_limit": agent_entry.get("max_retry_limit", 0),
+            "review_iterations": agent_entry.get("review_iterations"),
+            "max_iter": agent_entry.get("max_iter"),
+            "max_retry_limit": agent_entry.get("max_retry_limit"),
             "allow_delegation": agent_entry.get("allow_delegation", False),
         }
         new_agent = registry.add_agent(agent_spec)

@@ -109,8 +109,8 @@ class AgentFactory:
             tools=tools,
             allow_delegation=spec.get("allow_delegation", False),
             verbose=True,
-            max_iter=spec.get("max_iter") or 25,  # 0 = use CrewAI default
-            max_retry_limit=spec.get("max_retry_limit") or 3,  # 0 = use CrewAI default
+            max_iter=spec.get("max_iter") or 25,  # null/0 = CrewAI default
+            max_retry_limit=spec.get("max_retry_limit") or 3,  # null/0 = CrewAI default
         )
 
     def create_task(self, agent: Agent, spec: dict, user_input: str, agent_memory: list[dict] | None = None) -> Task:

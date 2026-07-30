@@ -965,9 +965,8 @@ class ExecutionOrchestrator:
                                             "feedback": tmpl_feedback,
                                             "output_preview": output_text[:2000],
                                         })
-                                        # 0 = unlimited — Manager reviews until quality passes, never force-approves
-                                        tmpl_review_iters = agent_specs[i].get("review_iterations", MAX_REVIEW_RETRIES)
-                                        if tmpl_review_iters > 0 and state_ph["retry_count"] >= tmpl_review_iters:
+                                        tmpl_review_iters = agent_specs[i].get("review_iterations") or MAX_REVIEW_RETRIES
+                                        if tmpl_review_iters and state_ph["retry_count"] >= tmpl_review_iters:
                                             print(f"[DEBUG-SCHED] Agent '{name}' hit max retries on template validation — force approving", flush=True)
                                             approved_outputs[name] = output_text
                                             _send_progress_for_agent(i, "complete", output_text[:MAX_OUTPUT_CHARS],
@@ -1125,9 +1124,8 @@ class ExecutionOrchestrator:
                                 del agent_review_state[idx]
                             else:
                                 # Check max retry limit before re-running
-                                # 0 = unlimited — Manager reviews until quality passes, never force-approves
-                                agent_review_iters = agent_specs[idx].get("review_iterations", MAX_REVIEW_RETRIES)
-                                if agent_review_iters > 0 and state["retry_count"] >= agent_review_iters:
+                                agent_review_iters = agent_specs[idx].get("review_iterations") or MAX_REVIEW_RETRIES
+                                if agent_review_iters and state["retry_count"] >= agent_review_iters:
                                     print(f"[DEBUG-SCHED] Agent '{name}' hit max retries ({agent_review_iters}) — force approving", flush=True)
                                     approved_outputs[name] = state["current_output"]
                                     agent_outputs[idx] = state["current_result"]
