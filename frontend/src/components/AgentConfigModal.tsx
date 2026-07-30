@@ -308,21 +308,20 @@ export const AgentConfigModal: React.FC<AgentConfigModalProps> = ({
             )}
           </FieldRow>
 
-          {/* Role — locked to "Manager" for manager agents because backend expects
-              this exact role to identify the manager; changing it would break
-              team coordination logic (check_resources, model sync, etc.) */}
+          {/* Role — disabled for Manager because backend uses this exact role
+              to identify the manager; changing it would break team coordination */}
           <FieldRow label="Role" field="role">
-            {isEditing && !isManager ? (
-              <input value={role} onChange={(e) => setRole(e.target.value)} className={inputCls} />
+            {isEditing ? (
+              <input value={role} onChange={(e) => setRole(e.target.value)} className={inputCls} disabled={isManager} style={isManager ? { opacity: 0.6, cursor: 'not-allowed' } : undefined} />
             ) : (
               <DisplayValue value={role} />
             )}
           </FieldRow>
 
-          {/* Goal */}
+          {/* Goal — disabled for Manager because goal is fixed to team coordination */}
           <FieldRow label="Goal" field="goal">
             {isEditing ? (
-              <textarea value={goal} onChange={(e) => setGoal(e.target.value)} rows={3} className={textareaCls} />
+              <textarea value={goal} onChange={(e) => setGoal(e.target.value)} rows={3} className={textareaCls} disabled={isManager} style={isManager ? { opacity: 0.6, cursor: 'not-allowed' } : undefined} />
             ) : (
               <DisplayValue value={goal} multiline />
             )}
@@ -378,13 +377,11 @@ export const AgentConfigModal: React.FC<AgentConfigModalProps> = ({
             </div>
           </FieldRow>
 
-          {/* Tools — hidden for Manager because Manager delegates tasks to workers
-              and does not execute tools directly; showing tool checkboxes would
-              mislead users into thinking Manager can use them */}
-          {!isManager && (
+          {/* Tools — disabled for Manager because Manager delegates tasks to workers
+              and does not execute tools directly */}
           <FieldRow label="Tools" field="tools">
             {isEditing ? (
-              <div className="space-y-1.5">
+              <div className="space-y-1.5" style={isManager ? { opacity: 0.6, pointerEvents: 'none' } : undefined}>
                 {availableTools.length === 0 && <span className="text-[11px] text-text-3">ไม่มีเครื่องมือให้เลือก</span>}
                 {availableTools.map((tool) => (
                   <label key={tool.name} className="flex items-start gap-2 cursor-pointer hover:bg-surface-2 px-2 py-1 rounded-lg transition-colors">
@@ -392,6 +389,7 @@ export const AgentConfigModal: React.FC<AgentConfigModalProps> = ({
                       type="checkbox"
                       checked={tools.includes(tool.name)}
                       onChange={() => toggleTool(tool.name)}
+                      disabled={isManager}
                       className="mt-0.5 accent-accent"
                     />
                     <div className="flex-1 min-w-0">
@@ -410,7 +408,6 @@ export const AgentConfigModal: React.FC<AgentConfigModalProps> = ({
               </div>
             )}
           </FieldRow>
-          )}
 
           {/* Expertise */}
           <FieldRow label="Expertise" field="expertise">
@@ -483,14 +480,11 @@ export const AgentConfigModal: React.FC<AgentConfigModalProps> = ({
             </div>
           </div>
 
-          {/* Advanced settings — hidden for Manager because these are worker-level
-              task execution settings; Manager only coordinates and delegates,
-              so output_format/quality_criteria/review_iterations don't apply */}
-          {!isManager && (
-          <>
+          {/* Advanced settings — disabled for Manager because these are worker-level
+              task execution settings; Manager only coordinates and delegates */}
           <FieldRow label="Output Format" field="output_format">
             {isEditing ? (
-              <textarea value={outputFormat} onChange={(e) => setOutputFormat(e.target.value)} rows={2} className={textareaCls} placeholder="เช่น [Hook] [Body] [CTA] [Hashtags]" />
+              <textarea value={outputFormat} onChange={(e) => setOutputFormat(e.target.value)} rows={2} className={textareaCls} placeholder="เช่น [Hook] [Body] [CTA] [Hashtags]" disabled={isManager} style={isManager ? { opacity: 0.6, cursor: 'not-allowed' } : undefined} />
             ) : (
               <DisplayValue value={outputFormat} multiline />
             )}
@@ -499,7 +493,7 @@ export const AgentConfigModal: React.FC<AgentConfigModalProps> = ({
           {/* Quality Criteria */}
           <FieldRow label="Quality Criteria" field="quality_criteria">
             {isEditing ? (
-              <textarea value={qualityCriteria} onChange={(e) => setQualityCriteria(e.target.value)} rows={3} className={textareaCls} placeholder="เช่น 1. ต้องมี Hook 2. ต้องมี CTA 3. ใช้ภาษาวัยรุ่น" />
+              <textarea value={qualityCriteria} onChange={(e) => setQualityCriteria(e.target.value)} rows={3} className={textareaCls} placeholder="เช่น 1. ต้องมี Hook 2. ต้องมี CTA 3. ใช้ภาษาวัยรุ่น" disabled={isManager} style={isManager ? { opacity: 0.6, cursor: 'not-allowed' } : undefined} />
             ) : (
               <DisplayValue value={qualityCriteria} multiline />
             )}
@@ -508,7 +502,7 @@ export const AgentConfigModal: React.FC<AgentConfigModalProps> = ({
           {/* Review Iterations */}
           <FieldRow label="Review Iterations" field="review_iterations">
             {isEditing ? (
-              <input type="number" min={1} max={10} value={reviewIterations} onChange={(e) => setReviewIterations(parseInt(e.target.value) || 3)} className={inputCls} />
+              <input type="number" min={1} max={10} value={reviewIterations} onChange={(e) => setReviewIterations(parseInt(e.target.value) || 3)} className={inputCls} disabled={isManager} style={isManager ? { opacity: 0.6, cursor: 'not-allowed' } : undefined} />
             ) : (
               <DisplayValue value={String(reviewIterations)} />
             )}
@@ -517,7 +511,7 @@ export const AgentConfigModal: React.FC<AgentConfigModalProps> = ({
           {/* Max Iter */}
           <FieldRow label="Max Iterations" field="max_iter">
             {isEditing ? (
-              <input type="number" min={1} max={100} value={maxIter} onChange={(e) => setMaxIter(parseInt(e.target.value) || 20)} className={inputCls} />
+              <input type="number" min={1} max={100} value={maxIter} onChange={(e) => setMaxIter(parseInt(e.target.value) || 20)} className={inputCls} disabled={isManager} style={isManager ? { opacity: 0.6, cursor: 'not-allowed' } : undefined} />
             ) : (
               <DisplayValue value={String(maxIter)} />
             )}
@@ -526,25 +520,23 @@ export const AgentConfigModal: React.FC<AgentConfigModalProps> = ({
           {/* Max Retry Limit */}
           <FieldRow label="Max Retry Limit" field="max_retry_limit">
             {isEditing ? (
-              <input type="number" min={0} max={10} value={maxRetryLimit} onChange={(e) => setMaxRetryLimit(parseInt(e.target.value) || 3)} className={inputCls} />
+              <input type="number" min={0} max={10} value={maxRetryLimit} onChange={(e) => setMaxRetryLimit(parseInt(e.target.value) || 3)} className={inputCls} disabled={isManager} style={isManager ? { opacity: 0.6, cursor: 'not-allowed' } : undefined} />
             ) : (
               <DisplayValue value={String(maxRetryLimit)} />
             )}
           </FieldRow>
 
-          {/* Allow Delegation */}
+          {/* Allow Delegation — disabled for Manager because Manager must always delegate */}
           <FieldRow label="Allow Delegation" field="allow_delegation">
             {isEditing ? (
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={allowDelegation} onChange={(e) => setAllowDelegation(e.target.checked)} className="accent-accent" />
-                <span className="text-xs text-text-2">{allowDelegation ? 'อนุญาต' : 'ไม่อนุญาต'}</span>
+              <label className="flex items-center gap-2 cursor-pointer" style={isManager ? { opacity: 0.6, cursor: 'not-allowed' } : undefined}>
+                <input type="checkbox" checked={isManager ? true : allowDelegation} onChange={(e) => setAllowDelegation(e.target.checked)} disabled={isManager} className="accent-accent" />
+                <span className="text-xs text-text-2">{isManager ? 'อนุญาต' : (allowDelegation ? 'อนุญาต' : 'ไม่อนุญาต')}</span>
               </label>
             ) : (
-              <DisplayValue value={allowDelegation ? 'อนุญาต' : 'ไม่อนุญาต'} />
+              <DisplayValue value={(isManager || allowDelegation) ? 'อนุญาต' : 'ไม่อนุญาต'} />
             )}
           </FieldRow>
-          </>
-          )}
 
           {/* Learnings (auto-generated, read-only) */}
           <div className="py-2.5 border-b border-border">

@@ -324,20 +324,15 @@ const AgentConfigForm: React.FC<{
         <input value={name} onChange={e => setName(e.target.value)} className={inputCls} />
       </FieldRow>
 
-      {/* Role — locked to "Manager" for manager agents because backend expects
-          this exact role to identify the manager; changing it would break
-          team coordination logic (check_resources, model sync, etc.) */}
+      {/* Role — disabled for Manager because backend uses this exact role
+          to identify the manager; changing it would break team coordination */}
       <FieldRow label="Role" field="role">
-        {mgr ? (
-          <div className="ad-val" style={{ color: 'var(--ink2)' }}>{role}</div>
-        ) : (
-          <input value={role} onChange={e => setRole(e.target.value)} className={inputCls} />
-        )}
+        <input value={role} onChange={e => setRole(e.target.value)} className={inputCls} disabled={mgr} style={mgr ? { opacity: 0.6, cursor: 'not-allowed' } : undefined} />
       </FieldRow>
 
-      {/* Goal */}
+      {/* Goal — disabled for Manager because goal is fixed to team coordination */}
       <FieldRow label="Goal" field="goal">
-        <textarea value={goal} onChange={e => setGoal(e.target.value)} rows={3} className={textareaCls} />
+        <textarea value={goal} onChange={e => setGoal(e.target.value)} rows={3} className={textareaCls} disabled={mgr} style={mgr ? { opacity: 0.6, cursor: 'not-allowed' } : undefined} />
       </FieldRow>
 
       {/* Persona */}
@@ -384,12 +379,10 @@ const AgentConfigForm: React.FC<{
         </div>
       </FieldRow>
 
-      {/* Tools — hidden for Manager because Manager delegates tasks to workers
-          and does not execute tools directly; showing tool checkboxes would
-          mislead users into thinking Manager can use them */}
-      {!mgr && (
+      {/* Tools — disabled for Manager because Manager delegates tasks to workers
+          and does not execute tools directly */}
       <FieldRow label="Tools" field="tools">
-        <div style={{ maxHeight: '120px', overflowY: 'auto', border: '1px solid var(--line)', borderRadius: '3px', background: 'var(--paper)', padding: '4px' }}>
+        <div style={{ maxHeight: '120px', overflowY: 'auto', border: '1px solid var(--line)', borderRadius: '3px', background: 'var(--paper)', padding: '4px', opacity: mgr ? 0.6 : 1 }}>
           {availableTools.length === 0 ? (
             <div style={{ fontSize: '10px', color: 'var(--ink3)', textAlign: 'center', padding: '8px' }}>ไม่มีเครื่องมือให้เลือก</div>
           ) : (
@@ -398,9 +391,9 @@ const AgentConfigForm: React.FC<{
               return (
                 <label
                   key={tool.name}
-                  style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', padding: '4px 6px', cursor: 'pointer', borderRadius: '3px', background: checked ? 'rgba(192,80,30,0.06)' : 'transparent', marginBottom: '2px' }}
+                  style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', padding: '4px 6px', cursor: mgr ? 'not-allowed' : 'pointer', borderRadius: '3px', background: checked ? 'rgba(192,80,30,0.06)' : 'transparent', marginBottom: '2px' }}
                 >
-                  <input type="checkbox" checked={checked} onChange={() => toggleTool(tool.name)} style={{ marginTop: '2px', accentColor: 'var(--orange)' }} />
+                  <input type="checkbox" checked={checked} onChange={() => toggleTool(tool.name)} disabled={mgr} style={{ marginTop: '2px', accentColor: 'var(--orange)' }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                       <Wrench size={10} style={{ color: 'var(--ink3)' }} />
@@ -419,7 +412,6 @@ const AgentConfigForm: React.FC<{
           </div>
         )}
       </FieldRow>
-      )}
 
       {/* Expertise */}
       <FieldRow label="Expertise" field="expertise">
@@ -473,45 +465,40 @@ const AgentConfigForm: React.FC<{
         </div>
       </div>
 
-      {/* Advanced settings — hidden for Manager because these are worker-level
-          task execution settings; Manager only coordinates and delegates,
-          so output_format/quality_criteria/review_iterations don't apply */}
-      {!mgr && (
-      <>
+      {/* Advanced settings — disabled for Manager because these are worker-level
+          task execution settings; Manager only coordinates and delegates */}
       {/* Output Format */}
       <FieldRow label="Output Format" field="output_format">
-        <textarea value={outputFormat} onChange={e => setOutputFormat(e.target.value)} rows={2} className={textareaCls} placeholder="เช่น [Hook] [Body] [CTA] [Hashtags]" />
+        <textarea value={outputFormat} onChange={e => setOutputFormat(e.target.value)} rows={2} className={textareaCls} placeholder="เช่น [Hook] [Body] [CTA] [Hashtags]" disabled={mgr} style={mgr ? { opacity: 0.6, cursor: 'not-allowed' } : undefined} />
       </FieldRow>
 
       {/* Quality Criteria */}
       <FieldRow label="Quality Criteria" field="quality_criteria">
-        <textarea value={qualityCriteria} onChange={e => setQualityCriteria(e.target.value)} rows={3} className={textareaCls} placeholder="เช่น 1. ต้องมี Hook 2. ต้องมี CTA 3. ใช้ภาษาวัยรุ่น" />
+        <textarea value={qualityCriteria} onChange={e => setQualityCriteria(e.target.value)} rows={3} className={textareaCls} placeholder="เช่น 1. ต้องมี Hook 2. ต้องมี CTA 3. ใช้ภาษาวัยรุ่น" disabled={mgr} style={mgr ? { opacity: 0.6, cursor: 'not-allowed' } : undefined} />
       </FieldRow>
 
       {/* Review Iterations */}
       <FieldRow label="Review Iterations" field="review_iterations">
-        <input type="number" min={1} max={10} value={reviewIterations} onChange={e => setReviewIterations(parseInt(e.target.value) || 3)} className={inputCls} />
+        <input type="number" min={1} max={10} value={reviewIterations} onChange={e => setReviewIterations(parseInt(e.target.value) || 3)} className={inputCls} disabled={mgr} style={mgr ? { opacity: 0.6, cursor: 'not-allowed' } : undefined} />
       </FieldRow>
 
       {/* Max Iter */}
       <FieldRow label="Max Iterations" field="max_iter">
-        <input type="number" min={1} max={100} value={maxIter} onChange={e => setMaxIter(parseInt(e.target.value) || 20)} className={inputCls} />
+        <input type="number" min={1} max={100} value={maxIter} onChange={e => setMaxIter(parseInt(e.target.value) || 20)} className={inputCls} disabled={mgr} style={mgr ? { opacity: 0.6, cursor: 'not-allowed' } : undefined} />
       </FieldRow>
 
       {/* Max Retry Limit */}
       <FieldRow label="Max Retry Limit" field="max_retry_limit">
-        <input type="number" min={0} max={10} value={maxRetryLimit} onChange={e => setMaxRetryLimit(parseInt(e.target.value) || 3)} className={inputCls} />
+        <input type="number" min={0} max={10} value={maxRetryLimit} onChange={e => setMaxRetryLimit(parseInt(e.target.value) || 3)} className={inputCls} disabled={mgr} style={mgr ? { opacity: 0.6, cursor: 'not-allowed' } : undefined} />
       </FieldRow>
 
-      {/* Allow Delegation */}
+      {/* Allow Delegation — disabled for Manager because Manager must always delegate */}
       <FieldRow label="Allow Delegation" field="allow_delegation">
-        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
-          <input type="checkbox" checked={allowDelegation} onChange={e => setAllowDelegation(e.target.checked)} style={{ accentColor: 'var(--orange)' }} />
-          <span style={{ fontSize: '11px', color: 'var(--ink2)' }}>{allowDelegation ? 'อนุญาต' : 'ไม่อนุญาต'}</span>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: mgr ? 'not-allowed' : 'pointer', opacity: mgr ? 0.6 : 1 }}>
+          <input type="checkbox" checked={mgr ? true : allowDelegation} onChange={e => setAllowDelegation(e.target.checked)} disabled={mgr} style={{ accentColor: 'var(--orange)' }} />
+          <span style={{ fontSize: '11px', color: 'var(--ink2)' }}>{mgr ? 'อนุญาต' : (allowDelegation ? 'อนุญาต' : 'ไม่อนุญาต')}</span>
         </label>
       </FieldRow>
-      </>
-      )}
 
       {/* Learnings (read-only) */}
       <div className="ad-section">
