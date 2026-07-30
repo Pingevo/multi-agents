@@ -310,8 +310,8 @@ class CentralManager:
             '      "output_format": "format specification for output (optional, e.g. [Hook] [Body] [CTA] [Hashtags])",\n'
             '      "quality_criteria": "criteria for quality checking (optional, e.g. 1. Must have hook 2. Must have CTA)",\n'
             '      "review_iterations": null,\n'
-            '      "max_iter": null,\n'
-            '      "max_retry_limit": null,\n'
+            '      "max_iter": 25,\n'
+            '      "max_retry_limit": 3,\n'
             '      "allow_delegation": false\n'
             "    }\n"
             "  ]\n"
@@ -349,8 +349,8 @@ class CentralManager:
             '      "output_format": "format specification for output (optional, e.g. [Hook] [Body] [CTA] [Hashtags])",\n'
             '      "quality_criteria": "criteria for quality checking (optional, e.g. 1. Must have hook 2. Must have CTA)",\n'
             '      "review_iterations": null,\n'
-            '      "max_iter": null,\n'
-            '      "max_retry_limit": null,\n'
+            '      "max_iter": 25,\n'
+            '      "max_retry_limit": 3,\n'
             '      "allow_delegation": false\n'
             "    }\n"
             "  ],\n"
@@ -531,8 +531,8 @@ class CentralManager:
                                 "output_format": item.get("output_format", "").strip(),
                                 "quality_criteria": item.get("quality_criteria", "").strip(),
                                 "review_iterations": item.get("review_iterations"),
-                                "max_iter": item.get("max_iter"),
-                                "max_retry_limit": item.get("max_retry_limit"),
+                                "max_iter": item.get("max_iter") or 25,  # CrewAI requires a number
+                                "max_retry_limit": item.get("max_retry_limit") or 3,  # CrewAI requires a number
                                 "allow_delegation": item.get("allow_delegation", False) if isinstance(item.get("allow_delegation"), bool) else False,
                             })
                     if not agents:
@@ -684,8 +684,8 @@ class CentralManager:
             "- output_format (format specification for agent output, e.g. [Hook] [Body] [CTA] [Hashtags])\n"
             "- quality_criteria (criteria for quality checking, e.g. 1. Must have hook 2. Must have CTA)\n"
             "- review_iterations (int or null, max Manager review rounds, null = unlimited)\n"
-            "- max_iter (int or null, max agent thinking iterations, null = unlimited)\n"
-            "- max_retry_limit (int or null, max agent retries, null = unlimited)\n"
+            "- max_iter (int, max agent thinking iterations, default 25)\n"
+            "- max_retry_limit (int, max agent retries, default 3)\n"
             "- allow_delegation (bool, allow agent to delegate to other agents, default false)\n\n"
             "Respond with ONLY this JSON (no other text):\n"
             "{\n"
@@ -908,8 +908,8 @@ class CentralManager:
             '      "output_format": "format specification for output (optional, e.g. [Hook] [Body] [CTA] [Hashtags])",\n'
             '      "quality_criteria": "criteria for quality checking (optional, e.g. 1. Must have hook 2. Must have CTA)",\n'
             '      "review_iterations": null,\n'
-            '      "max_iter": null,\n'
-            '      "max_retry_limit": null,\n'
+            '      "max_iter": 25,\n'
+            '      "max_retry_limit": 3,\n'
             '      "allow_delegation": false\n'
             "    }\n"
             "  ],\n"
@@ -1179,8 +1179,8 @@ class CentralManager:
                         "output_format": "",
                         "quality_criteria": "",
                         "review_iterations": None,
-                        "max_iter": None,
-                        "max_retry_limit": None,
+                        "max_iter": 25,
+                        "max_retry_limit": 3,
                         "allow_delegation": False,
                     }
                 )
