@@ -1156,7 +1156,9 @@ async def on_message(message: cl.Message):
             await on_action_reject_tuning(cl.Action(name="reject_tuning", payload=payload))
         elif action_name == "confirm_create_agent":
             await on_action_create_agent(cl.Action(name="confirm_create_agent", payload=payload))
-        elif action_name == "add_agent_form":
+        elif action_name == "add_agent" or action_name == "add_agent_form":
+            # RetroDesktop sends "add_agent", MainLayout sends "add_agent_form" —
+            # route both to the same handler so agents are always persisted
             await on_action_add_agent_form(cl.Action(name="add_agent_form", payload=payload))
         elif action_name == "edit_agent_form":
             await on_action_edit_agent_form(cl.Action(name="edit_agent_form", payload=payload))
@@ -2493,6 +2495,10 @@ async def on_message(message: cl.Message):
                         # goal/persona of existing agents. Only task_description and
                         # depends_on are per-task and can be set by Secretary.
                         orig_tools = list(existing_agent.get("tools", []))
+                        # Preserve original goal/persona for plan display — Secretary
+                        # must NOT override these on existing agents (see comment above)
+                        orig_goal = existing_agent.get("goal", "")
+                        orig_persona = existing_agent.get("persona", "")
                         # Merge tools: preserve original tools, add new ones from secretary
                         secretary_tools = spec.get("tools", [])
                         if secretary_tools:

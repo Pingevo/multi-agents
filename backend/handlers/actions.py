@@ -271,7 +271,10 @@ async def on_action_add_agent_form(action: cl.Action):
         "tools": [t.strip() for t in payload.get("tools", "").split(",") if t.strip()],
         "model": payload.get("model", ""),
         "template_id": payload.get("template_id", ""),
-        "team_id": payload.get("team_id", None),
+        # Fallback to current_team_id — without this, agents created from MainLayout
+        # or RetroDesktop (which don't send team_id) get team_id=None and disappear
+        # from the UI on refresh, because update_agents filters by current_team_id
+        "team_id": payload.get("team_id") or cl.user_session.get("current_team_id"),
     }
 
     try:
@@ -621,11 +624,12 @@ async def on_action_create_team(action: cl.Action):
 
     cl.user_session.set("registry", registry)
     cl.user_session.set("team_registry", team_registry)
+    # Switch current_team_id to the newly created team so its agents are visible
+    cl.user_session.set("current_team_id", team["id"])
 
     if messenger:
         await messenger.reply_team_list(team_registry)
-        _tid = cl.user_session.get("current_team_id")
-        await messenger.update_agents(registry, team_id=_tid)
+        await messenger.update_agents(registry, team_id=team["id"])
         agent_count = len(created_agent_names)
         if agent_count > 0:
             await messenger.notify(f"✅ สร้างทีม {team['name']} สำเร็จ — Manager + {agent_count} agent(s): {', '.join(created_agent_names)}")
@@ -704,9 +708,13 @@ async def on_action_delete_team(action: cl.Action):
     cl.user_session.set("team_registry", team_registry)
     cl.user_session.set("registry", registry)
 
+    # Reset current_team_id if we just deleted the active team — otherwise
+    # update_agents filters by a non-existent team_id and the UI goes blank
+    if cl.user_session.get("current_team_id") == team_id:
+        cl.user_session.set("current_team_id", None)
+
     if messenger:
-        _tid = cl.user_session.get("current_team_id")
-        await messenger.update_agents(registry, team_id=_tid)
+        await messenger.update_agents(registry, team_id=None)
         await messenger.reply_team_list(team_registry)
         await messenger.notify(f"🗑 ลบทีม {team.get('name', '')} และ agent, chat, task, งานตั้งเวลา ทั้งหมดแล้ว")
 

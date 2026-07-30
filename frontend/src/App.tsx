@@ -1159,32 +1159,10 @@ function AppContent() {
             ),
           }));
         }
-      } else if (name === 'add_agent') {
-        const newAgent: Agent = {
-          id: `temp-${Date.now()}`,
-          name: payload?.name || 'New Agent',
-          role: payload?.role || '',
-          goal: payload?.goal || '',
-          persona: payload?.persona || '',
-          tools: payload?.tools ? (typeof payload.tools === 'string' ? payload.tools.split(',').map((t: string) => t.trim()).filter(Boolean) : payload.tools) : [],
-          model: payload?.model || '',
-          status: 'Idle',
-          ...(payload.template_id ? { template_id: payload.template_id } : {}),
-        };
-        updateState((prev) => ({ agents: [...(prev.agents || []), newAgent] }));
-      } else if (name === 'add_agent_form') {
-        const newAgent: Agent = {
-          id: `temp-${Date.now()}`,
-          name: payload?.name || 'New Agent',
-          role: payload?.role || '',
-          goal: payload?.goal || '',
-          persona: payload?.persona || '',
-          tools: payload?.tools ? (typeof payload.tools === 'string' ? payload.tools.split(',').map((t: string) => t.trim()).filter(Boolean) : payload.tools) : [],
-          model: payload?.model || '',
-          status: 'Idle',
-          ...(payload.template_id ? { template_id: payload.template_id } : {}),
-        };
-        updateState((prev) => ({ agents: [...(prev.agents || []), newAgent] }));
+      } else if (name === 'add_agent' || name === 'add_agent_form') {
+        // No optimistic update — backend sends platform_state with the real agent
+        // list after processing. Adding a temp agent with a fake ID here causes
+        // duplicates and confusion when the real agent arrives with a different ID.
       } else if (name === 'delete_agent') {
         const agentId = payload?.agent_id as string;
         if (agentId) {
