@@ -684,7 +684,10 @@ const AgentDetailView: React.FC<{
         )}
       </div>
 
-      {/* Advanced Fields */}
+      {/* Worker-only fields — hidden for Manager because these are task
+          execution parameters that only apply to agents that execute work */}
+      {!mgr && (
+      <>
       <FieldRow label="Output Format" field="output_format">
         <DisplayValue value={agent.output_format || ''} multiline />
       </FieldRow>
@@ -708,6 +711,8 @@ const AgentDetailView: React.FC<{
       <FieldRow label="Allow Delegation" field="allow_delegation">
         <DisplayValue value={agent.allow_delegation != null ? String(agent.allow_delegation) : ''} />
       </FieldRow>
+      </>
+      )}
 
       {/* Actions */}
       <div className="ad-actions">
