@@ -811,3 +811,319 @@ html,body{height:100%;overflow:hidden;font-family:var(--font);font-size:13px;col
 .adw-config{
   flex:1;overflow-y:auto;padding:0;min-width:0
 }
+
+/* ========== TASKS WINDOW — 3-PANEL LAYOUT ========== */
+.tw-layout{
+  display:flex;flex:1;min-height:0;min-width:0;overflow:hidden
+}
+
+/* Left panel — task list */
+.tw-task-list{
+  width:180px;flex-shrink:0;border-right:1px solid var(--line);
+  overflow-y:auto;padding:6px 4px;display:flex;flex-direction:column;gap:3px;
+  background:var(--cream)
+}
+.tw-task-item{
+  display:flex;align-items:center;gap:6px;padding:6px 8px;
+  background:var(--paper);border:1px solid var(--line);border-radius:var(--r-sm);
+  cursor:pointer;transition:.15s;position:relative
+}
+.tw-task-item:hover{border-color:var(--line2);box-shadow:var(--shadow)}
+.tw-task-item.active{
+  border-color:var(--orange);background:rgba(192,80,30,.04);
+  border-left:3px solid var(--amber);padding-left:6px
+}
+.tw-task-item.dimmed{opacity:.55}
+.tw-ti-icon{font-size:14px;flex-shrink:0}
+.tw-ti-info{flex:1;min-width:0}
+.tw-ti-title{
+  font-size:10px;font-weight:600;color:var(--ink);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.3
+}
+.tw-ti-bar{
+  height:3px;background:var(--line);border-radius:2px;
+  margin-top:3px;overflow:hidden
+}
+.tw-ti-bar-fill{
+  height:100%;border-radius:2px;transition:width .3s;
+  background:var(--amber)
+}
+.tw-task-item.active .tw-ti-bar-fill{background:var(--orange)}
+.tw-ti-badge{
+  font-size:8px;font-weight:700;padding:2px 5px;border-radius:2px;
+  flex-shrink:0;white-space:nowrap
+}
+.tw-ti-badge.done{color:var(--green);background:rgba(90,122,74,.1)}
+.tw-ti-badge.running{color:var(--amber);background:rgba(200,146,32,.1)}
+.tw-ti-badge.pending{color:var(--red);background:rgba(160,48,32,.1)}
+
+/* Center panel — flow view */
+.tw-flow{
+  flex:1;min-width:0;overflow-y:auto;padding:10px;
+  background:var(--paper);
+  background-image:radial-gradient(circle,var(--line) 1px,transparent 1px);
+  background-size:16px 16px;
+  display:flex;flex-direction:column;gap:8px
+}
+.tw-flow-empty{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  flex:1;color:var(--ink3);font-size:11px;font-style:italic
+}
+.tw-flow-header{
+  display:flex;align-items:center;gap:8px;padding:8px 10px;
+  background:var(--cream);border:1px solid var(--line);border-radius:var(--r)
+}
+.tw-flow-icon{font-size:18px;flex-shrink:0}
+.tw-flow-info{flex:1;min-width:0}
+.tw-flow-title{
+  font-size:12px;font-weight:700;color:var(--ink);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap
+}
+.tw-flow-bar{
+  height:4px;background:var(--line);border-radius:2px;
+  margin-top:3px;overflow:hidden
+}
+.tw-flow-bar-fill{
+  height:100%;border-radius:2px;transition:width .3s;background:var(--amber)
+}
+.tw-flow-badge{
+  font-size:9px;font-weight:700;padding:3px 8px;border-radius:var(--r-sm);
+  flex-shrink:0
+}
+.tw-flow-badge.done{color:var(--green);background:rgba(90,122,74,.1)}
+.tw-flow-badge.running{color:var(--amber);background:rgba(200,146,32,.1)}
+.tw-flow-badge.pending{color:var(--red);background:rgba(160,48,32,.1)}
+
+/* Flow banners */
+.tw-flow-banner{
+  padding:6px 10px;border-radius:var(--r-sm);font-size:10px;
+  display:flex;align-items:center;gap:6px;cursor:default
+}
+.tw-flow-banner.pending{
+  border:1px solid rgba(200,146,32,.3);background:rgba(200,146,32,.05);
+  color:var(--amber);cursor:pointer
+}
+.tw-flow-banner.pending:hover{background:rgba(200,146,32,.1)}
+.tw-flow-banner.waiting{
+  border:1px solid rgba(106,74,122,.3);background:rgba(106,74,122,.05);
+  color:var(--purple)
+}
+.tw-flow-banner.review{
+  border:1px solid rgba(200,146,32,.3);background:rgba(200,146,32,.05);
+  color:var(--amber)
+}
+.tw-flow-banner.synthesizing{
+  border:1px solid rgba(58,107,138,.3);background:rgba(58,107,138,.05);
+  color:var(--blue)
+}
+
+/* Wave labels */
+.tw-wave-label{
+  font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:1px;
+  color:var(--ink3);padding:4px 0 2px;margin-top:4px
+}
+
+/* Agent nodes row */
+.tw-nodes{
+  display:flex;gap:8px;flex-wrap:wrap;padding:2px 0
+}
+
+/* Agent node card */
+.tw-node{
+  width:140px;background:var(--paper);border:1px solid var(--line);
+  border-radius:var(--r);padding:8px;display:flex;flex-direction:column;
+  align-items:center;gap:3px;cursor:pointer;transition:.15s;position:relative
+}
+.tw-node:hover{border-color:var(--line2);box-shadow:var(--shadow)}
+.tw-node.selected{
+  border-color:var(--orange);background:rgba(192,80,30,.04);
+  box-shadow:0 0 0 2px rgba(192,80,30,.15)
+}
+.tw-node.done{border-color:rgba(90,122,74,.4)}
+.tw-node.running{border-color:var(--amber)}
+.tw-node.running::after{
+  content:'';position:absolute;inset:-2px;border-radius:var(--r);
+  border:2px solid transparent;border-top-color:var(--amber);
+  animation:spin 1s linear infinite;pointer-events:none
+}
+.tw-node.waiting{border-color:var(--purple)}
+.tw-node.review{border-color:var(--blue)}
+.tw-node-av{
+  width:32px;height:32px;border-radius:50%;display:flex;align-items:center;
+  justify-content:center;font-size:16px;border:2px solid var(--line);
+  background:var(--cream)
+}
+.tw-node.done .tw-node-av{border-color:var(--green)}
+.tw-node.running .tw-node-av{border-color:var(--amber)}
+.tw-node.waiting .tw-node-av{border-color:var(--purple)}
+.tw-node.review .tw-node-av{border-color:var(--blue)}
+.tw-node-name{
+  font-size:10px;font-weight:700;color:var(--ink);text-align:center;
+  line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  max-width:100%
+}
+.tw-node-role{
+  font-size:8px;color:var(--ink3);text-align:center;line-height:1.2;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%
+}
+.tw-node-status{
+  font-size:8px;font-weight:700;padding:2px 6px;border-radius:2px
+}
+.tw-node-status.done{color:var(--green);background:rgba(90,122,74,.1)}
+.tw-node-status.error{color:var(--red);background:rgba(160,48,32,.1)}
+.tw-node-status.running{color:var(--amber);background:rgba(200,146,32,.1)}
+.tw-node-status.waiting{color:var(--purple);background:rgba(106,74,122,.1)}
+.tw-node-status.review{color:var(--blue);background:rgba(58,107,138,.1)}
+.tw-node-status.pending{color:var(--ink3);background:var(--cream2)}
+.tw-node-prog{
+  width:100%;height:3px;background:var(--line);border-radius:2px;
+  overflow:hidden;margin-top:2px
+}
+.tw-node-prog-fill{
+  height:100%;border-radius:2px;transition:width .3s
+}
+
+/* Flow node — status indicators */
+.tw-node-deps{
+  font-size:9px;color:var(--amber);text-align:center;line-height:1.3;
+  margin-top:2px
+}
+.tw-node-waiting{
+  font-size:9px;color:var(--purple);text-align:center;line-height:1.3;
+  margin-top:2px
+}
+.tw-node-review{
+  font-size:9px;color:var(--amber);text-align:center;line-height:1.3;
+  margin-top:2px
+}
+.tw-node-review-sub{
+  font-size:8px;color:var(--ink3);margin-top:1px
+}
+.tw-node-review-done{
+  font-size:8px;color:var(--ink3);text-align:center;line-height:1.3;
+  margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  max-width:100%
+}
+.tw-node-review-count{
+  font-size:8px;color:var(--ink3);text-align:center;margin-top:1px
+}
+
+/* Flow header — agent count */
+.tw-flow-count{
+  font-size:10px;color:var(--ink3);font-family:var(--mono);
+  flex-shrink:0;padding:2px 6px;background:var(--cream2);
+  border-radius:var(--r-sm)
+}
+
+/* Task list — agent tags */
+.tw-ti-agents{
+  display:flex;flex-wrap:wrap;gap:2px;padding:2px 0 4px 26px
+}
+.tw-ti-agent-tag{
+  font-size:8px;padding:1px 4px;border-radius:2px;
+  background:var(--cream);color:var(--ink2);white-space:nowrap
+}
+
+/* Result panel — review output preview */
+.tw-rp-review-preview{
+  font-size:9px;color:var(--ink3);background:var(--cream);
+  border:1px solid var(--line);border-radius:var(--r-sm);
+  padding:4px 6px;max-height:100px;overflow-y:auto;margin-top:4px;
+  white-space:pre-wrap;overflow-wrap:anywhere
+}
+
+/* Flow connector */
+.tw-connector{
+  width:2px;height:16px;background:var(--line2);
+  margin:0 auto;border-radius:1px
+}
+
+/* Right panel — result */
+.tw-result{
+  width:240px;flex-shrink:0;border-left:1px solid var(--line);
+  overflow-y:auto;background:var(--cream);min-height:0
+}
+.tw-result-empty{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  height:100%;gap:8px;color:var(--ink3);font-size:11px;font-style:italic;
+  padding:20px;text-align:center
+}
+.tw-rp-icon{font-size:32px;opacity:.3}
+.tw-result-content{
+  padding:10px;display:flex;flex-direction:column;gap:8px
+}
+
+/* Result — agent header */
+.tw-rp-hdr{
+  display:flex;flex-direction:column;align-items:center;gap:2px;
+  padding:8px;background:var(--paper);border:1px solid var(--line);
+  border-radius:var(--r)
+}
+.tw-rp-av{
+  width:36px;height:36px;border-radius:50%;display:flex;align-items:center;
+  justify-content:center;font-size:18px;border:2px solid var(--line);
+  background:var(--cream)
+}
+.tw-rp-name{font-size:11px;font-weight:700;color:var(--ink);text-align:center}
+.tw-rp-role{font-size:9px;color:var(--ink3);text-align:center}
+.tw-rp-status{
+  font-size:8px;font-weight:700;padding:2px 6px;border-radius:2px;margin-top:2px
+}
+.tw-rp-status.done{color:var(--green);background:rgba(90,122,74,.1)}
+.tw-rp-status.error{color:var(--red);background:rgba(160,48,32,.1)}
+.tw-rp-status.running{color:var(--amber);background:rgba(200,146,32,.1)}
+.tw-rp-status.waiting{color:var(--purple);background:rgba(106,74,122,.1)}
+.tw-rp-status.review{color:var(--blue);background:rgba(58,107,138,.1)}
+.tw-rp-status.pending{color:var(--ink3);background:var(--cream2)}
+
+/* Result — sections */
+.tw-rp-section{display:flex;flex-direction:column;gap:3px}
+.tw-rp-lbl{
+  font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:1px;
+  color:var(--ink3)
+}
+.tw-rp-prog-bar{
+  height:4px;background:var(--line);border-radius:2px;overflow:hidden
+}
+.tw-rp-prog-fill{height:100%;border-radius:2px;transition:width .3s}
+.tw-rp-prog-text{font-size:9px;color:var(--ink3);font-family:var(--mono)}
+.tw-rp-output{
+  font-size:10px;color:var(--ink2);background:var(--paper);
+  border:1px solid var(--line);border-radius:var(--r-sm);
+  padding:6px 8px;max-height:200px;overflow-y:auto;line-height:1.5;
+  overflow-wrap:anywhere
+}
+.tw-rp-val{
+  font-size:10px;color:var(--ink2);background:var(--paper);
+  border:1px solid var(--line);border-radius:var(--r-sm);padding:6px 8px;
+  line-height:1.5;overflow-wrap:anywhere
+}
+
+/* Result — review items */
+.tw-rp-review-item{
+  background:var(--paper);border:1px solid var(--line);border-radius:var(--r-sm);
+  padding:6px 8px
+}
+.tw-rp-review-hdr{display:flex;align-items:center;gap:6px;margin-bottom:3px}
+.tw-rp-review-badge{
+  font-size:8px;font-weight:700;padding:1px 4px;border-radius:2px
+}
+.tw-rp-review-badge.pass{color:var(--green);background:rgba(90,122,74,.15)}
+.tw-rp-review-badge.fail{color:var(--red);background:rgba(160,48,32,.15)}
+.tw-rp-review-round{font-size:9px;color:var(--ink2);font-weight:500}
+.tw-rp-review-summary{font-size:9px;color:var(--ink3);margin-bottom:2px}
+.tw-rp-review-feedback{font-size:9px;color:var(--red)}
+
+/* Result — media */
+.tw-rp-media{margin-top:4px}
+.tw-rp-media-el{
+  width:100%;border-radius:var(--r-sm);border:1px solid var(--line)
+}
+.tw-rp-media-prompt{font-size:8px;color:var(--ink3);margin-top:2px}
+
+/* Result — tools */
+.tw-rp-tools{display:flex;flex-wrap:wrap;gap:3px}
+.tw-rp-tool{
+  font-size:8px;padding:2px 6px;background:var(--paper);
+  border:1px solid var(--line);border-radius:var(--r-sm);color:var(--ink2)
+}

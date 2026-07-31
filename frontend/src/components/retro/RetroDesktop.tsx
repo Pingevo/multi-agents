@@ -63,7 +63,7 @@ interface RetroDesktopProps {
 
 const windowConfig: Record<WindowId, { title: string; icon: string; width: number; height: number }> = {
   chat: { title: 'Chat', icon: '💬', width: 720, height: 480 },
-  tasks: { title: 'Tasks', icon: '📋', width: 600, height: 420 },
+  tasks: { title: 'Tasks', icon: '📋', width: 800, height: 500 },
   agents: { title: 'Agents', icon: '🤖', width: 500, height: 380 },
   // Agent detail opens large — two-column layout needs full screen width
   'agent-detail': { title: 'Agent Detail', icon: '🤖', width: 800, height: 600 },

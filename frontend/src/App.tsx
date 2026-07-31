@@ -369,8 +369,10 @@ const parseChatSessionMessage = (message: any): { sessions: ChatSession[]; curre
         // Filter out transient progress messages — they're UI state, not conversation content.
         // Without this, stale "ดำเนินการ 100%" cards reappear after refresh and block new progress cards
         // (new task has different progressId so update-in-place won't find the old one).
+        // Keep agent_progress in history — TasksWindow needs it for output/review data after refresh.
+        // ChatWindow already returns null for agent_progress, so no visual impact on chat feed.
         const filtered = messages.filter((m: ChatMessage) =>
-          m.messageType !== 'progress' && m.messageType !== 'agent_progress'
+          m.messageType !== 'progress'
         );
 
         // Merge image_result into image_approval card — same logic as live merge (App.tsx:708-717).
@@ -1224,7 +1226,8 @@ function AppContent() {
     addActivity('Stopped');
     // Fix: remove progress cards from chat when user stops — without this, the progress card
     // stays visible even though execution has stopped, making it look like the system is still working
-    setChatMessages(prev => prev.filter(m => m.messageType !== 'progress' && m.messageType !== 'agent_progress'));
+    // Keep agent_progress on cancel — TasksWindow still needs output/review data after stop.
+    setChatMessages(prev => prev.filter(m => m.messageType !== 'progress'));
   }, [sendMessage, addActivity]);
 
   if (authLoading) {
