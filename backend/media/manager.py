@@ -155,12 +155,19 @@ class MediaGenerationManager:
         return "512"
 
     def _openrouter_image(self, prompt: str, width: int, height: int) -> str:
-        payload = {
+        # Pass resolution to control cost — without this, OpenRouter defaults to
+        # the model's default which may be 2K ($0.07/img for Grok) instead of 1K ($0.05)
+        resolution = self._resolution_tier(width, height)
+        # Clamp to 1K for cost control — 2K/4K rarely needed for agent-generated images
+        if resolution not in ("512", "1K", "2K", "4K"):
+            resolution = "1K"
+        payload: dict = {
             "prompt": prompt,
+            "resolution": resolution,
         }
         if self.image_model:
             payload["model"] = self.image_model
-        print(f"[MediaGen] POST {self.openrouter_base}/images model={self.image_model}", flush=True)
+        print(f"[MediaGen] POST {self.openrouter_base}/images model={self.image_model} resolution={resolution}", flush=True)
         resp = requests.post(
             f"{self.openrouter_base}/images",
             headers={
@@ -172,6 +179,16 @@ class MediaGenerationManager:
         )
         print(f"[MediaGen] API responded: {resp.status_code}", flush=True)
         if resp.status_code != 200:
+            print(f"[MediaGen] ERROR body: {resp.text[:500]}", flush=True)
+            print(f"[MediaGen] Model used: {self.image_model!r}", flush=True)
+            if resp.status_code == 402:
+                # 402 = account credits insufficient (NOT spending limit) —
+                # limit_remaining from /key endpoint shows spending limit remaining,
+                # but actual credits may be lower. Tell user to top up.
+                raise RuntimeError(
+                    "เครดิตในบัญชี OpenRouter ไม่เพียงพอ (ไม่ใช่ spending limit) — "
+                    "กรุณาเติมเครดิตที่ https://openrouter.ai/settings/credits"
+                )
             raise RuntimeError(f"OpenRouter image API returned {resp.status_code}: {resp.text[:200]}")
         data = resp.json()
         # Log image generation cost

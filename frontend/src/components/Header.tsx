@@ -23,11 +23,13 @@ export const Header: React.FC<HeaderProps> = ({ systemStatus, credits }) => {
             <Wallet className="w-3.5 h-3.5" />
             {credits.limit !== null && credits.limit > 0 ? (
               (() => {
-                const usedThisPeriod = (credits.limit ?? 0) - (credits.limit_remaining ?? 0);
-                const isLow = (credits.limit_remaining ?? 0) < 1;
+                // Show remaining/limit — previously showed used/limit which was confusing
+                // because users read "$2.06 / $15.00" as "remaining / limit" not "used / limit"
+                const remaining = credits.limit_remaining ?? 0;
+                const isLow = remaining < 1;
                 return (
                   <span className={isLow ? 'text-warning' : ''}>
-                    ${usedThisPeriod.toFixed(2)} / ${credits.limit?.toFixed(2) ?? '—'}
+                    ${remaining.toFixed(2)} / ${credits.limit?.toFixed(2) ?? '—'}
                     {credits.limit_reset && <span className="text-text-3 ml-1">(รีเซ็ต {formatResetDate(credits.limit_reset)})</span>}
                   </span>
                 );

@@ -73,7 +73,7 @@ export const Taskbar: React.FC<TaskbarProps> = ({ startMenuOpen, onToggleStartMe
         </div>
         {credits && credits.limit !== null && credits.limit > 0 ? (
           <span className="text-[10px] font-mono text-ink-2" title={`Daily: $${credits.usage_daily?.toFixed(4) ?? 0} | Weekly: $${credits.usage_weekly?.toFixed(4) ?? 0} | Monthly: $${credits.usage_monthly?.toFixed(4) ?? 0}`}>
-            ${(credits.limit - (credits.limit_remaining ?? 0)).toFixed(2)} / ${credits.limit.toFixed(2)}
+            ${(credits.limit_remaining ?? 0).toFixed(2)} / ${credits.limit.toFixed(2)}
             {credits.limit_reset && <span className="text-ink-3 ml-1">(Reset: {formatResetDate(credits.limit_reset)})</span>}
           </span>
         ) : credits && credits.is_free_tier ? (

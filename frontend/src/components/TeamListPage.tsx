@@ -75,11 +75,11 @@ export const TeamListPage: React.FC<TeamListPageProps> = ({
               <Wallet className="w-3.5 h-3.5" />
               {credits.limit !== null && credits.limit > 0 ? (
                 (() => {
-                  const usedThisPeriod = (credits.limit ?? 0) - (credits.limit_remaining ?? 0);
-                  const isLow = (credits.limit_remaining ?? 0) < 1;
+                  const remaining = credits.limit_remaining ?? 0;
+                  const isLow = remaining < 1;
                   return (
                     <span className={isLow ? 'text-amber' : ''}>
-                      ${usedThisPeriod.toFixed(2)} / ${credits.limit?.toFixed(2) ?? '—'}
+                      ${remaining.toFixed(2)} / ${credits.limit?.toFixed(2) ?? '—'}
                       {credits.limit_reset && <span className="text-ink-3 ml-1">(รีเซ็ต {formatResetDate(credits.limit_reset)})</span>}
                     </span>
                   );

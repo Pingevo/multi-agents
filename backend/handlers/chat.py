@@ -1142,6 +1142,22 @@ async def on_chat_start():
             cl.user_session.set(f"pending_media_{_aid}", _pdata)
         print(f"[DEBUG-RESTORE] Restored {len(_restored_media)} pending media items from chat_store", flush=True)
 
+    # Fix stale "approved" cards stuck on "กำลังสร้าง..." after backend restart —
+    # user approved but backend died before sending result/error, so the card has no
+    # working buttons. Reset to "pending" so user can re-approve.
+    _session = chat_store.get_session(current_session_id)
+    if _session:
+        _msgs = _session.get("messages", [])
+        _fixed = 0
+        for _msg in _msgs:
+            if (_msg.get("messageType") == "image_approval"
+                    and _msg.get("approvalStatus") == "approved"):
+                _msg["approvalStatus"] = "pending"
+                _fixed += 1
+        if _fixed:
+            chat_store._save()
+            print(f"[DEBUG-RESTORE] Reset {_fixed} stale 'approved' media cards back to 'pending'", flush=True)
+
     # Restore media_tool_results from chat_store — needed to rebuild approval cards if needed
     _saved_results = chat_store.get_media_tool_results(current_session_id)
     if _saved_results:

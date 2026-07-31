@@ -131,10 +131,11 @@ export const TeamDetailPage: React.FC<TeamDetailPageProps> = ({
               {(() => {
                 const isLow = (credits.limit_remaining ?? 0) < 1;
                 if (credits.limit !== null && credits.limit > 0) {
-                  const usedThisPeriod = (credits.limit ?? 0) - (credits.limit_remaining ?? 0);
+                  // Show remaining/limit — previously showed used/limit which was confusing
+                  const remaining = credits.limit_remaining ?? 0;
                   return (
                     <span className={isLow ? 'text-warning' : ''}>
-                      ${usedThisPeriod.toFixed(2)} / ${credits.limit?.toFixed(2) ?? '—'}
+                      ${remaining.toFixed(2)} / ${credits.limit?.toFixed(2) ?? '—'}
                       {credits.limit_reset && <span className="text-text-3 ml-1">(รีเซ็ต {formatResetDate(credits.limit_reset)})</span>}
                     </span>
                   );
