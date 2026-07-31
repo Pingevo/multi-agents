@@ -940,9 +940,9 @@ const ImageResultCard: React.FC<{
             <p className="text-xs text-text-2">{isVideo ? '🎬' : '🖼️'} {isVideo ? 'Video' : 'Image'} pending paid tier</p>
           </div>
         ) : isVideo ? (
-          <video src={withMediaToken(imageUrl)} controls className="w-full rounded-lg border border-border" onError={() => setLoadError(true)} />
+          <video src={withMediaToken(imageUrl)} controls className="max-w-[400px] w-full rounded-lg border border-border" onError={() => setLoadError(true)} />
         ) : (
-          <img src={withMediaToken(imageUrl)} alt={prompt} className="w-full rounded-lg border border-border" loading="lazy" onError={() => setLoadError(true)} />
+          <img src={withMediaToken(imageUrl)} alt={prompt} className="max-w-[400px] w-full rounded-lg border border-border" loading="lazy" onError={() => setLoadError(true)} />
         )}
         <p className="text-[10px] text-text-2 mt-1.5 italic">"{prompt}"</p>
         {isEditing && (

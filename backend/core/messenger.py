@@ -443,7 +443,33 @@ class StateMessenger:
             mediaType=media_type,
             agentName=agent_name,
         ))
-        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
+        json_str = json.dumps(payload, ensure_ascii=False)
+        print(f"[REPLY-IMAGE-RESULT] Sending image_url={image_url}, approval_id={approval_id}", flush=True)
+        # Try cl.Message first, then fallback to direct socket emit
+        try:
+            await cl.Message(content=json_str).send()
+            print(f"[REPLY-IMAGE-RESULT] cl.Message().send() OK", flush=True)
+        except Exception as e:
+            print(f"[REPLY-IMAGE-RESULT] cl.Message().send() failed: {e}", flush=True)
+        # Also emit directly via socket.io as a backup (cl.Message may silently fail after asyncio.to_thread)
+        try:
+            from chainlit.session import WebsocketSession, ws_sessions_id
+            _cl_sid = cl.context.session.id if cl.context else None
+            print(f"[REPLY-IMAGE-RESULT] cl session={_cl_sid}, chat session={self.current_session_id}", flush=True)
+            ws = WebsocketSession.get_by_id(_cl_sid) if _cl_sid else None
+            if not ws:
+                for sid, sess in ws_sessions_id.items():
+                    ws = sess
+                    print(f"[REPLY-IMAGE-RESULT] Fallback: using session {sid}", flush=True)
+                    break
+            if ws and hasattr(ws, 'emit'):
+                step_dict = {"id": approval_id, "output": json_str, "type": "assistant_message", "createdAt": datetime.now().isoformat()}
+                await ws.emit("new_message", step_dict)
+                print(f"[REPLY-IMAGE-RESULT] Direct emit sent to socket {ws.socket_id}", flush=True)
+            else:
+                print(f"[REPLY-IMAGE-RESULT] No WebsocketSession found", flush=True)
+        except Exception as e:
+            print(f"[REPLY-IMAGE-RESULT] Direct emit failed: {e}", flush=True)
         self.persist_message({"role": "assistant", "messageType": "image_result", "imageUrl": image_url, "imagePrompt": prompt, "approvalId": approval_id, "taskId": task_id, "mediaType": media_type, "agentName": agent_name})
 
     async def reply_audio_result(self, audio_url: str, prompt: str, voice: str = "", agent_name: str = "", model: str = "", task_id: str = ""):
@@ -730,7 +756,27 @@ class StateMessenger:
                     approvalStatus=status,
                     imageError=msgs[i].get("imageError", ""),
                 ))
-                await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
+                json_str = json.dumps(payload, ensure_ascii=False)
+                print(f"[UPDATE-APPROVAL] Sending status={status} for {approval_id}", flush=True)
+                try:
+                    await cl.Message(content=json_str).send()
+                except Exception as e:
+                    print(f"[UPDATE-APPROVAL] cl.Message().send() failed: {e}", flush=True)
+                # Also emit directly via socket.io as a backup
+                try:
+                    from chainlit.session import WebsocketSession, ws_sessions_id
+                    _cl_sid = cl.context.session.id if cl.context else None
+                    ws = WebsocketSession.get_by_id(_cl_sid) if _cl_sid else None
+                    if not ws:
+                        for sid, sess in ws_sessions_id.items():
+                            ws = sess
+                            break
+                    if ws and hasattr(ws, 'emit'):
+                        step_dict = {"id": approval_id, "output": json_str, "type": "assistant_message", "createdAt": datetime.now().isoformat()}
+                        await ws.emit("new_message", step_dict)
+                        print(f"[UPDATE-APPROVAL] Direct emit sent to socket {ws.socket_id}", flush=True)
+                except Exception as e:
+                    print(f"[UPDATE-APPROVAL] Direct emit failed: {e}", flush=True)
                 break
 
     async def clear_plan(self):

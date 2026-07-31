@@ -176,7 +176,11 @@ if os.path.exists(_frontend_dist):
 
     @_cl_server.app.get("/")
     async def _serve_frontend_root():
-        return FileResponse(os.path.join(_frontend_dist, "index.html"))
+        response = FileResponse(os.path.join(_frontend_dist, "index.html"))
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
 
     _cl_server.app.mount("/assets", StaticFiles(directory=os.path.join(_frontend_dist, "assets")), name="frontend-assets")
     print(f"[FRONTEND] Serving from {_frontend_dist}", flush=True)

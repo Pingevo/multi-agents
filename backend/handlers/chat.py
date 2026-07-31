@@ -1495,10 +1495,12 @@ async def on_message(message: cl.Message):
                             await messenger.reply("⚠️ ยังไม่ได้เลือก Image model — กรุณาเลือก model สำหรับสร้างรูปภาพก่อน")
                             return
                         result = await asyncio.to_thread(gen_mgr.generate_image, prompt)
-                    _debug(f"[DEBUG-RETRY] Result: {result[:100]}", flush=True)
                     if result.startswith("Error:"):
                         await messenger.reply(f"⚠️ {result}")
                     else:
+                        print(f"[RETRY-TRACE] result={result[:60]}, calling update_approval_status", flush=True)
+                        await messenger.update_approval_status(approval_id, "approved")
+                        print(f"[RETRY-TRACE] update_approval_status done, calling reply_image_result", flush=True)
                         # Dispatch to the correct reply method based on media type
                         if media_type == "tts":
                             await messenger.reply_audio_result(result, pending.get("text", prompt), pending.get("voice", ""), agent_name, retry_tts_model)
@@ -1508,10 +1510,11 @@ async def on_message(message: cl.Message):
                             await messenger.reply(result)
                         else:
                             await messenger.reply_image_result(result, prompt, approval_id, task_id=task_id, media_type=media_type, agent_name=agent_name)
+                        print(f"[RETRY-TRACE] reply_image_result done", flush=True)
                         # Only update task images for image/video — STT/Vision return text, not URLs
                         if task_id and media_type in ("image", "video"):
                             await messenger.update_task_image(task_id, result, prompt, media_type=media_type, team_id=cl.user_session.get("current_team_id"))
-                        # Keep pending_media for regenerate after success
+                        print(f"[RETRY-TRACE] update_task_image done", flush=True)
                 except Exception as e:
                     _debug(f"[DEBUG-RETRY] Error: {_sanitize_error(e)}", flush=True)
                     await messenger.reply(f"⚠️ เกิดข้อผิดพลาดในการสร้างสื่อ: {_sanitize_error(e)}")

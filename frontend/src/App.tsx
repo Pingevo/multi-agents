@@ -605,6 +605,9 @@ function AppContent() {
     });
 
     const handleStateMessage = (message: any) => {
+      // TEMP: log ALL incoming messages to find where image_result disappears
+      const _text = message?.output || message?.content || '';
+      console.log('[TRACE-WS] msg type=' + message?.type + ' output=' + (typeof _text === 'string' ? _text.substring(0, 120) : typeof _text));
       // Check for team list first
       const teamList = parseTeamList(message);
       if (teamList) {
@@ -651,6 +654,9 @@ function AppContent() {
       // Check for chat reply
       const reply = parseChatReply(message);
       if (reply) {
+        if (reply.messageType === 'image_result' || reply.messageType === 'image_approval') {
+          console.log('[TRACE-PARSED] messageType=' + reply.messageType + ' approvalId=' + reply.approvalId + ' imageUrl=' + (reply as any).imageUrl);
+        }
         // Ignore in-flight processing messages after user clicked stop
         // But allow text, result, and tuning_proposal through so UI updates
         if (stoppedRef.current && (reply.messageType === 'progress' || reply.messageType === 'agent_progress' || reply.messageType === 'thinking' || reply.messageType === 'thinking_done')) {
@@ -725,11 +731,35 @@ function AppContent() {
           }
           setIsThinking(false);
           isThinkingRef.current = false;
-          console.log('[DEBUG-THINKING] setIsThinking(false) in thinking_done');
           return;
         }
 
-        addChatMessage(reply);
+        // image_result is merged into image_approval card below — don't add as separate message.
+        // Without this skip, image_result stays as an orphan that ChatWindow renders as null (invisible).
+        if (reply.messageType === 'image_result') {
+          // Still persist so it survives refresh — but don't add to chatMessages
+          // The merge below updates the image_approval card in-place
+        } else if (reply.messageType === 'image_approval' && reply.approvalId) {
+          // Update existing approval card in-place by approvalId (status change: pending→approved→generated)
+          // instead of adding a duplicate card
+          setChatMessages(prev => {
+            let lastIdx = -1;
+            for (let i = prev.length - 1; i >= 0; i--) {
+              if (prev[i].messageType === 'image_approval' && prev[i].approvalId === reply.approvalId) {
+                lastIdx = i;
+                break;
+              }
+            }
+            if (lastIdx >= 0) {
+              const updated = [...prev];
+              updated[lastIdx] = { ...updated[lastIdx], ...reply };
+              return updated;
+            }
+            return [...prev, { ...reply, id: generateUUIDv4(), timestamp: Date.now() }];
+          });
+        } else {
+          addChatMessage(reply);
+        }
         clearActivity();
 
         // Merge: when image_result arrives, update the existing image_approval card
@@ -737,13 +767,22 @@ function AppContent() {
         // This eliminates the redundant second card — the approval card shows the result inline.
         if (reply.messageType === 'image_result' && reply.approvalId) {
           setChatMessages(prev => {
-            const idx = prev.findIndex(m => m.messageType === 'image_approval' && m.approvalId === reply.approvalId);
-            if (idx >= 0) {
+            // Use findLastIndex — with duplicate approval cards (from retries),
+            // the last one is the most visible (error/pending status the user clicked retry on)
+            let lastIdx = -1;
+            for (let i = prev.length - 1; i >= 0; i--) {
+              if (prev[i].messageType === 'image_approval' && prev[i].approvalId === reply.approvalId) {
+                lastIdx = i;
+                break;
+              }
+            }
+            if (lastIdx >= 0) {
               const updated = [...prev];
-              updated[idx] = { ...updated[idx], imageUrl: reply.imageUrl, approvalStatus: 'generated' };
+              updated[lastIdx] = { ...updated[lastIdx], imageUrl: reply.imageUrl, approvalStatus: 'generated' };
               return updated;
             }
-            return prev;
+            // Fallback: no matching approval card found — add as standalone message
+            return [...prev, { ...reply, id: generateUUIDv4(), timestamp: Date.now() }];
           });
         }
 
@@ -840,15 +879,11 @@ function AppContent() {
         }
         updateState(payload);
 
-        // Only clear activity + isProcessing when no running tasks AND no pending approvals
-        const payloadTasks = payload.tasks || [];
-        const hasRunning = payloadTasks.some((t: any) => t.status === 'running');
-        const hasPendingApprovals = chatMessages.some((m: ChatMessage) => m.messageType === 'image_approval' && m.approvalStatus === 'pending');
-        const hasPendingReviews = chatMessages.some((m: ChatMessage) => m.messageType === 'agent_review' && m.reviewStatus === 'pending');
-        if (!hasRunning && !hasPendingApprovals && !hasPendingReviews && !isThinkingRef.current) {
-          clearActivity();
-          setIsProcessing(false);
-        }
+        // Instead of using stale chatMessages from closure to decide whether to clear activity,
+        // we'll safely use functional state update if we really need to check.
+        // Or simply NOT clear activity here, because terminal messages (result/text)
+        // already clear activity correctly. Only plan/image approvals need special care.
+        // We remove the buggy clearActivity() call from the 15s poll here.
       }
     };
 
@@ -877,7 +912,6 @@ function AppContent() {
     thinkingStartRef.current = Date.now();
     setIsThinking(true);
     isThinkingRef.current = true;
-    console.log('[DEBUG-THINKING] setIsThinking(true) in sendMessage');
     const message = {
       id: generateUUIDv4(),
       name: 'User',

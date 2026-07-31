@@ -497,9 +497,9 @@ const ImageApprovalCard: React.FC<{
         <div className="card-body">
           <div className="img-result">
             {msg.mediaType === 'video' ? (
-              <video src={withMediaToken(msg.imageUrl)} controls style={{ width: '100%', border: '1px solid var(--line)', borderRadius: '3px' }} />
+              <video src={withMediaToken(msg.imageUrl)} controls style={{ maxWidth: '400px', width: '100%', border: '1px solid var(--line)', borderRadius: '8px' }} />
             ) : (
-              <img src={withMediaToken(msg.imageUrl)} alt={msg.imagePrompt} style={{ width: '100%', border: '1px solid var(--line)', borderRadius: '3px' }} />
+              <img src={withMediaToken(msg.imageUrl)} alt={msg.imagePrompt} style={{ maxWidth: '400px', width: '100%', border: '1px solid var(--line)', borderRadius: '8px' }} />
             )}
             <div className="ir-info">{msg.imagePrompt}</div>
             {msg.model && <div className="ir-info">🤖 {msg.model}</div>}
@@ -569,9 +569,9 @@ const ImageResultCard: React.FC<{
       <div className="card-body">
         <div className="img-result">
           {msg.mediaType === 'video' ? (
-            <video src={withMediaToken(msg.imageUrl)} controls style={{ width: '100%', border: '1px solid var(--line)', borderRadius: '3px' }} />
+            <video src={withMediaToken(msg.imageUrl)} controls style={{ maxWidth: '400px', width: '100%', border: '1px solid var(--line)', borderRadius: '8px' }} />
           ) : (
-            <img src={withMediaToken(msg.imageUrl)} alt={msg.imagePrompt} style={{ width: '100%', border: '1px solid var(--line)', borderRadius: '3px' }} />
+            <img src={withMediaToken(msg.imageUrl)} alt={msg.imagePrompt} style={{ maxWidth: '400px', width: '100%', border: '1px solid var(--line)', borderRadius: '8px' }} />
           )}
           <div className="ir-info">{msg.imagePrompt}</div>
           {msg.model && <div className="ir-info">🤖 {msg.model}</div>}
@@ -1063,8 +1063,14 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
       );
     }
     if (msgType === 'image_result') {
-      // image_result is merged into image_approval card by App.tsx (updates approvalStatus to 'generated')
-      // — return null here to avoid a duplicate separate card
+      // image_result is normally merged into image_approval card by App.tsx (updates approvalStatus to 'generated')
+      // — return null here to avoid a duplicate separate card.
+      // But if merge failed (no matching approval card), image_result is added as standalone — render it.
+      if (msg.imageUrl) {
+        return (
+          <ImageResultCard key={msg.id} msg={msg} />
+        );
+      }
       return null;
     }
     if (msgType === 'model_catalog') { return null; }
