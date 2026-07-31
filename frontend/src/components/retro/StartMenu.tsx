@@ -10,7 +10,6 @@ interface StartMenuProps {
 const menuItems: { id: WindowId; icon: string; label: string }[] = [
   { id: 'chat', icon: '💬', label: 'Chat' },
   { id: 'tasks', icon: '📋', label: 'Tasks' },
-  { id: 'agents', icon: '🤖', label: 'Agents' },
   { id: 'history', icon: '📜', label: 'History' },
   { id: 'schedule', icon: '⏰', label: 'Schedule' },
   { id: 'settings', icon: '⚙️', label: 'Settings' },

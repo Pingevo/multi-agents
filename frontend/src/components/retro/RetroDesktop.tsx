@@ -6,6 +6,8 @@ import { Taskbar } from './Taskbar';
 import { StartMenu } from './StartMenu';
 import { DesktopIcons } from './DesktopIcons';
 import { AgentsWindow } from './AgentsWindow';
+import { AgentDetailWindow } from './AgentDetailWindow';
+import { TeamRosterBar } from './TeamRosterBar';
 import { HistoryWindow } from './HistoryWindow';
 import { ScheduleWindow } from './ScheduleWindow';
 import { SettingsWindow } from './SettingsWindow';
@@ -63,6 +65,8 @@ const windowConfig: Record<WindowId, { title: string; icon: string; width: numbe
   chat: { title: 'Chat', icon: '💬', width: 720, height: 480 },
   tasks: { title: 'Tasks', icon: '📋', width: 600, height: 420 },
   agents: { title: 'Agents', icon: '🤖', width: 500, height: 380 },
+  // Agent detail opens large — two-column layout needs full screen width
+  'agent-detail': { title: 'Agent Detail', icon: '🤖', width: 800, height: 600 },
   history: { title: 'History', icon: '📜', width: 500, height: 380 },
   schedule: { title: 'Schedule', icon: '⏰', width: 500, height: 380 },
   settings: { title: 'Settings', icon: '⚙️', width: 460, height: 340 },
@@ -72,6 +76,7 @@ const windowConfig: Record<WindowId, { title: string; icon: string; width: numbe
 const DesktopInner: React.FC<RetroDesktopProps> = (props) => {
   const { windows, activeWindowId, openWindow, closeWindow, focusWindow, minimizeWindow, toggleMaximize, moveWindow, resizeWindow } = useWindowManager();
   const [startMenuOpen, setStartMenuOpen] = useState(false);
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
 
   // Toast notifications — fire on real-time chat events
   const [toasts, setToasts] = useState<{ id: string; text: string; icon: string }[]>([]);
@@ -334,6 +339,24 @@ const DesktopInner: React.FC<RetroDesktopProps> = (props) => {
             selectedModel={props.selectedModel}
           />
         );
+      case 'agent-detail':
+        // Agent detail window — opened from Team Roster Bar, shows single agent detail/config
+        // Reuses AgentDetailView and AgentConfigForm from AgentsWindow
+        return (
+          <AgentDetailWindow
+            agents={props.agents}
+            initialAgentId={selectedAgentId ?? ''}
+            availableTools={props.availableTools}
+            onAddAgent={handleAddAgent}
+            onConfigAgent={handleSaveAgentConfig}
+            onDeleteAgent={handleDeleteAgent}
+            modelCatalog={props.modelCatalog}
+            modelSearchResults={props.modelSearchResults}
+            onSearchModels={handleSearchModels}
+            onFetchModelCatalog={handleFetchModelCatalog}
+            selectedModel={props.selectedModel}
+          />
+        );
       case 'history':
         return <HistoryWindow historyLogs={props.historyLogs} onFetchHistory={props.onFetchHistory} />;
       case 'schedule':
@@ -409,6 +432,20 @@ const DesktopInner: React.FC<RetroDesktopProps> = (props) => {
         onBack={props.onBack}
       />
 
+      {/* Team Roster Bar — shows all agents with status, click to open agent detail */}
+      <TeamRosterBar
+        agents={props.agents}
+        onAgentClick={(agentId) => {
+          setSelectedAgentId(agentId);
+          handleOpenWindow('agent-detail');
+        }}
+        onAddAgent={() => {
+          setSelectedAgentId(null);
+          handleOpenWindow('agent-detail');
+        }}
+        activeAgentId={selectedAgentId}
+      />
+
       {/* Taskbar */}
       <Taskbar
         startMenuOpen={startMenuOpen}
@@ -427,7 +464,7 @@ const DesktopInner: React.FC<RetroDesktopProps> = (props) => {
       {toasts.length > 0 && (
         <div style={{
           position: 'fixed',
-          bottom: '48px',
+          bottom: '124px',
           right: '12px',
           zIndex: 9999,
           display: 'flex',

@@ -86,7 +86,8 @@ export const RetroWindow: React.FC<RetroWindowProps> = ({
   if (minimized) return null;
 
   const SIDEBAR_W = 90;
-  const TASKBAR_H = 40;
+  // Taskbar (40px) + Team Roster Bar (76px) = 116px reserved at bottom
+  const TASKBAR_H = 116;
   const maxStyle = maximized
     ? { left: SIDEBAR_W, top: 0, width: viewport.w - SIDEBAR_W, height: viewport.h - TASKBAR_H }
     : { left: x, top: y, width, height };

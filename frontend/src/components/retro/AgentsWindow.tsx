@@ -218,7 +218,7 @@ function DisplayValue({ value, multiline }: { value: string; multiline?: boolean
 // Helpers
 // ============================================================
 
-const agentIcon = (name: string, role: string): string => {
+export const agentIcon = (name: string, role: string): string => {
   const n = name.toLowerCase();
   const r = role.toLowerCase();
   if (n.includes('manager') || r.includes('manager')) return '🧠';
@@ -246,7 +246,7 @@ const statusText = (status: string): string => {
   return 'Idle';
 };
 
-const isManager = (agent: Agent) =>
+export const isManager = (agent: Agent) =>
   agent.role?.toLowerCase().includes('manager') || agent.name?.toLowerCase().includes('manager') || agent.is_manager;
 
 const inputCls = "w-full px-2.5 py-1.5 bg-[var(--paper)] border border-[var(--line)] rounded-[3px] text-[11px] text-[var(--ink)] focus:outline-none focus:border-[var(--orange)]";
@@ -256,7 +256,7 @@ const textareaCls = inputCls + ' resize-none';
 // Agent Config Form (inline edit mode — full feature parity with AgentConfigModal)
 // ============================================================
 
-const AgentConfigForm: React.FC<{
+export const AgentConfigForm: React.FC<{
   agent: Agent;
   availableTools: ToolCatalogEntry[];
   onSave: (data: any) => void;
@@ -581,12 +581,12 @@ const AgentConfigForm: React.FC<{
 // Agent Detail View (read-only display — full feature parity with AgentConfigModal view mode)
 // ============================================================
 
-const isAgentBusy = (agent: Agent) => {
+export const isAgentBusy = (agent: Agent) => {
   const s = (agent.status || '').toLowerCase();
   return s.includes('running') || s.includes('busy') || s.includes('waiting') || s.includes('review');
 };
 
-const AgentDetailView: React.FC<{
+export const AgentDetailView: React.FC<{
   agent: Agent;
   onEdit: () => void;
   onDelete: (agentId: string) => void;
@@ -767,7 +767,7 @@ const AgentDetailView: React.FC<{
 // Add Agent Form (inline — full feature parity with AgentFormModal)
 // ============================================================
 
-const AddAgentForm: React.FC<{
+export const AddAgentForm: React.FC<{
   availableTools: ToolCatalogEntry[];
   onSubmit: (data: any) => void;
   onCancel: () => void;
