@@ -289,17 +289,25 @@ class MediaAwaiter:
         model = media_req.get("model", "")
         duration = media_req.get("duration", 0)
 
+        # MediaGenerationManager only has synchronous methods — wrap with asyncio.to_thread
+        # to avoid blocking the event loop during media generation.
         try:
             if media_type == "image":
-                result = await media_gen_manager.generate_image_async(prompt, model=model)
+                result = await asyncio.to_thread(media_gen_manager.generate_image, prompt)
             elif media_type == "video":
-                result = await media_gen_manager.generate_video_async(prompt, model=model, duration=duration)
+                result = await asyncio.to_thread(media_gen_manager.generate_video, prompt, duration=duration)
             elif media_type == "tts":
-                result = await media_gen_manager.generate_tts_async(prompt, model=model)
+                # TTS uses text + voice, not prompt + model — voice defaults to "alloy"
+                text = media_req.get("text", prompt)
+                voice = media_req.get("voice", "alloy")
+                result = await asyncio.to_thread(media_gen_manager.generate_tts, text, voice)
             elif media_type == "stt":
-                result = await media_gen_manager.generate_stt_async(prompt, model=model)
+                audio_url = media_req.get("audio_url", prompt)
+                result = await asyncio.to_thread(media_gen_manager.generate_stt, audio_url)
             elif media_type == "vision":
-                result = await media_gen_manager.generate_vision_async(prompt, model=model)
+                image_url = media_req.get("image_url", "")
+                question = media_req.get("question", prompt)
+                result = await asyncio.to_thread(media_gen_manager.generate_vision, image_url, question)
             else:
                 print(f"[MEDIA-AWAITER] Unknown media type: {media_type}", flush=True)
                 return None
@@ -308,15 +316,17 @@ class MediaAwaiter:
                 url = result.get("url") or result.get("image_url") or result.get("output_url")
                 if url and messenger:
                     await messenger.reply_image_result(
-                        prompt, url, approval_id, media_req.get("agent_name", ""),
-                        media_type=media_type
+                        url, prompt, approval_id,
+                        agent_name=media_req.get("agent_name", ""),
+                        media_type=media_type,
                     )
                 return url
             elif isinstance(result, str):
                 if messenger:
                     await messenger.reply_image_result(
-                        prompt, result, approval_id, media_req.get("agent_name", ""),
-                        media_type=media_type
+                        result, prompt, approval_id,
+                        agent_name=media_req.get("agent_name", ""),
+                        media_type=media_type,
                     )
                 return result
             else:

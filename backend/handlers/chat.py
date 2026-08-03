@@ -90,6 +90,8 @@ async def execute_multi_agent_task(
     # Capture session ID at task start — used to prevent cross-session leak if user switches
     # sessions while task is running. Approval cards should only appear in the original session.
     _task_session_id = messenger.current_session_id if messenger else None
+    if messenger:
+        messenger.task_session_id = _task_session_id
     from backend.globals import _thread_local, user_prompt_ctx
     _thread_local.user_prompt = user_input[:200]
     user_prompt_ctx.set(user_input[:200])
@@ -450,6 +452,8 @@ async def execute_multi_agent_task(
             await messenger.reply(f"❌ งานล้มเหลว: {str(e)[:500]}")
             messenger.log_history(task_id, user_input[:80], "System", "เกิดข้อผิดพลาด: ", str(e)[:200], team_id=_tid or "")
     finally:
+        if messenger:
+            messenger.task_session_id = None
         for spec in agent_specs:
             rid = spec.get("registry_id")
             if rid:
@@ -499,6 +503,9 @@ async def execute_task_with_agent(
     messenger = get_messenger()
     task_id = str(uuid.uuid4())[:8]
     agent_name = agent_spec.get("name", "Agent")
+    _task_session_id = messenger.current_session_id if messenger else None
+    if messenger:
+        messenger.task_session_id = _task_session_id
     from backend.globals import _thread_local, user_prompt_ctx
     _thread_local.user_prompt = user_input[:200]
     user_prompt_ctx.set(user_input[:200])
@@ -589,6 +596,8 @@ async def execute_task_with_agent(
             await messenger.reply(f"❌ งานของ {agent_name} ล้มเหลว: {str(e)[:500]}")
             messenger.log_history(task_id, user_input[:80], "System", "เกิดข้อผิดพลาด: ", str(e)[:200], team_id=_tid or "")
     finally:
+        if messenger:
+            messenger.task_session_id = None
         if registry_id:
             registry.update_status(registry_id, "Idle")
             # Auto-learning: store task outcome
@@ -2114,8 +2123,29 @@ async def on_message(message: cl.Message):
                 await messenger.reply_team_list(team_registry)
         return
 
+    # Set task_session_id early — protects assess_and_plan phase (thinking, plan cards)
+    # from session leaks when user switches chats mid-processing. Execution functions
+    # (execute_multi_agent_task, execute_task_with_agent) already set/clear this themselves,
+    # but they override with the same value. This outer set guards the pre-execution phase.
+    # Cleared at function exit and in exception handlers below.
+    _msg_session_id = messenger.current_session_id if messenger else None
+    if messenger:
+        messenger.task_session_id = _msg_session_id
+
     # Reset cancel flag for new real user message (not action commands)
     cl.user_session.set("cancel_generation", False)
+
+    # Clear stale pending media and media_tool_results from previous runs —
+    # without this, the MediaApprovalPanel accumulates items across runs and shows
+    # 40+ pending approvals that are actually from old tasks.
+    if messenger and messenger.current_session_id:
+        _cs = cl.user_session.get("chat_store")
+        if _cs:
+            _cs.clear_all_pending_media(messenger.current_session_id)
+            _cs.clear_media_tool_results(messenger.current_session_id)
+    # Also clear the in-memory global list — orchestrator's run_async does this too,
+    # but we clear here so the frontend doesn't see stale items before the run starts
+    _g._media_tool_results.clear()
 
     # Persist user message to chat session
     if messenger:
@@ -2326,6 +2356,8 @@ async def on_message(message: cl.Message):
             cl.user_session.set("last_attachment_name", None)
             cl.user_session.set("last_attachment_mime", None)
             # Don't clear attachment_context/plugins here — agents need them during task execution
+            if messenger:
+                messenger.task_session_id = None
         return
 
     if state == STATE_IDLE:
@@ -3083,6 +3115,8 @@ async def on_message(message: cl.Message):
 
         except Exception as e:
             cl.user_session.set("state", STATE_IDLE)
+            if messenger:
+                messenger.task_session_id = None
             if _is_rate_limit_error(e):
                 llm_mgr = LLMManager()
                 llm_mgr.report_rate_limit()
@@ -3094,6 +3128,10 @@ async def on_message(message: cl.Message):
     elif state in (STATE_CREATING_AGENT, STATE_EXECUTING, STATE_PLANNING, STATE_ASSESSING):
         if messenger:
             await messenger.notify(f"⏳ รอสถานะปัจจุบัน: {state}")
+
+    # Safety net: clear task_session_id at function exit if still set
+    if messenger and messenger.task_session_id is not None:
+        messenger.task_session_id = None
 
 
 

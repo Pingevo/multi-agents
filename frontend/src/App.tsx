@@ -477,6 +477,11 @@ function AppContent() {
   const socketRef = useRef<Socket | null>(null);
   const prevNotificationsRef = useRef<string[]>([]);
   const stoppedRef = useRef(false);
+  const activeSessionIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    activeSessionIdRef.current = activeSessionId;
+  }, [activeSessionId]);
 
   const addChatMessage = useCallback((msg: Omit<ChatMessage, 'id' | 'timestamp'>) => {
     setChatMessages((prev) => {
@@ -611,6 +616,24 @@ function AppContent() {
       // TEMP: log ALL incoming messages to find where image_result disappears
       const _text = message?.output || message?.content || '';
       console.log('[TRACE-WS] msg type=' + message?.type + ' output=' + (typeof _text === 'string' ? _text.substring(0, 120) : typeof _text));
+
+      // Extract sessionId from the raw JSON payload for session filtering
+      let _msgSessionId: string | null = null;
+      let _msgType: string | null = null;
+      try {
+        const _parsed = JSON.parse(_text);
+        _msgSessionId = _parsed.sessionId || _parsed.payload?.sessionId || null;
+        _msgType = _parsed.payload?.messageType || null;
+      } catch { /* not JSON, skip */ }
+
+      // Session filter: skip messages from a different session
+      // Exempt cross-session message types that are not session-specific
+      const _crossSessionTypes = new Set(['chat_sessions', 'notifications', 'team_list', 'history_data', 'model_catalog']);
+      if (_msgSessionId && activeSessionIdRef.current && _msgSessionId !== activeSessionIdRef.current && !_crossSessionTypes.has(_msgType || '')) {
+        console.log(`[SESSION-FILTER] Dropping message type=${_msgType} sessionId=${_msgSessionId} activeSession=${activeSessionIdRef.current}`);
+        return;
+      }
+
       // Check for team list first
       const teamList = parseTeamList(message);
       if (teamList) {
@@ -641,9 +664,10 @@ function AppContent() {
           }
           clearActivity();
         } else if ('sessions' in sessionData) {
-          // chat_sessions — update session list
+          // chat_sessions — update session list and ref immediately
           setChatSessions(sessionData.sessions);
           setActiveSessionId(sessionData.currentSessionId);
+          activeSessionIdRef.current = sessionData.currentSessionId || null;
         } else if ('historyLogs' in (sessionData as any)) {
           // history_data — update history logs
           setHistoryLogs((sessionData as any).historyLogs);
@@ -1131,11 +1155,40 @@ function AppContent() {
         addActivity(_retryLabels[_rmt] || 'Retrying image generation...');
       } else if (name === 'new_chat') {
         setChatMessages([]);
+        setThinkingText('');
+        setThinkingDuration(null);
+        setIsThinking(false);
+        isThinkingRef.current = false;
+        thinkingStartRef.current = null;
+        setIsProcessing(false);
+        clearActivity();
         updateState({ tasks: [], current_plan: null });
       } else if (name === 'delete_chat') {
         setChatMessages([]);
+        setThinkingText('');
+        setThinkingDuration(null);
+        setIsThinking(false);
+        isThinkingRef.current = false;
+        thinkingStartRef.current = null;
+        setIsProcessing(false);
+        clearActivity();
         setNotifications([]);
         updateState({ current_plan: null, notifications: [] });
+      } else if (name === 'switch_chat') {
+        // Update ref immediately so WebSocket messages arriving before useEffect can be filtered correctly
+        activeSessionIdRef.current = payload?.session_id || null;
+        // Clear messages on session switch — without this, messages from the previous
+        // session stay visible until chat_history arrives from the backend, causing
+        // user messages and bubbles to appear in the wrong session.
+        setChatMessages([]);
+        setThinkingText('');
+        setThinkingDuration(null);
+        setIsThinking(false);
+        isThinkingRef.current = false;
+        thinkingStartRef.current = null;
+        setIsProcessing(false);
+        clearActivity();
+        updateState({ current_plan: null });
       } else if (name === 'set_selected_model') {
         setSelectedModel(payload?.model_id || '');
       } else if (name === 'change_media_model') {

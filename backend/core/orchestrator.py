@@ -829,6 +829,12 @@ class ExecutionOrchestrator:
                 role = agent_specs[idx].get("role", "")
                 deps = agent_specs[idx].get("depends_on", [])
 
+                # Create a fresh Agent instance — reusing the same agent object across
+                # retries causes CrewAI to retain internal state from the previous kickoff(),
+                # making the LLM repeat its earlier output instead of incorporating feedback.
+                worker_model = model_assignment["workers"].get(name, "")
+                agents[idx] = self.agent_factory.create_agent(agent_specs[idx], model_id=worker_model)
+
                 feedback_prompt = user_input
                 if deps:
                     context_parts = []
@@ -838,7 +844,12 @@ class ExecutionOrchestrator:
                             context_parts.append(f"--- Output from {dep_name} ---\n{dep_output}")
                     if context_parts:
                         feedback_prompt += f"\n\n[UPSTREAM CONTEXT]\n" + "\n\n".join(context_parts)
-                feedback_prompt += f"\n\n[MANAGER FEEDBACK]\n{feedback}"
+                feedback_prompt += (
+                    f"\n\n[MANAGER FEEDBACK]\n{feedback}"
+                    f"\n\nCRITICAL: Your previous output was REJECTED by the manager. "
+                    f"You MUST produce a DIFFERENT output that addresses the feedback above. "
+                    f"Do NOT repeat your previous output. Read the feedback carefully and fix every issue mentioned."
+                )
                 # Remind agent of assigned tools — if agent has tools but didn't call them,
                 # it must use them this time instead of producing text-only output.
                 agent_tools = agent_specs[idx].get("tools", [])

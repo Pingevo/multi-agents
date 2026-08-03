@@ -1103,8 +1103,10 @@ class CentralManager:
             # Not found by name — don't fallback, create new
             return {"type": "create", "spec": agent_spec}
 
-        # 2) If name matches an existing agent — only when reuse_existing is not explicitly False
-        if spec_name and reuse_existing is not False:
+        # 2) If name matches an existing agent — always reuse.
+        # The LLM often doesn't set reuse_existing=true even when it uses the same
+        # agent name. If the name matches a team agent, it means the same agent.
+        if spec_name:
             existing = registry.find_by_name(spec_name, team_id=team_id)
             if existing and not existing.get("is_manager"):
                 return {"type": "existing", "agent": existing}

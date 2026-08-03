@@ -305,9 +305,13 @@ const ResultPanel: React.FC<{
               <div className="tw-rp-lbl">Output</div>
               {progress?.review_summary && (
                 <div style={{ fontSize: '10px', marginBottom: '4px' }}>
-                  {progress.review_summary.includes('หยุดโดยผู้ใช้') || progress.review_summary.includes('ยังไม่ตรวจ') || progress.review_summary.includes('Cancelled')
-                    ? <span style={{ color: 'var(--amber)' }}>ยังไม่ตรวจสอบ</span>
-                    : <span style={{ color: 'var(--green)' }}>ตรวจผ่าน</span>}
+                  {status === 'complete' ? (
+                    progress.review_summary.includes('หยุดโดยผู้ใช้') || progress.review_summary.includes('ยังไม่ตรวจ') || progress.review_summary.includes('Cancelled')
+                      ? <span style={{ color: 'var(--amber)' }}>ยังไม่ตรวจสอบ</span>
+                      : <span style={{ color: 'var(--green)' }}>ตรวจผ่าน</span>
+                  ) : (
+                    <span style={{ color: 'var(--amber)' }}>Feedback</span>
+                  )}
                   {' — '}{progress.review_summary}
                 </div>
               )}

@@ -31,6 +31,12 @@ class StateMessenger:
         self.chat_store = chat_store or ChatStore()
         self.history_store = history_store or HistoryStore()
         self.current_session_id: str | None = None
+        # task_session_id is set at task start and cleared at task end. When set,
+        # all reply_* methods persist to this session (not current_session_id) and
+        # skip WebSocket sends if the user has switched to a different session.
+        # This prevents thinking bubbles, agent outputs, review cards, etc. from
+        # leaking into the wrong session when the user switches chats mid-task.
+        self.task_session_id: str | None = None
         self._main_loop: asyncio.AbstractEventLoop | None = None
         self.state = {
             "tasks": self.task_store.list_tasks(),
@@ -107,6 +113,40 @@ class StateMessenger:
             for a in agents
         ]
 
+    def _should_skip_ws(self) -> bool:
+        """True when a task is running and the user has switched to a different session.
+        In that case, WebSocket sends go to the wrong session — skip them and only persist."""
+        return bool(self.task_session_id and self.current_session_id and self.task_session_id != self.current_session_id)
+
+    def _persist_session_id(self) -> str | None:
+        """Return the session ID to persist messages to — task_session_id if a task is running, else current_session_id."""
+        return self.task_session_id or self.current_session_id
+
+    async def _send_ws(self, payload_json: str, bypass_guard: bool = False):
+        """Send a WebSocket message, but skip if the user has switched sessions while a task is running.
+        This prevents chat bubbles (thinking, agent output, results, etc.) from appearing in the wrong session.
+        Also injects sessionId into the payload so the frontend can filter by active session.
+
+        bypass_guard: when True, skip the session guard and inject current_session_id.
+        Used by reply_chat_history so switching sessions mid-task still loads the new session's history."""
+        if not bypass_guard and self._should_skip_ws():
+            print(f"[SESSION-GUARD] Skipping WebSocket send — user switched session (task={self.task_session_id}, current={self.current_session_id})", flush=True)
+            return
+        try:
+            payload = json.loads(payload_json)
+            payload["sessionId"] = self.current_session_id if bypass_guard else self._persist_session_id()
+            payload_json = json.dumps(payload, ensure_ascii=False)
+        except (json.JSONDecodeError, TypeError):
+            pass
+        await cl.Message(content=payload_json).send()
+
+    def _persist_to_task_session(self, message: dict):
+        """Persist a message to the task's original session (if set), else current session.
+        This ensures messages from a running task always go to the correct session even if the user switched."""
+        sid = self._persist_session_id()
+        if sid:
+            self.chat_store.add_message(sid, message)
+
     async def _send(self, trigger: str = "update"):
         self.state["credits"] = self._fetch_credits()
         payload = {
@@ -144,8 +184,8 @@ class StateMessenger:
         self.state["notifications"] = []
         await self._send()
         payload = chat_reply(ChatReplyText(message=message))
-        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
-        self.persist_message({"role": "assistant", "content": message, "messageType": "text"})
+        await self._send_ws(json.dumps(payload, ensure_ascii=False))
+        self._persist_to_task_session({"role": "assistant", "content": message, "messageType": "text"})
 
     async def reply_plan_validation_error(self, errors: list[str]):
         """Send a plan validation error — frontend resets plan card to pending"""
@@ -153,8 +193,8 @@ class StateMessenger:
         await self._send()
         message = "\n".join(errors)
         payload = chat_reply(ChatReplyPlanValidationError(message=message, errors=errors))
-        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
-        self.persist_message({"role": "assistant", "content": message, "messageType": "plan_validation_error", "validationErrors": errors})
+        await self._send_ws(json.dumps(payload, ensure_ascii=False))
+        self._persist_to_task_session({"role": "assistant", "content": message, "messageType": "plan_validation_error", "validationErrors": errors})
 
     async def reply_thinking(self, chunk: str, thinking_id: str = "thinking"):
         """Send a streaming thinking chunk to the frontend."""
@@ -167,7 +207,7 @@ class StateMessenger:
                 "thinkingId": thinking_id,
             }
         }
-        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
+        await self._send_ws(json.dumps(payload, ensure_ascii=False))
 
     async def reply_thinking_done(self, thinking_id: str = "thinking"):
         """Signal that thinking stream is complete."""
@@ -179,7 +219,7 @@ class StateMessenger:
                 "thinkingId": thinking_id,
             }
         }
-        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
+        await self._send_ws(json.dumps(payload, ensure_ascii=False))
 
     async def reply_plan(self, agents: list[dict], task_description: str, plan_type: str = "new", image_model: str = "", video_model: str = "", search_model: str = "", tts_model: str = "", stt_model: str = "", vision_model: str = "", has_image_tool: bool = False, has_video_tool: bool = False, has_search_tool: bool = False, has_tts_tool: bool = False, has_stt_tool: bool = False, has_vision_tool: bool = False, has_vision_input: bool = False, manager_model: str = "", agent_specs: list = None, model_assignment: dict = None, current_input: str = "", team_name: str = "", team_description: str = ""):
         """Send a plan card as a chat message"""
@@ -231,8 +271,8 @@ class StateMessenger:
             managerModel=manager_model,
             estimatedCost=estimated_cost,
         ))
-        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
-        self.persist_message({"role": "assistant", "messageType": "plan", "planAgents": payload["payload"]["planAgents"], "planTaskDescription": task_description, "planType": plan_type, "planStatus": "pending", "imageModel": image_model, "videoModel": video_model, "searchModel": search_model, "ttsModel": tts_model, "sttModel": stt_model, "visionModel": vision_model, "hasImageTool": has_image_tool, "hasVideoTool": has_video_tool, "hasSearchTool": has_search_tool, "hasTtsTool": has_tts_tool, "hasSttTool": has_stt_tool, "hasVisionTool": has_vision_tool, "hasVisionInput": has_vision_input, "managerModel": manager_model, "estimatedCost": estimated_cost, "agentSpecs": agent_specs or [], "modelAssignment": model_assignment or {}, "currentInput": current_input})
+        await self._send_ws(json.dumps(payload, ensure_ascii=False))
+        self._persist_to_task_session({"role": "assistant", "messageType": "plan", "planAgents": payload["payload"]["planAgents"], "planTaskDescription": task_description, "planType": plan_type, "planStatus": "pending", "imageModel": image_model, "videoModel": video_model, "searchModel": search_model, "ttsModel": tts_model, "sttModel": stt_model, "visionModel": vision_model, "hasImageTool": has_image_tool, "hasVideoTool": has_video_tool, "hasSearchTool": has_search_tool, "hasTtsTool": has_tts_tool, "hasSttTool": has_stt_tool, "hasVisionTool": has_vision_tool, "hasVisionInput": has_vision_input, "managerModel": manager_model, "estimatedCost": estimated_cost, "agentSpecs": agent_specs or [], "modelAssignment": model_assignment or {}, "currentInput": current_input})
 
     def _estimate_plan_cost(self, agents: list[dict], manager_model: str, image_model: str, video_model: str, search_model: str, tts_model: str, stt_model: str, vision_model: str) -> str:
         """Estimate cost based on model pricing. Returns a human-readable string."""
@@ -272,10 +312,11 @@ class StateMessenger:
             progressPercent=percent,
             progressLabel=label,
         ))
-        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
-        # Progress: update or insert in session (don't duplicate)
-        if self.current_session_id:
-            session = self.chat_store.get_session(self.current_session_id)
+        await self._send_ws(json.dumps(payload, ensure_ascii=False))
+        # Progress: update or insert in task's original session (don't duplicate)
+        _sid = self._persist_session_id()
+        if _sid:
+            session = self.chat_store.get_session(_sid)
             if session:
                 msgs = session["messages"]
                 existing = None
@@ -317,10 +358,11 @@ class StateMessenger:
             overallProgress=overall,
             agents=entries,
         ))
-        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
-        # Update or insert in session
-        if self.current_session_id:
-            session = self.chat_store.get_session(self.current_session_id)
+        await self._send_ws(json.dumps(payload, ensure_ascii=False))
+        # Update or insert in task's original session
+        _sid = self._persist_session_id()
+        if _sid:
+            session = self.chat_store.get_session(_sid)
             if session:
                 msgs = session["messages"]
                 existing = None
@@ -353,8 +395,8 @@ class StateMessenger:
             resultError=is_error,
             resultAgents=result_agents,
         ))
-        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
-        self.persist_message({"role": "assistant", "messageType": "result", "resultSummary": summary, "resultError": is_error, "resultAgents": [a.model_dump() for a in result_agents]})
+        await self._send_ws(json.dumps(payload, ensure_ascii=False))
+        self._persist_to_task_session({"role": "assistant", "messageType": "result", "resultSummary": summary, "resultError": is_error, "resultAgents": [a.model_dump() for a in result_agents]})
 
     async def reply_agent_output(self, agent_name: str, output: str, agent_id: str = ""):
         # Send agent output as a FeedAgentMessage bubble in chat.
@@ -364,8 +406,8 @@ class StateMessenger:
         # agent_id is persisted as agentId so follow-up context can distinguish
         # agents with duplicate names (Issue #30).
         payload = chat_reply(ChatReplyText(message=output, agentName=agent_name))
-        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
-        self.persist_message({"role": "assistant", "content": output, "messageType": "text", "agentName": agent_name, "agentId": agent_id})
+        await self._send_ws(json.dumps(payload, ensure_ascii=False))
+        self._persist_to_task_session({"role": "assistant", "content": output, "messageType": "text", "agentName": agent_name, "agentId": agent_id})
 
     async def reply_image_approval(self, prompt: str, approval_id: str, agent_name: str = "", media_type: str = "image", duration: int = 0, model: str = "", approval_status: str = "pending", image_error: str = "", task_session_id: str = ""):
         """Send a media approval card — user must approve before generation.
@@ -384,18 +426,12 @@ class StateMessenger:
             approvalStatus=approval_status,
             imageError=image_error,
         ))
-        # Fix: cl.Message().send() goes to the user's WebSocket regardless of session.
-        # If user switched sessions while task was running, only persist — don't send to WebSocket.
-        # The card will appear when the user navigates back to the original session via chat_history.
-        if task_session_id and self.current_session_id and task_session_id != self.current_session_id:
-            print(f"[DEBUG-APPROVAL] Skipping WebSocket send — user switched session (task={task_session_id}, current={self.current_session_id})", flush=True)
-        else:
-            await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
+        # Route through _send_ws() for sessionId injection and session guard
+        await self._send_ws(json.dumps(payload, ensure_ascii=False))
         # Persist to the task's original session, not the current session
-        if task_session_id:
-            self.chat_store.add_message(task_session_id, {"role": "assistant", "messageType": "image_approval", "imagePrompt": prompt, "approvalId": approval_id, "agentName": agent_name, "mediaType": media_type, "duration": duration, "model": model, "approvalStatus": approval_status, "imageError": image_error})
-        else:
-            self.persist_message({"role": "assistant", "messageType": "image_approval", "imagePrompt": prompt, "approvalId": approval_id, "agentName": agent_name, "mediaType": media_type, "duration": duration, "model": model, "approvalStatus": approval_status, "imageError": image_error})
+        _persist_sid = task_session_id or self._persist_session_id()
+        if _persist_sid:
+            self.chat_store.add_message(_persist_sid, {"role": "assistant", "messageType": "image_approval", "imagePrompt": prompt, "approvalId": approval_id, "agentName": agent_name, "mediaType": media_type, "duration": duration, "model": model, "approvalStatus": approval_status, "imageError": image_error})
 
     async def reply_agent_review(self, review_id: str, task_id: str, agent_name: str, agent_role: str, output: str, review_status: str = "pending"):
         """Send a per-agent review card — user must approve before dependents can start"""
@@ -407,21 +443,22 @@ class StateMessenger:
             output=output[:8000],
             reviewStatus=review_status,
         ))
-        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
-        self.persist_message({"role": "assistant", "messageType": "agent_review", "reviewId": review_id, "taskId": task_id, "agentName": agent_name, "agentRole": agent_role, "output": output[:8000], "reviewStatus": review_status})
+        await self._send_ws(json.dumps(payload, ensure_ascii=False))
+        self._persist_to_task_session({"role": "assistant", "messageType": "agent_review", "reviewId": review_id, "taskId": task_id, "agentName": agent_name, "agentRole": agent_role, "output": output[:8000], "reviewStatus": review_status})
 
     async def update_agent_review_status(self, review_id: str, status: str):
-        """Update the reviewStatus of an agent_review message in the current session"""
-        if not self.current_session_id:
+        """Update the reviewStatus of an agent_review message in the task's original session"""
+        _sid = self._persist_session_id()
+        if not _sid:
             return
-        session = self.chat_store.get_session(self.current_session_id)
+        session = self.chat_store.get_session(_sid)
         if not session:
             return
         for msg in session.get("messages", []):
             if msg.get("messageType") == "agent_review" and msg.get("reviewId") == review_id:
                 msg["reviewStatus"] = status
                 self.chat_store._save()
-                # Send socket message so frontend updates consistently
+                # Send socket message so frontend updates consistently — guard against session leak
                 payload = chat_reply(ChatReplyAgentReview(
                     reviewId=review_id,
                     taskId=msg.get("taskId", ""),
@@ -430,7 +467,7 @@ class StateMessenger:
                     output=msg.get("output", ""),
                     reviewStatus=status,
                 ))
-                await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
+                await self._send_ws(json.dumps(payload, ensure_ascii=False))
                 break
 
     async def reply_image_result(self, image_url: str, prompt: str, approval_id: str, task_id: str | None = None, media_type: str = "image", agent_name: str = ""):
@@ -445,32 +482,34 @@ class StateMessenger:
         ))
         json_str = json.dumps(payload, ensure_ascii=False)
         print(f"[REPLY-IMAGE-RESULT] Sending image_url={image_url}, approval_id={approval_id}", flush=True)
-        # Try cl.Message first, then fallback to direct socket emit
+        # Try cl.Message first, then fallback to direct socket emit — both guarded against session leak
         try:
-            await cl.Message(content=json_str).send()
-            print(f"[REPLY-IMAGE-RESULT] cl.Message().send() OK", flush=True)
+            await self._send_ws(json_str)
+            print(f"[REPLY-IMAGE-RESULT] _send_ws OK", flush=True)
         except Exception as e:
-            print(f"[REPLY-IMAGE-RESULT] cl.Message().send() failed: {e}", flush=True)
+            print(f"[REPLY-IMAGE-RESULT] _send_ws failed: {e}", flush=True)
         # Also emit directly via socket.io as a backup (cl.Message may silently fail after asyncio.to_thread)
-        try:
-            from chainlit.session import WebsocketSession, ws_sessions_id
-            _cl_sid = cl.context.session.id if cl.context else None
-            print(f"[REPLY-IMAGE-RESULT] cl session={_cl_sid}, chat session={self.current_session_id}", flush=True)
-            ws = WebsocketSession.get_by_id(_cl_sid) if _cl_sid else None
-            if not ws:
-                for sid, sess in ws_sessions_id.items():
-                    ws = sess
-                    print(f"[REPLY-IMAGE-RESULT] Fallback: using session {sid}", flush=True)
-                    break
-            if ws and hasattr(ws, 'emit'):
-                step_dict = {"id": approval_id, "output": json_str, "type": "assistant_message", "createdAt": datetime.now().isoformat()}
-                await ws.emit("new_message", step_dict)
-                print(f"[REPLY-IMAGE-RESULT] Direct emit sent to socket {ws.socket_id}", flush=True)
-            else:
-                print(f"[REPLY-IMAGE-RESULT] No WebsocketSession found", flush=True)
-        except Exception as e:
-            print(f"[REPLY-IMAGE-RESULT] Direct emit failed: {e}", flush=True)
-        self.persist_message({"role": "assistant", "messageType": "image_result", "imageUrl": image_url, "imagePrompt": prompt, "approvalId": approval_id, "taskId": task_id, "mediaType": media_type, "agentName": agent_name})
+        # Skip if user switched sessions — same guard as _send_ws
+        if not self._should_skip_ws():
+            try:
+                from chainlit.session import WebsocketSession, ws_sessions_id
+                _cl_sid = cl.context.session.id if cl.context else None
+                print(f"[REPLY-IMAGE-RESULT] cl session={_cl_sid}, chat session={self.current_session_id}", flush=True)
+                ws = WebsocketSession.get_by_id(_cl_sid) if _cl_sid else None
+                if not ws:
+                    for sid, sess in ws_sessions_id.items():
+                        ws = sess
+                        print(f"[REPLY-IMAGE-RESULT] Fallback: using session {sid}", flush=True)
+                        break
+                if ws and hasattr(ws, 'emit'):
+                    step_dict = {"id": approval_id, "output": json_str, "type": "assistant_message", "createdAt": datetime.now().isoformat()}
+                    await ws.emit("new_message", step_dict)
+                    print(f"[REPLY-IMAGE-RESULT] Direct emit sent to socket {ws.socket_id}", flush=True)
+                else:
+                    print(f"[REPLY-IMAGE-RESULT] No WebsocketSession found", flush=True)
+            except Exception as e:
+                print(f"[REPLY-IMAGE-RESULT] Direct emit failed: {e}", flush=True)
+        self._persist_to_task_session({"role": "assistant", "messageType": "image_result", "imageUrl": image_url, "imagePrompt": prompt, "approvalId": approval_id, "taskId": task_id, "mediaType": media_type, "agentName": agent_name})
 
     async def reply_audio_result(self, audio_url: str, prompt: str, voice: str = "", agent_name: str = "", model: str = "", task_id: str = ""):
         """Send a TTS audio result to the frontend."""
@@ -482,8 +521,8 @@ class StateMessenger:
             model=model,
             taskId=task_id,
         ))
-        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
-        self.persist_message({"role": "assistant", "messageType": "audio_result", "audioUrl": audio_url, "audioPrompt": prompt, "voice": voice, "agentName": agent_name, "model": model})
+        await self._send_ws(json.dumps(payload, ensure_ascii=False))
+        self._persist_to_task_session({"role": "assistant", "messageType": "audio_result", "audioUrl": audio_url, "audioPrompt": prompt, "voice": voice, "agentName": agent_name, "model": model, "taskId": task_id})
 
     async def reply_transcription_result(self, transcription_text: str, audio_url: str = "", agent_name: str = "", model: str = "", task_id: str = ""):
         """Send a transcription (STT) result to the frontend."""
@@ -494,8 +533,8 @@ class StateMessenger:
             model=model,
             taskId=task_id,
         ))
-        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
-        self.persist_message({"role": "assistant", "messageType": "transcription_result", "transcriptionText": transcription_text, "audioUrl": audio_url, "agentName": agent_name, "model": model})
+        await self._send_ws(json.dumps(payload, ensure_ascii=False))
+        self._persist_to_task_session({"role": "assistant", "messageType": "transcription_result", "transcriptionText": transcription_text, "audioUrl": audio_url, "agentName": agent_name, "model": model, "taskId": task_id})
 
     async def reply_video_result(self, video_url: str, prompt: str, agent_name: str = "", model: str = "", task_id: str = ""):
         """Send a video generation result to the frontend."""
@@ -506,8 +545,8 @@ class StateMessenger:
             model=model,
             taskId=task_id,
         ))
-        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
-        self.persist_message({"role": "assistant", "messageType": "video_result", "videoUrl": video_url, "videoPrompt": prompt, "agentName": agent_name, "model": model})
+        await self._send_ws(json.dumps(payload, ensure_ascii=False))
+        self._persist_to_task_session({"role": "assistant", "messageType": "video_result", "videoUrl": video_url, "videoPrompt": prompt, "agentName": agent_name, "model": model, "taskId": task_id})
 
     async def reply_file_result(self, file_url: str, file_name: str, file_mime: str = "", agent_name: str = "", task_id: str = ""):
         """Send a generic file result to the frontend."""
@@ -518,8 +557,8 @@ class StateMessenger:
             agentName=agent_name,
             taskId=task_id,
         ))
-        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
-        self.persist_message({"role": "assistant", "messageType": "file_result", "fileUrl": file_url, "fileName": file_name, "fileMime": file_mime, "agentName": agent_name})
+        await self._send_ws(json.dumps(payload, ensure_ascii=False))
+        self._persist_to_task_session({"role": "assistant", "messageType": "file_result", "fileUrl": file_url, "fileName": file_name, "fileMime": file_mime, "agentName": agent_name, "taskId": task_id})
 
     async def reply_model_catalog(self, recommended: dict, search_results: list, selected_model: str = "", catalog_type: str = "text"):
         """Send model catalog to frontend for user selection"""
@@ -582,7 +621,7 @@ class StateMessenger:
             )
         except Exception:
             payload["payload"]["uploadLimitMb"] = 500
-        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
+        await self._send_ws(json.dumps(payload, ensure_ascii=False))
 
     async def reply_tuning_proposal(self, proposals: list[dict]):
         """Send a tuning proposal card to the frontend for user confirmation."""
@@ -593,7 +632,7 @@ class StateMessenger:
                 "proposals": proposals,
             }
         }
-        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
+        await self._send_ws(json.dumps(payload, ensure_ascii=False))
         self.persist_message({"role": "assistant", "messageType": "tuning_proposal", "proposals": proposals})
 
     def log_history(self, task_id: str, task_title: str, actor: str, action: str, target: str = "", team_id: str = ""):
@@ -640,7 +679,7 @@ class StateMessenger:
                 "selectedModel": settings.get("selected_model", ""),
             },
         }
-        await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
+        await self._send_ws(json.dumps(payload, ensure_ascii=False), bypass_guard=True)
 
     @staticmethod
     def _migrate_msg_urls(msg: dict) -> dict:
@@ -695,9 +734,10 @@ class StateMessenger:
         await cl.Message(content=json.dumps(payload, ensure_ascii=False)).send()
 
     def persist_message(self, message: dict):
-        """Persist a message to the current chat session"""
-        if self.current_session_id:
-            self.chat_store.add_message(self.current_session_id, message)
+        """Persist a message to the task's original session if a task is running, else current session."""
+        _sid = self._persist_session_id()
+        if _sid:
+            self.chat_store.add_message(_sid, message)
 
     def update_persisted_message(self, message_type: str, updates: dict):
         """Update the last persisted message of a given type with new fields."""
@@ -759,9 +799,9 @@ class StateMessenger:
                 json_str = json.dumps(payload, ensure_ascii=False)
                 print(f"[UPDATE-APPROVAL] Sending status={status} for {approval_id}", flush=True)
                 try:
-                    await cl.Message(content=json_str).send()
+                    await self._send_ws(json_str)
                 except Exception as e:
-                    print(f"[UPDATE-APPROVAL] cl.Message().send() failed: {e}", flush=True)
+                    print(f"[UPDATE-APPROVAL] _send_ws() failed: {e}", flush=True)
                 # Also emit directly via socket.io as a backup
                 try:
                     from chainlit.session import WebsocketSession, ws_sessions_id

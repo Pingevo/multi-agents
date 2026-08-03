@@ -208,6 +208,15 @@ class ChatStore:
             session["updated_at"] = datetime.now().isoformat()
             self._save()
 
+    def clear_all_pending_media(self, session_id: str):
+        """Clear ALL pending media for a session — used on new task start to prevent
+        stale approvals from previous runs accumulating and showing as 40+ pending items."""
+        session = self.get_session(session_id)
+        if session and "pending_media" in session:
+            session["pending_media"] = {}
+            session["updated_at"] = datetime.now().isoformat()
+            self._save()
+
     # ============================================================
     # Media tool results persistence — survives backend restart
     # Needed to rebuild approval cards if they're lost from memory
