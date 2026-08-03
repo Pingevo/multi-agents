@@ -1,6 +1,7 @@
 """StateMessenger — sends platform state to frontend via JSON messages."""
 
 import asyncio
+import contextvars
 import json
 import os
 import requests
@@ -31,12 +32,6 @@ class StateMessenger:
         self.chat_store = chat_store or ChatStore()
         self.history_store = history_store or HistoryStore()
         self.current_session_id: str | None = None
-        # task_session_id is set at task start and cleared at task end. When set,
-        # all reply_* methods persist to this session (not current_session_id) and
-        # skip WebSocket sends if the user has switched to a different session.
-        # This prevents thinking bubbles, agent outputs, review cards, etc. from
-        # leaking into the wrong session when the user switches chats mid-task.
-        self.task_session_id: str | None = None
         self._main_loop: asyncio.AbstractEventLoop | None = None
         self.state = {
             "tasks": self.task_store.list_tasks(),
@@ -113,10 +108,25 @@ class StateMessenger:
             for a in agents
         ]
 
+    # ContextVar for per-task session isolation — each asyncio task (execute_multi_agent_task,
+    # execute_task_with_agent, on_message assess/plan phase) gets its own task_session_id.
+    # This prevents concurrent tasks in different sessions from overwriting each other's
+    # task_session_id on the singleton messenger instance.
+    _task_session_id_cv: contextvars.ContextVar[str | None] = contextvars.ContextVar('task_session_id', default=None)
+
+    @property
+    def task_session_id(self) -> str | None:
+        return self._task_session_id_cv.get()
+
+    @task_session_id.setter
+    def task_session_id(self, value: str | None):
+        self._task_session_id_cv.set(value)
+
     def _should_skip_ws(self) -> bool:
         """True when a task is running and the user has switched to a different session.
         In that case, WebSocket sends go to the wrong session — skip them and only persist."""
-        return bool(self.task_session_id and self.current_session_id and self.task_session_id != self.current_session_id)
+        _tsid = self.task_session_id
+        return bool(_tsid and self.current_session_id and _tsid != self.current_session_id)
 
     def _persist_session_id(self) -> str | None:
         """Return the session ID to persist messages to — task_session_id if a task is running, else current_session_id."""
@@ -130,7 +140,7 @@ class StateMessenger:
         bypass_guard: when True, skip the session guard and inject current_session_id.
         Used by reply_chat_history so switching sessions mid-task still loads the new session's history."""
         if not bypass_guard and self._should_skip_ws():
-            print(f"[SESSION-GUARD] Skipping WebSocket send — user switched session (task={self.task_session_id}, current={self.current_session_id})", flush=True)
+            print(f"[SESSION-GUARD] Skipping WebSocket send — user switched session (task={self.task_session_id}, current={self.current_session_id})", flush=True)  # noqa: F821
             return
         try:
             payload = json.loads(payload_json)
@@ -755,10 +765,13 @@ class StateMessenger:
                 return
 
     def update_plan_status(self, status: str):
-        """Update the planStatus of the most recent plan message in the current session"""
-        if not self.current_session_id:
+        """Update the planStatus of the most recent plan message.
+        Uses _persist_session_id() so the update goes to the task's original session,
+        not the session the user may have switched to."""
+        _sid = self._persist_session_id()
+        if not _sid:
             return
-        session = self.chat_store.get_session(self.current_session_id)
+        session = self.chat_store.get_session(_sid)
         if not session:
             return
         msgs = session["messages"]

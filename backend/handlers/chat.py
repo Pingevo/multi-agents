@@ -2281,6 +2281,10 @@ async def on_message(message: cl.Message):
 
     # If user sends a new message while a plan is pending, discard old plan and reprocess
     if state == STATE_AWAITING_APPROVAL:
+        # Mark old plan as "discarded" in chat_store — without this, the plan stays "pending"
+        # forever and gets restored on session switch or page refresh, showing stale accept/reject buttons
+        if messenger:
+            messenger.update_plan_status("discarded")
         cl.user_session.set("state", STATE_IDLE)
         cl.user_session.set("current_agent_specs", None)
         cl.user_session.set("current_input", None)

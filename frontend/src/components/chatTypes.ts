@@ -30,7 +30,7 @@ export interface ResultAgent {
 
 export type ChatMessageType = 'text' | 'plan' | 'plan_validation_error' | 'progress' | 'result' | 'image_approval' | 'image_result' | 'agent_progress' | 'model_catalog' | 'thinking' | 'thinking_done' | 'audio_result' | 'transcription_result' | 'video_result' | 'file_result' | 'tuning_proposal' | 'agent_review';
 
-export type PlanStatus = 'pending' | 'approved' | 'rejected';
+export type PlanStatus = 'pending' | 'approved' | 'rejected' | 'discarded';
 
 export type ImageApprovalStatus = 'pending' | 'approved' | 'rejected' | 'error' | 'generated';
 

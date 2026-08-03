@@ -595,7 +595,7 @@ function buildRuns(chatMessages: ChatMessage[]): StoryboardRun[] {
   if (currentRun) runs.push(currentRun);
 
   // Filter out rejected runs and runs with no plan agents (plain chat messages)
-  const visible = runs.filter(r => r.planStatus !== 'rejected' && (r.planAgents.length > 0 || r.result));
+  const visible = runs.filter(r => r.planStatus !== 'rejected' && r.planStatus !== 'discarded' && (r.planAgents.length > 0 || r.result));
 
   // Re-index so run numbers start from 1 sequentially
   visible.forEach((r, i) => { r.runIndex = i; });

@@ -118,14 +118,14 @@ const PlanCard: React.FC<{
   const [editingManager, setEditingManager] = useState(false);
   const managerModelRef = useRef<HTMLButtonElement | null>(null);
   return (
-    <div className={`rounded-xl border bg-bg overflow-hidden ${isPending ? 'border-accent/30' : 'border-border'}`}>
+    <div className={`rounded-xl border bg-bg overflow-hidden ${isPending ? 'border-accent/30' : 'border-border opacity-60'}`}>
       <div className="flex items-center justify-between px-3.5 py-2.5 bg-accent/5 border-b border-accent/20">
         <div className="flex items-center gap-2">
           <span className="text-sm">📋</span>
           <span className="font-semibold text-[13px] text-accent-light">
             {planType === 'create_agents'
-              ? (planStatus === 'approved' ? 'สร้าง Agent (อนุมัติแล้ว)' : planStatus === 'rejected' ? 'สร้าง Agent (ปฏิเสธ)' : 'สร้าง Agent')
-              : (planStatus === 'approved' ? 'แผนงาน (อนุมัติแล้ว)' : planStatus === 'rejected' ? 'แผนงาน (ปฏิเสธ)' : 'แผนงาน')}
+              ? (planStatus === 'approved' ? 'สร้าง Agent (อนุมัติแล้ว)' : planStatus === 'rejected' ? 'สร้าง Agent (ปฏิเสธ)' : planStatus === 'discarded' ? 'สร้าง Agent (ยกเลิก)' : 'สร้าง Agent')
+              : (planStatus === 'approved' ? 'แผนงาน (อนุมัติแล้ว)' : planStatus === 'rejected' ? 'แผนงาน (ปฏิเสธ)' : planStatus === 'discarded' ? 'แผนงาน (ยกเลิก)' : 'แผนงาน')}
           </span>
         </div>
         {planType !== 'create_agents' && (

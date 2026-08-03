@@ -1022,6 +1022,14 @@ function AppContent() {
         ? `${message}\n\n${attachmentParts.join('\n')}`
         : message;
       const prefixed = `__mode:${inputMode}__\n${messageToSend}`;
+      // Optimistically mark any pending plan as discarded — user started a new request
+      setChatMessages((prev) =>
+        prev.map((m) =>
+          m.messageType === 'plan' && m.planStatus === 'pending'
+            ? { ...m, planStatus: 'discarded' }
+            : m
+        )
+      );
       addChatMessage({
         role: 'user',
         content: message,
