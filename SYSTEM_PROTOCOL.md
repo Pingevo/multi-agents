@@ -28,24 +28,56 @@
 4. Scheduling — รันตามเวลา (cron/scheduler)
 
 สิ่งที่ใช้ API ของคนอื่น (ไม่สร้างเอง):
-- Text/Chat, Image, Video, Web Search → OpenRouter API
-- Text-to-Speech (TTS), Speech-to-Text (STT) → OpenRouter Audio API
-- Vision (image analysis) → OpenRouter (model ที่รองรับ image input)
-- Embeddings → OpenRouter (model ที่มี output_modalities=embeddings)
-- ระบบค้นพบ model แบบไดนามิกจาก API — ห้าม hardcode
+- LLM generation (OpenRouter)
+- Image/Video generation (OpenRouter)
+- Search (DuckDuckGo)
 
-## 1. Project Philosophy
-- User คือ Manager: ผู้ตัดสินใจสูงสุดคือ User ทุกฟีเจอร์ต้องผ่านการอนุมัติ
-- System Design: Agent Factory & Registry (Single Source of Truth)
+## 1. Architecture Overview
+
+```
+Frontend (Vite/React, port 5173)
+  ↓ WebSocket + REST API
+Backend (Chainlit, port 8000)
+  ├── Core: Secretary, Orchestrator, Messenger, Scheduler
+  ├── Agents: Registry, Factory, TaskStore, ChatStore, TeamRegistry
+  ├── LLM: Manager, Discovery, Rotator, Selector
+  ├── Media: GenerationManager (image/video/TTS/STT)
+  └── Auth: System81AuthProvider, SessionManager, UserStore
+  ↓
+Auth API (FastAPI, port 8001)
+  └── /api/auth/login, /verify, /logout, /login-url
+```
+
+### 3-Server Architecture
+- **Vite dev server (port 5173)** — React frontend ที่ user เปิดใน browser
+- **Chainlit backend (port 8000)** — WebSocket/API สำหรับ chat, tasks, agent management
+- **FastAPI auth server (port 8001)** — REST API สำหรับ auth endpoints
+- ดูคำสั่งรันทั้ง 3 servers ใน `DEV_SETUP.md`
+- **ห้ามเปิด port 8000 ใน browser** — นั่นคือ Chainlit's own UI ไม่ใช่ React app
+
+### System Design
+- Agent Factory & Registry (Single Source of Truth)
 - UI/UX: **Dashboard-first, Chat-second**. ไม่พ่น Log หรือ Debug ข้อมูลรกหน้าแชท
 - Central Secretary: ต้องมี **AI Assessor** ประเมินความต้องการและถาม requirement ก่อนตัดสินใจ
 
-## 2. UI/UX Rules (Dashboard-First)
-- Main View: ต้องเป็น **Agent Control Panel** ที่แสดง Task Slots, Plans, Agent Status แบบ Visual
-- Sidebar: ต้องเป็น **Agent Console** ที่ค้างอยู่ตลอดเวลา มี Agent Table + ปุ่ม Action จัดการ Agent
-- Chat: ทำหน้าที่เป็น **Command Center** รับคำสั่งอย่างเดียว ไม่ใช่ที่แสดงผลการทำงานของ Agent
+## 2. UI/UX Rules (Retro Desktop)
+
+Frontend เป็นแบบ **Windows 95 Retro Desktop**:
+- **RetroDesktop** — หน้าจอหลัก มี desktop icons, taskbar, และ windows ที่เปิดได้
+- **WindowManager** — จัดการ window position, z-index, focus, minimize/maximize
+- **Taskbar** — แสดง running windows และ system tray
+- **Windows**: ChatWindow, TasksWindow, AgentsWindow, HistoryWindow, NotificationsWindow, SettingsWindow, ScheduleWindow, AgentDetailWindow
+
+### Key Windows
+- **ChatWindow** — Command center รับคำสั่ง, แสดง chat bubbles, plan cards, approval buttons
+- **TasksWindow** — 3-panel: task list (ซ้าย), flow diagram (กลาง), result panel (ขวา) พร้อม tabs (Output/Review/Media/Info)
+- **AgentsWindow** — Agent roster bar + agent detail window
+- **HistoryWindow** — ประวัติการทำงานของ tasks
+
+### Rules
 - ห้ามใช้ `cl.Message` ในการอัปเดตสถานะงาน ให้ใช้การอัปเดต Custom Element บน Dashboard แทน
 - ห้ามสร้าง Text Log รกรุงรังในแชท ทุก Task ต้องมี Slot ของตัวเองบน Dashboard
+- Chat: ทำหน้าที่เป็น **Command Center** รับคำสั่งอย่างเดียว ไม่ใช่ที่แสดงผลการทำงานของ Agent
 
 ## 3. Intelligence & Requirement Gathering (AI Assessor)
 - AI ประเมินความต้องการของ User ด้วยตนเอง ไม่บังคับหมวดหมู่ตายตัว
@@ -79,19 +111,72 @@ Memory: ยอมรับ context limit — แปลง learnings ที่ใ
 
 Quality: 2 ชั้น — agent ตรวจตัวเอง + manager ตรวจอีกชั้น
 
-## 4. Coding & Interaction Rules
-- Auto-Documentation: ทุกครั้งที่แก้ไขโค้ด ต้องอัปเดตไฟล์ `DEVELOPER_LOG.md` เสมอ
+## 4. Team System
+
+- **TeamRegistry**: จัดการทีม แต่ละทีมมี agents และ manager
+- ทีม = กลุ่ม agent ที่ทำงานด้วยกัน มี Manager agent คอย coordinate
+- Manager agent: `allow_delegation=True`, ไม่มี tools, หน้าที่ delegate + synthesize results
+- TeamCreateModal: สร้างทีมพร้อม config manager (personality, expertise, brand_context)
+- แต่ละทีมมี settings เฉพาะ: review_iterations, max_retry, model selection
+
+## 5. Review Loop (Quality Control)
+
+- หลัง agent ทำงานเสร็จ → Manager ตรวจสอบ output
+- ถ้าไม่ผ่าน → ส่ง feedback กลับให้ agent ทำใหม่ (วนลูปได้หลายรอบ)
+- `review_round` — รอบที่ตรวจปัจจุบัน
+- `review_summary` — สรุปผลการตรวจ
+- `review_feedback` — feedback ส่งกลับให้ agent
+- `review_history` — ประวัติการตรวจทุกรอบ (round, status, summary, feedback, output_preview)
+- ค่า `review_iterations` กำหนดจำนวนรอบสูงสุด (0 = unlimited)
+- ถ้า review ครบรอบแล้วไม่ผ่าน → ส่งผลลัพธ์ล่าสุดให้ user พร้อมแจ้งว่าไม่ผ่าน review
+
+## 6. Media Generation
+
+- **MediaGenerationManager**: สร้าง image, video, TTS, STT ผ่าน OpenRouter API
+- รองรับ: image generation, video generation, text-to-speech, speech-to-text, vision (image analysis)
+- Generated media เก็บใน `data/users/{user_id}/generated/`
+- Image approval flow: agent เสนอ prompt → user approve → generate → display result
+- Message types: `image_approval` (approval card), `image_result` (generated media display)
+
+## 7. LLM Management
+
+- **LLMManager**: จัดการ LLM API calls ผ่าน OpenRouter
+- **ModelDiscoveryService**: ดึงรายการ models จาก OpenRouter, ตรวจสอบ capabilities (vision, tools, context length)
+- **ModelRotator**: สลับ model อัตโนมัติเมื่อเจอ rate limit หรือ error
+- **ModelSelector**: เลือก model ตาม capability requirements (reasoning, creative, vision, etc.)
+- **ModelCatalog**: รายการ models ที่รองรับ พร้อม pricing และ capabilities
+- ทุก agent สามารถใช้ model คนละตัวได้
+- Manager agent มี model เฉพาะของตัวเอง
+
+## 8. Scheduler
+
+- **Scheduler**: รัน recurring tasks ตาม schedule แบบ cron
+- **ScheduledTaskStore**: เก็บ task definitions ที่ schedule ไว้ใน `data/users/{uid}/scheduled_tasks.json`
+- รองรับ: daily, weekly, monthly intervals
+- แต่ละ scheduled task มี: prompt, team_id, schedule config, enabled flag
+- รันอัตโนมัติโดย background scheduler process
+
+## 9. Agentic File I/O
+
+- Universal input parsing: รับไฟล์ได้ทุกประเภท (image, PDF, audio, video, text, DOCX, XLSX, SVG)
+- URL classification: YouTube, direct file, webpage
+- แปลงไฟล์เป็น OpenRouter multimodal content blocks (image_url, file, input_audio, video_url)
+- ตรวจสอบ model modality support ก่อนส่ง — ถ้าไม่รองรับ → fall back to text extraction
+- SSRF protection, download size limits (50MB), text truncation (50K chars)
+- CrewAI input files: ส่งไฟล์ตรงไป agent ผ่าน `input_files` parameter
+
+## 10. Coding & Interaction Rules
 - Code Clarity: โค้ดต้องอ่านง่าย ไม่ต้องคอมเมนต์ฟุ่มเฟือย แต่ต้องมี Documentation สรุป Logic
 - Proactive Explainer: ก่อนเริ่มงานใหญ่ ต้องร่าง Diagram/Logic สรุปให้ User เห็นภาพก่อนเขียนโค้ดเสมอ
 - No Over-Engineering: อย่าสร้าง Agent เองถ้า User ไม่ได้สั่ง ให้รอคำสั่งเสมอ
 
-## 5. Operations Protocol (Mandatory)
-- เมื่อเริ่มต้นงานใหม่: ต้องอ่านไฟล์นี้เป็นลำดับแรก
+## 11. Operations Protocol
+- เมื่อทำงาน feature/bugfix: อ่านไฟล์นี้เพื่อเข้าใจ architecture และ constraints
 - เมื่อเจอปัญหา: ห้ามเดาสุ่ม ให้ตรวจสอบ Stack Trace และสรุปให้ User ฟังก่อนแก้
 - เมื่อ User สั่งงานทั่วไป: ให้ตอบสนองในฐานะ Assistant ไม่ต้องพยายามสร้าง Agent ทุกกรณี
 
-## 6. Mattpocock Skills (MANDATORY — Non-negotiable)
-Skills คือหลักการทำงาน ไม่ใช่ one-shot tools ต้องใช้ทุกครั้งตามเงื่อนไข:
+## 12. Mattpocock Skills (for feature/bugfix work)
+Skills คือหลักการทำงาน ใช้ตามเงื่อนไข:
 
 | Trigger | Skill | ทุกครั้ง? |
 |---------|-------|-----------|
@@ -103,27 +188,31 @@ Skills คือหลักการทำงาน ไม่ใช่ one-shot
 | สแกนปรับสถาปัตยกรรม | `improve-codebase-architecture` | ทุก few sprints |
 
 - ห้ามข้ามขั้นตอน ห้ามเดาก่อนใช้ skill
-- ถ้าไม่แน่ใจว่าจะใช้ skill ไหน → อ่าน `SYSTEM_PROTOCOL.md` ก่อนเริ่มงาน
+- ข้าม skills ได้สำหรับงานเร่งด่วน (เปิดเว็บ, รัน server, ตอบคำถาม, แก้ config เล็กๆ)
 
-## 7. Maintenance
-- ทุกครั้งที่ปิดโปรเจกต์หรือจบงาน: อัปเดต `DEVELOPER_LOG.md` ให้เป็นปัจจุบันที่สุด
-
-## 8. Account System (Per-User Data Isolation)
+## 13. Account System (Per-User Data Isolation)
 
 ### Architecture
-- **AuthProvider** (pluggable interface): ตอนนี้ใช้ `DevLoginProvider` (username ง่ายๆ) อนาคตรองรับ OAuth, LDAP, SAML
+- **AuthProvider** (pluggable interface): ปัจจุบันใช้ `System81AuthProvider` (OAuth ผ่าน Sellercenter System81)
 - **UserStore**: เก็บ user profile ใน `data/users.json`
 - **SessionManager**: สร้าง/verify session token เก็บใน `data/sessions.json` (TTL 7 วัน)
 - **Per-user data**: แยกไฟล์ข้อมูลทุกประเภทตาม `data/users/{user_id}/`
   - `agent_registry.json` — agents ของ user นั้น
   - `task_registry.json` — tasks ของ user นั้น
   - `chat_sessions.json` — chat history ของ user นั้น
+  - `team_registry.json` — teams ของ user นั้น
+  - `scheduled_tasks.json` — scheduled tasks ของ user นั้น
+  - `history_log.json` — audit log ของ user นั้น
+  - `generated/` — generated media ของ user นั้น
 
-### Auth Flow
-1. Frontend ส่ง username ไป `/api/auth/login` → ได้ token + user profile
-2. Frontend เก็บ token ใน localStorage แล้วส่งใน socket auth (`authToken`)
-3. Backend `on_chat_start` อ่าน token → verify → ได้ `user_id` → สร้าง stores ด้วย `user_id`
-4. ถ้าไม่มี token → dev mode ใช้ legacy paths (backward compatible)
+### System81 OAuth Flow
+1. Frontend เรียก `/api/auth/login-url` → ได้ System81 login URL
+2. User คลิก → redirect ไป System81 login page
+3. System81 login สำเร็จ → redirect กลับมาพร้อม `?token=...`
+4. Frontend ส่ง token ไป `/api/auth/login` → backend verify กับ System81 → สร้าง session token
+5. Frontend เก็บ session token ใน localStorage แล้วส่งใน socket auth (`authToken`)
+6. Backend `on_chat_start` อ่าน token → verify → ได้ `user_id` → สร้าง stores ด้วย `user_id`
+7. ถ้าไม่มี token → dev mode ใช้ legacy paths (backward compatible)
 
 ### Pluggable Auth
 คนที่มาเชื่อม SSO ขององค์กร แค่ implement `AuthProvider` ใหม่:
@@ -134,7 +223,8 @@ class SAMLProvider(AuthProvider):      # SAML SSO
 ```
 ไม่ต้องแก้ code อื่นนอกจาก auth module
 
-### API Endpoints
-- `POST /api/auth/login` — login ด้วย username หรือ OAuth credentials
+### API Endpoints (FastAPI, port 8001)
+- `POST /api/auth/login` — login ด้วย System81 token หรือ username/password
 - `POST /api/auth/verify` — verify session token
 - `POST /api/auth/logout` — revoke session token
+- `GET /api/auth/login-url` — ดึง System81 OAuth login URL

@@ -7,15 +7,15 @@ It is a glossary only — no implementation details, no specs, no scratch notes.
 
 ### Agent
 
-An AI entity with a role, goal, backstory, and set of tools that performs a specific responsibility within a task. Created by the CentralSecretary from user requests and registered in the AgentRegistry.
+An AI entity with a role, goal, backstory, and set of tools that performs a specific responsibility within a task. Created by the CentralSecretary from user requests and registered in the AgentRegistry. Has deep persona: personality, expertise, brand_context, learnings.
 
 ### AgentRegistry
 
-The single source of truth for all registered agents. Persists agent specifications (name, role, goal, persona, tools, status) to `agent_registry.json`. Agents can be Idle, Busy, or have other statuses.
+The single source of truth for all registered agents. Persists agent specifications (name, role, goal, persona, tools, status, model, team_id) to `agent_registry.json`. Agents can be Idle, Busy, or have other statuses.
 
 ### AgentFactory
 
-Creates CrewAI Agent and Task instances at runtime from agent specs. Bridges the gap between stored registry data and live CrewAI execution.
+Creates CrewAI Agent and Task instances at runtime from agent specs. Bridges the gap between stored registry data and live CrewAI execution. Composes rich backstory from all persona fields via `_build_agent_backstory()`.
 
 ### CentralSecretary
 
@@ -27,7 +27,7 @@ A proposed course of action containing one or more agents and a task description
 
 ### Task
 
-A unit of work assigned to one or more agents. Tracked in the TaskStore with progress, status, and results. A task progresses through states: running, complete, or error.
+A unit of work assigned to one or more agents. Tracked in the TaskStore with progress, status, and results. A task progresses through states: running, complete, error, or stopped.
 
 ### TaskStore
 
@@ -35,23 +35,23 @@ Persists task records to `task_registry.json`. Each task has an ID, title, assig
 
 ### ChatSession
 
-A persistent conversation between the user and the platform. Each session has its own message history stored in `chat_sessions.json`. Users can create, rename, switch between, and delete sessions.
+A persistent conversation between the user and the platform. Each session has its own message history stored in `chat_sessions.json`. Users can create, rename, switch between, and delete sessions. Sessions can be associated with a team via `team_id`.
 
 ### ChatStore
 
-Manages multiple chat sessions with persistence to `chat_sessions.json`. Each session contains a list of messages with roles (user/assistant) and message types (text, plan, progress, result).
+Manages multiple chat sessions with persistence to `chat_sessions.json`. Each session contains a list of messages with roles (user/assistant) and message types (text, plan, progress, result, agent_progress, image_approval, image_result). Also persists `canvas_state`, `settings`, `pending_media`, `media_tool_results`, and `tuning_proposal`.
 
 ### StateMessenger
 
-The communication layer between the backend and frontend. Sends structured JSON messages (platform_state, chat_reply) over Chainlit WebSocket. Manages platform state, task updates, plan presentation, progress updates, and chat message persistence.
+The communication layer between the backend and frontend. Sends structured JSON messages (platform_state, chat_reply, agent_progress, result) over Chainlit WebSocket. Manages platform state, task updates, plan presentation, progress updates, and chat message persistence.
 
 ### ExecutionOrchestrator
 
-Runs multi-agent tasks using CrewAI. Creates a Crew with agents and tasks, executes hierarchically with a manager agent coordinating delegation, and extracts per-agent outputs from the CrewOutput. Reports progress via a callback.
+Runs multi-agent tasks using CrewAI. Creates a Crew with agents and tasks, executes hierarchically with a manager agent coordinating delegation, and extracts per-agent outputs from the CrewOutput. Reports progress via a callback. Implements review loop for quality control.
 
 ### Manager Agent
 
-An auto-created agent that coordinates the team during hierarchical execution. Has `allow_delegation=True` and no tools — its job is to delegate tasks to worker agents, run independent tasks in parallel, wait for dependent tasks, and synthesize results. Created by `AgentFactory.create_manager_agent()`.
+An auto-created agent that coordinates the team during hierarchical execution. Has `allow_delegation=True` and no tools — its job is to delegate tasks to worker agents, run independent tasks in parallel, wait for dependent tasks, synthesize results, and review agent outputs. Created by `AgentFactory.create_manager_agent()`.
 
 ### Plan Approval
 
@@ -71,11 +71,103 @@ A named ability that an agent can have, such as `search_web`, `generate_image`, 
 
 ### CapabilityRegistry
 
-The single source of truth for all available capabilities. Maps each capability name to its fulfillment strategy: a tool adapter (e.g., `search_web` → DuckDuckGo function) or a model trait (e.g., `reasoning` → `{"strength": "reasoning"}`). Replaces the hardcoded `ToolRegistry.TOOL_CATALOG`.
+The single source of truth for all available capabilities. Maps each capability name to its fulfillment strategy: a tool adapter (e.g., `search_web` → DuckDuckGo function) or a model trait (e.g., `reasoning` → `{"strength": "reasoning"}`).
 
 ### CapabilityResolver
 
 Resolves capabilities to concrete tools and model traits for agents. Takes agent specs (with capability names) and produces a `ResolvedAgent` with bound tools and model traits. Used by `AgentFactory` during agent creation.
+
+### Team
+
+A group of agents that work together under a Manager agent. Each team has a name, a manager configuration (personality, expertise, brand_context), and settings (review_iterations, max_retry, model selection). Stored in `team_registry.json`.
+
+### TeamRegistry
+
+Manages team definitions with persistence to `team_registry.json`. Each team contains a manager spec, worker agent specs, and team-level settings. Supports per-user data isolation via `user_id`.
+
+### MediaGenerationManager
+
+Handles generation of images, videos, text-to-speech, and speech-to-text via OpenRouter API. Stores generated media in `data/users/{user_id}/generated/`. Supports an approval flow where agents propose prompts and users approve before generation.
+
+### LLMManager
+
+Manages all LLM API calls through OpenRouter. Handles chat completions, streaming, error recovery, and rate limit detection. Works with ModelRotator for automatic model switching on failures.
+
+### ModelDiscoveryService
+
+Fetches available models from OpenRouter API and checks their capabilities (vision, tools, context length, pricing). Caches results for performance. Used to determine which models support multimodal inputs.
+
+### ModelRotator
+
+Automatically switches to an alternative model when the current model hits rate limits or returns errors. Maintains a fallback chain of models ordered by capability match.
+
+### ModelSelector
+
+Selects the best model for a task based on capability requirements (reasoning, creative, vision, etc.) and pricing constraints. Uses ModelCatalog to find matching models.
+
+### ModelCatalog
+
+A catalog of supported LLM models with their capabilities, pricing, and context lengths. Used by ModelSelector to find the best model for a given task.
+
+### Scheduler
+
+Runs recurring tasks on a schedule (daily, weekly, monthly). Uses ScheduledTaskStore for persistence. Runs as a background process alongside the Chainlit server.
+
+### ScheduledTaskStore
+
+Persists scheduled task definitions to `data/users/{uid}/scheduled_tasks.json`. Each scheduled task has a prompt, team_id, schedule config, and enabled flag. Supports per-user data isolation.
+
+### HistoryStore
+
+Handles per-task audit log persistence to `data/users/{user_id}/history_log.json`. Records task execution history, agent actions, and review outcomes. Supports per-user data isolation.
+
+### TemplateStore
+
+Manages task templates that can be reused across sessions. Stored in `data/users/{user_id}/task_templates.json`. Templates contain pre-configured agent specs and task descriptions.
+
+### TaskTemplate
+
+A reusable task definition with pre-configured agent specs, tools, and task description. Can be instantiated as a new task with optional parameter overrides.
+
+### ReviewLoop
+
+The quality control process where the Manager agent reviews worker agent outputs. If output doesn't meet quality standards, feedback is sent back and the agent retries. Tracks `review_round`, `review_summary`, `review_feedback`, and `review_history`. Number of rounds controlled by `review_iterations` setting (0 = unlimited).
+
+### ReviewRound
+
+A single iteration of the review loop. Contains: round number, status (approved/failed), summary, feedback, and output_preview. Stored in `review_history` array on the agent progress entry.
+
+### RetroDesktop
+
+The main frontend component rendering a Windows 95-style retro desktop environment. Contains desktop icons, a taskbar, and draggable windows. Manages window state through WindowManager.
+
+### WindowManager
+
+Manages window lifecycle in the retro desktop: position, z-index, focus, minimize/maximize. Each window type (ChatWindow, TasksWindow, etc.) is registered and can be opened/closed from the taskbar or desktop icons.
+
+### AuthProvider
+
+Pluggable authentication interface. Current implementation: `System81AuthProvider` (OAuth via Sellercenter System81). Supports token-based and username/password authentication. Can be extended for OAuth, LDAP, SAML.
+
+### System81AuthProvider
+
+Authenticates users against the Sellercenter System81 identity service. Supports redirect flow (user redirected to System81 login, returns with token) and direct credentials (backend calls System81 login API). Maps System81 user info to internal User dataclass.
+
+### SessionManager
+
+Creates and verifies session tokens stored in `data/sessions.json` with 7-day TTL. Used by both Chainlit backend (via socket auth) and FastAPI auth server (via REST API).
+
+### UserStore
+
+Stores user profiles in `data/users.json`. Tracks last login, username, email, avatar. Supports per-user data isolation by providing `user_id` to all store classes.
+
+### FastAPI Auth Server
+
+Separate FastAPI application running on port 8001. Serves REST API endpoints for authentication: `/api/auth/login`, `/api/auth/verify`, `/api/auth/logout`, `/api/auth/login-url`. Has CORS middleware for cross-origin requests from the frontend.
+
+### Vite Dev Server
+
+Development server for the React frontend, running on port 5173. Proxies API requests to Chainlit (port 8000) and auth API (port 8001) via `vite.config.ts` proxy configuration. This is the URL users should open in the browser — NOT port 8000.
 
 ### Attachment Processing
 
@@ -103,6 +195,7 @@ CrewAI's native file passing mechanism (`input_files` parameter on Task). When `
 - **plan** — plan card with agents, task description, and plan type
 - **progress** — progress bar with percentage and label
 - **result** — task result with per-agent outputs
+- **agent_progress** — per-agent progress with status, output, review data (review_round, review_summary, review_feedback, review_history)
 - **image_approval** — image generation approval card with prompt, agent name, and approval status
 - **image_result** — generated image display with URL and prompt
 - **chat_history** — full message history for a session (sent on session switch)

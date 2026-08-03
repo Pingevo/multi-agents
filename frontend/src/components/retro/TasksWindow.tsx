@@ -229,6 +229,15 @@ const ResultPanel: React.FC<{
   progress?: AgentProgressEntry;
   imageResults: ImageResult[];
 }> = ({ agent, progress, imageResults }) => {
+  const [tab, setTab] = useState<'output' | 'review' | 'media' | 'info'>('output');
+  const [expandedPreview, setExpandedPreview] = useState<number | null>(null);
+  const [imageZoom, setImageZoom] = useState<string | null>(null);
+
+  // Reset to output tab when agent changes
+  useEffect(() => {
+    setTab('output');
+  }, [agent?.id]);
+
   if (!agent) {
     return (
       <div className="tw-result-empty">
@@ -242,100 +251,173 @@ const ResultPanel: React.FC<{
   const si = statusInfo(status);
   const pct = status === 'complete' ? 100 : status === 'error' ? 100 : progress?.progress || 0;
 
+  const hasOutput = !!progress?.output;
+  const hasReview = !!(progress?.review_history && progress.review_history.length > 0);
+  const hasMedia = imageResults.length > 0;
+
   return (
+    <>
+      {/* Lightbox overlay — in-app full-screen image viewer */}
+      {imageZoom && (
+        <div className="tw-lightbox" onClick={() => setImageZoom(null)}>
+          <img src={imageZoom} alt="Zoomed" />
+        </div>
+      )}
+
     <div className="tw-result-content">
-      {/* Agent header */}
+      {/* Tab bar */}
+      <div className="tw-rp-tabs">
+        <button className={`tw-rp-tab${tab === 'output' ? ' active' : ''}`} onClick={() => setTab('output')}>
+          Output{hasOutput && <span className="tw-rp-tab-badge has">✓</span>}
+        </button>
+        <button className={`tw-rp-tab${tab === 'review' ? ' active' : ''}`} onClick={() => setTab('review')}>
+          Review{hasReview && <span className="tw-rp-tab-badge has">{progress?.review_history?.length}</span>}
+        </button>
+        <button className={`tw-rp-tab${tab === 'media' ? ' active' : ''}`} onClick={() => setTab('media')}>
+          Media{hasMedia && <span className="tw-rp-tab-badge has">{imageResults.length}</span>}
+        </button>
+        <button className={`tw-rp-tab${tab === 'info' ? ' active' : ''}`} onClick={() => setTab('info')}>
+          Info
+        </button>
+      </div>
+
+      {/* Agent header — compact row */}
       <div className="tw-rp-hdr">
         <div className="tw-rp-av">{agentIcon(agent.name)}</div>
         <div className="tw-rp-name">{agent.name}</div>
-        <div className="tw-rp-role">{agent.role}</div>
+        <div className="tw-rp-role">· {agent.role}</div>
         <span className={`tw-rp-status ${si.cls}`}>{si.text}</span>
       </div>
 
-      {/* Progress */}
-      <div className="tw-rp-section">
-        <div className="tw-rp-lbl">Progress</div>
-        <div className="tw-rp-prog-bar"><div className="tw-rp-prog-fill" style={{ width: `${pct}%`, background: si.color }} /></div>
-        <div className="tw-rp-prog-text">{pct}%</div>
-      </div>
+      {/* Tab content */}
+      {tab === 'output' && (
+        <>
+          {/* Progress */}
+          <div className="tw-rp-section">
+            <div className="tw-rp-lbl">Progress</div>
+            <div className="tw-rp-prog-bar"><div className="tw-rp-prog-fill" style={{ width: `${pct}%`, background: si.color }} /></div>
+            <div className="tw-rp-prog-text">{pct}%</div>
+          </div>
 
-      {/* Output */}
-      {progress?.output && (
-        <div className="tw-rp-section">
-          <div className="tw-rp-lbl">Output</div>
-          {progress?.review_summary && (
-            <div style={{ fontSize: '10px', marginBottom: '4px' }}>
-              {progress.review_summary.includes('หยุดโดยผู้ใช้') || progress.review_summary.includes('ยังไม่ตรวจ') || progress.review_summary.includes('Cancelled')
-                ? <span style={{ color: 'var(--amber)' }}>ยังไม่ตรวจสอบ</span>
-                : <span style={{ color: 'var(--green)' }}>ตรวจผ่าน</span>}
-              {' — '}{progress.review_summary}
+          {/* Output */}
+          {hasOutput ? (
+            <div className="tw-rp-section">
+              <div className="tw-rp-lbl">Output</div>
+              {progress?.review_summary && (
+                <div style={{ fontSize: '10px', marginBottom: '4px' }}>
+                  {progress.review_summary.includes('หยุดโดยผู้ใช้') || progress.review_summary.includes('ยังไม่ตรวจ') || progress.review_summary.includes('Cancelled')
+                    ? <span style={{ color: 'var(--amber)' }}>ยังไม่ตรวจสอบ</span>
+                    : <span style={{ color: 'var(--green)' }}>ตรวจผ่าน</span>}
+                  {' — '}{progress.review_summary}
+                </div>
+              )}
+              <div className="tw-rp-output">
+                <MarkdownRenderer content={progress!.output!} />
+              </div>
+            </div>
+          ) : (
+            <div className="tw-rp-section">
+              <div className="tw-rp-lbl">Output</div>
+              <div style={{ fontSize: '10px', color: 'var(--ink3)', fontStyle: 'italic' }}>ยังไม่มี output</div>
             </div>
           )}
-          <div className="tw-rp-output">
-            <MarkdownRenderer content={progress.output} />
-          </div>
-        </div>
+        </>
       )}
 
-      {/* Review history */}
-      {progress?.review_history && progress.review_history.length > 0 && (
-        <div className="tw-rp-section">
-          <div className="tw-rp-lbl">Review History ({progress.review_history.length} รอบ)</div>
-          {progress.review_history.map((rh, i) => (
-            <div key={i} className="tw-rp-review-item">
-              <div className="tw-rp-review-hdr">
-                <span className={`tw-rp-review-badge ${rh.status === 'approved' ? 'pass' : 'fail'}`}>
-                  {rh.status === 'approved' ? 'PASS' : 'FAIL'}
-                </span>
-                <span className="tw-rp-review-round">รอบที่ {rh.round}</span>
+      {tab === 'review' && (
+        hasReview ? (
+          <div className="tw-rp-section">
+            <div className="tw-rp-lbl">Review History ({progress!.review_history!.length} รอบ)</div>
+            {progress!.review_history!.map((rh, i) => (
+              <div key={i} className="tw-rp-review-item">
+                <div className="tw-rp-review-hdr">
+                  <span className={`tw-rp-review-badge ${rh.status === 'approved' ? 'pass' : 'fail'}`}>
+                    {rh.status === 'approved' ? 'PASS' : 'FAIL'}
+                  </span>
+                  <span className="tw-rp-review-round">รอบที่ {rh.round}</span>
+                </div>
+                <div className="tw-rp-review-summary">{rh.summary}</div>
+                {rh.feedback && <div className="tw-rp-review-feedback">Feedback: {rh.feedback}</div>}
+                {rh.output_preview && (
+                  <div
+                    className={`tw-rp-review-preview${expandedPreview === i ? ' expanded' : ''}`}
+                    onClick={() => setExpandedPreview(expandedPreview === i ? null : i)}
+                    title="Click to expand/collapse"
+                  >{rh.output_preview}</div>
+                )}
               </div>
-              <div className="tw-rp-review-summary">{rh.summary}</div>
-              {rh.feedback && <div className="tw-rp-review-feedback">Feedback: {rh.feedback}</div>}
-              {rh.output_preview && (
-                <div className="tw-rp-review-preview">{rh.output_preview}</div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Image results */}
-      {imageResults.length > 0 && (
-        <div className="tw-rp-section">
-          <div className="tw-rp-lbl">Media Results</div>
-          {imageResults.map((ir, i) => (
-            <div key={i} className="tw-rp-media">
-              {ir.mediaType === 'video' ? (
-                <video src={withMediaToken(ir.imageUrl)} controls className="tw-rp-media-el" />
-              ) : ir.mediaType === 'tts' ? (
-                <audio src={withMediaToken(ir.imageUrl)} controls style={{ width: '100%' }} />
-              ) : (
-                <img src={withMediaToken(ir.imageUrl)} alt={ir.prompt} className="tw-rp-media-el" />
-              )}
-              <div className="tw-rp-media-prompt">{ir.prompt}</div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Goal */}
-      {agent.goal && (
-        <div className="tw-rp-section">
-          <div className="tw-rp-lbl">Goal</div>
-          <div className="tw-rp-val">{agent.goal}</div>
-        </div>
-      )}
-
-      {/* Tools */}
-      {agent.tools && agent.tools.length > 0 && (
-        <div className="tw-rp-section">
-          <div className="tw-rp-lbl">Tools</div>
-          <div className="tw-rp-tools">
-            {agent.tools.map(t => <span key={t} className="tw-rp-tool">{t}</span>)}
+            ))}
           </div>
-        </div>
+        ) : (
+          <div className="tw-rp-section">
+            <div className="tw-rp-lbl">Review History</div>
+            <div style={{ fontSize: '10px', color: 'var(--ink3)', fontStyle: 'italic' }}>ไม่มีประวัติการตรวจ</div>
+          </div>
+        )
+      )}
+
+      {tab === 'media' && (
+        hasMedia ? (
+          <div className="tw-rp-section">
+            <div className="tw-rp-lbl">Media Results ({imageResults.length})</div>
+            <div className="tw-rp-media-grid">
+            {imageResults.map((ir, i) => (
+              <div key={i} className="tw-rp-media-item">
+                {ir.mediaType === 'video' ? (
+                  <video src={withMediaToken(ir.imageUrl)} controls className="tw-rp-media-el" />
+                ) : ir.mediaType === 'tts' ? (
+                  <audio src={withMediaToken(ir.imageUrl)} controls style={{ width: '100%' }} />
+                ) : (
+                  <img
+                    src={withMediaToken(ir.imageUrl)}
+                    alt={ir.prompt}
+                    className="tw-rp-media-el"
+                    onClick={() => setImageZoom(withMediaToken(ir.imageUrl))}
+                  />
+                )}
+                <div className="tw-rp-media-prompt" title={ir.prompt}>{ir.prompt}</div>
+              </div>
+            ))}
+            </div>
+          </div>
+        ) : (
+          <div className="tw-rp-section">
+            <div className="tw-rp-lbl">Media Results</div>
+            <div style={{ fontSize: '10px', color: 'var(--ink3)', fontStyle: 'italic' }}>ไม่มีสื่อที่สร้าง</div>
+          </div>
+        )
+      )}
+
+      {tab === 'info' && (
+        <>
+          {/* Progress */}
+          <div className="tw-rp-section">
+            <div className="tw-rp-lbl">Progress</div>
+            <div className="tw-rp-prog-bar"><div className="tw-rp-prog-fill" style={{ width: `${pct}%`, background: si.color }} /></div>
+            <div className="tw-rp-prog-text">{pct}%</div>
+          </div>
+
+          {/* Goal */}
+          {agent.goal && (
+            <div className="tw-rp-section">
+              <div className="tw-rp-lbl">Goal</div>
+              <div className="tw-rp-val">{agent.goal}</div>
+            </div>
+          )}
+
+          {/* Tools */}
+          {agent.tools && agent.tools.length > 0 && (
+            <div className="tw-rp-section">
+              <div className="tw-rp-lbl">Tools</div>
+              <div className="tw-rp-tools">
+                {agent.tools.map(t => <span key={t} className="tw-rp-tool">{t}</span>)}
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
+    </>
   );
 };
 

@@ -25,11 +25,11 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 const TOKEN_KEY = 'auth_token';
 const USER_KEY = 'auth_user';
 
-// Backend API runs on port 8000 — in dev mode frontend is on 5173,
-// so window.location.origin would point to the wrong port.
-// In production both are served from the same origin.
+// In dev mode (port 5173), use empty string so fetch calls use relative URLs
+// that go through Vite proxy → port 8000 (Chainlit). This avoids CORS issues.
+// In production, both frontend and API are on the same origin.
 const BACKEND_URL = typeof window !== 'undefined' && window.location.port === '5173'
-  ? 'http://localhost:8000'
+  ? ''
   : (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:8000');
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -52,6 +52,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const loginWithToken = useCallback(async (externalToken: string): Promise<{ success: boolean; error?: string }> => {
+    // OAuth redirect: System81 returns its token as ?token=... in the URL.
+    // We must call /api/auth/login (not /verify) to verify the System81 token
+    // and create a session. /verify only checks our own session tokens.
     try {
       const res = await fetch(`${BACKEND_URL}/api/auth/login`, {
         method: 'POST',
@@ -60,6 +63,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
       const data = await res.json();
       if (data.token && data.user) {
+        // Store the session token returned by our backend, not the System81 token
         setSession(data.token, data.user);
         return { success: true };
       }
@@ -100,29 +104,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const storedUser = localStorage.getItem(USER_KEY);
 
       if (storedToken && storedUser) {
-        fetch(`${BACKEND_URL}/api/auth/verify`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token: storedToken }),
-        })
-          .then((res) => res.json())
-          .then((data) => {
-            if (data.valid && data.user) {
-              setSession(storedToken, data.user);
-            } else {
-              clearSession();
-            }
-          })
-          .catch(() => {
-            // Network error — use stored user as fallback
-            try {
-              const parsed = JSON.parse(storedUser);
-              setSession(storedToken, parsed);
-            } catch {
-              clearSession();
-            }
-          })
-          .finally(() => setIsLoading(false));
+        try {
+          const parsed = JSON.parse(storedUser);
+          setSession(storedToken, parsed);
+        } catch {
+          clearSession();
+        }
+        setIsLoading(false);
       } else {
         setIsLoading(false);
       }

@@ -15,7 +15,7 @@ interface WindowManagerContextValue {
 
 const WindowManagerContext = createContext<WindowManagerContextValue | null>(null);
 
-let zCounter = 100;
+let zCounter = 10000;
 
 export const WindowManagerProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [windows, setWindows] = useState<WindowState[]>([]);
