@@ -36,7 +36,7 @@ interface ChatWindowProps {
   onConfirmTuning?: (proposals?: any[]) => void;
   onRejectTuning?: () => void;
   onApproveImage?: (approvalId: string, model?: string) => void;
-  onRejectImage?: (approvalId: string) => void;
+  onRejectImage?: (approvalId: string, feedback?: string) => void;
   onRetryImage?: (approvalId: string) => void;
   onEditImagePrompt?: (approvalId: string, newPrompt: string) => void;
   onApproveAgentResult?: (reviewId: string) => void;
@@ -462,10 +462,12 @@ const ResultCard: React.FC<{ msg: ChatMessage }> = ({ msg }) => {
 const ImageApprovalCard: React.FC<{
   msg: ChatMessage;
   onApprove?: (model?: string) => void;
-  onReject?: () => void;
+  onReject?: (feedback?: string) => void;
   onRetry?: () => void;
 }> = ({ msg, onApprove, onReject, onRetry }) => {
   const status = msg.approvalStatus as ImageApprovalStatus;
+  const [showRejectInput, setShowRejectInput] = useState(false);
+  const [rejectFeedback, setRejectFeedback] = useState('');
   // Dynamic labels based on media type — without this, all cards say 'Image' regardless of actual media type
   const mediaLabels: Record<string, { label: string; promptLabel: string }> = {
     image: { label: 'Image', promptLabel: 'Prompt สำหรับสร้างภาพ:' },
@@ -544,11 +546,28 @@ const ImageApprovalCard: React.FC<{
             <button className="btn btn-warm" onClick={onRetry}>🔄 Retry</button>
             {/* Dismiss — calls onReject to collapse card to minimal "Rejected" state.
                 Without this, error cards with persistent API failures (e.g. xAI 520) stay stuck. */}
-            <button className="btn btn-no" onClick={onReject}>✕ Dismiss</button>
+            <button className="btn btn-no" onClick={() => onReject?.()}>✕ Dismiss</button>
+          </>
+        ) : showRejectInput ? (
+          <>
+            <input
+              type="text"
+              placeholder="Feedback for agent (optional)..."
+              value={rejectFeedback}
+              onChange={e => setRejectFeedback(e.target.value)}
+              style={{ flex: 1, fontSize: '10px', padding: '4px 6px', border: '1px solid var(--line)', borderRadius: '3px', background: 'var(--paper)', color: 'var(--ink)' }}
+              autoFocus
+              onKeyDown={e => {
+                if (e.key === 'Enter') { onReject?.(rejectFeedback); }
+                if (e.key === 'Escape') { setShowRejectInput(false); setRejectFeedback(''); }
+              }}
+            />
+            <button className="btn btn-no" style={{ padding: '3px 8px', fontSize: '10px' }} onClick={() => onReject?.(rejectFeedback)}>Confirm Reject</button>
+            <button className="btn" style={{ padding: '3px 8px', fontSize: '10px' }} onClick={() => { setShowRejectInput(false); setRejectFeedback(''); }}>Cancel</button>
           </>
         ) : (
           <>
-            <button className="btn btn-no" onClick={onReject}>❌ Reject</button>
+            <button className="btn btn-no" onClick={() => setShowRejectInput(true)}>❌ Reject</button>
             <button className="btn btn-yes" onClick={() => onApprove?.()}>✓ Generate</button>
           </>
         )}
@@ -562,11 +581,13 @@ const ImageApprovalCard: React.FC<{
 const MediaApprovalPanel: React.FC<{
   messages: ChatMessage[];
   onApprove?: (approvalId: string, model?: string) => void;
-  onReject?: (approvalId: string) => void;
+  onReject?: (approvalId: string, feedback?: string) => void;
   onRetry?: (approvalId: string) => void;
 }> = ({ messages, onApprove, onReject, onRetry }) => {
   const [collapsed, setCollapsed] = useState(false);
   const [zoom, setZoom] = useState<string | null>(null);
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [rejectFeedback, setRejectFeedback] = useState('');
   const mediaLabels: Record<string, string> = {
     image: 'Image', video: 'Video', tts: 'Audio', stt: 'Transcription', vision: 'Vision',
   };
@@ -586,7 +607,8 @@ const MediaApprovalPanel: React.FC<{
     pending.forEach(m => onApprove?.(m.approvalId || '', m.model));
   };
   const handleRejectAll = () => {
-    pending.forEach(m => onReject?.(m.approvalId || ''));
+    const feedback = window.prompt('Feedback for all rejected items (optional):') || '';
+    pending.forEach(m => onReject?.(m.approvalId || '', feedback));
   };
 
   return (
@@ -679,9 +701,27 @@ const MediaApprovalPanel: React.FC<{
                     </>
                   ) : (
                     <>
-                      <button className="btn btn-no" style={{ padding: '2px 8px', fontSize: '10px' }} onClick={() => onReject?.(msg.approvalId || '')}>❌</button>
+                      <button className="btn btn-no" style={{ padding: '2px 8px', fontSize: '10px' }} onClick={() => { setRejectingId(msg.approvalId || ''); setRejectFeedback(''); }}>❌</button>
                       <button className="btn btn-yes" style={{ padding: '2px 8px', fontSize: '10px' }} onClick={() => onApprove?.(msg.approvalId || '', msg.model)}>✓</button>
                     </>
+                  )}
+                  {rejectingId === msg.approvalId && (
+                    <div style={{ gridColumn: '1 / -1', display: 'flex', gap: '4px', alignItems: 'center', marginTop: '4px' }}>
+                      <input
+                        type="text"
+                        placeholder="Feedback (optional)..."
+                        value={rejectFeedback}
+                        onChange={e => setRejectFeedback(e.target.value)}
+                        style={{ flex: 1, fontSize: '10px', padding: '3px 6px', border: '1px solid var(--line)', borderRadius: '3px', background: 'var(--paper)', color: 'var(--ink)' }}
+                        autoFocus
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') { onReject?.(msg.approvalId || '', rejectFeedback); setRejectingId(null); }
+                          if (e.key === 'Escape') { setRejectingId(null); setRejectFeedback(''); }
+                        }}
+                      />
+                      <button className="btn btn-no" style={{ padding: '2px 8px', fontSize: '10px' }} onClick={() => { onReject?.(msg.approvalId || '', rejectFeedback); setRejectingId(null); }}>Confirm</button>
+                      <button className="btn" style={{ padding: '2px 8px', fontSize: '10px' }} onClick={() => { setRejectingId(null); setRejectFeedback(''); }}>Cancel</button>
+                    </div>
                   )}
                 </div>
               </div>
@@ -1176,7 +1216,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
             <ImageApprovalCard
               key={m.id} msg={m}
               onApprove={(model) => onApproveImage?.(m.approvalId || '', model)}
-              onReject={() => onRejectImage?.(m.approvalId || '')}
+              onReject={(feedback) => onRejectImage?.(m.approvalId || '', feedback)}
               onRetry={() => onRetryImage?.(m.approvalId || '')}
             />
           );
@@ -1186,7 +1226,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
             <MediaApprovalPanel
               key={group[0].id} messages={group}
               onApprove={(id, model) => onApproveImage?.(id, model)}
-              onReject={(id) => onRejectImage?.(id)}
+              onReject={(id, feedback) => onRejectImage?.(id, feedback)}
               onRetry={(id) => onRetryImage?.(id)}
             />
           );

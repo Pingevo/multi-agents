@@ -28,6 +28,7 @@ from backend.agents.tool_registry import ToolRegistry
 from backend.agents.registry import AgentRegistry
 from backend.agents.templates import validate_template_output, detect_template_id, get_template_contract
 from backend.core.messenger import StateMessenger
+from backend.core.media_awaiter import MediaAwaiter
 from backend.credit_logger import log_llm_call
 
 MAX_REVIEW_RETRIES = int(os.environ.get("MAX_REVIEW_RETRIES", "3"))
@@ -859,6 +860,80 @@ class ExecutionOrchestrator:
                     return result, str(result)
                 return result, result.get("output", "")
 
+            async def _resolve_media_for_approved_agent(idx: int, max_media_retries: int = MAX_REVIEW_RETRIES) -> dict:
+                """Resolve media requests for an agent that passed manager review.
+
+                If the agent produced media requests (via generate_image etc.),
+                pause execution and wait for user approval or auto-approve.
+
+                Returns:
+                    {"status": "approved", "output": str}  — media resolved, output updated with URLs
+                    {"status": "rejected", "feedback": str} — user rejected with feedback, agent should re-run
+                    {"status": "no_media"}                  — no media requests for this agent
+                    {"status": "error", "error": str}       — generation failed
+                """
+                name = agent_specs[idx].get("name", f"Agent {idx+1}")
+                agent_media = [r for r in _media_tool_results if r.get("agent_name") == name]
+                if not agent_media:
+                    return {"status": "no_media"}
+
+                auto_approve = cl.user_session.get("autoApproveMedia", False)
+                session_id = _hist_messenger.current_session_id if _hist_messenger else None
+                media_gen = _media_gen_manager
+
+                media_retry = 0
+                while media_retry <= max_media_retries:
+                    result = await MediaAwaiter.resolve_media_dependencies(
+                        agent_name=name,
+                        media_tool_results=_media_tool_results,
+                        auto_approve=auto_approve,
+                        session_id=session_id or "",
+                        messenger=_hist_messenger,
+                        media_gen_manager=media_gen,
+                    )
+
+                    if result.get("status") == "approved":
+                        urls = result.get("urls", [])
+                        if urls:
+                            current_output = approved_outputs.get(name, "")
+                            media_section = "\n\n[GENERATED MEDIA]\n" + "\n".join(f"- {u}" for u in urls)
+                            updated_output = current_output + media_section
+                            approved_outputs[name] = updated_output
+                            if agent_outputs[idx] and isinstance(agent_outputs[idx], dict):
+                                agent_outputs[idx]["output"] = updated_output
+                        return {"status": "approved", "output": approved_outputs.get(name, "")}
+
+                    elif result.get("status") == "rejected":
+                        feedback = result.get("feedback", "")
+                        if not feedback or media_retry >= max_media_retries:
+                            return {"status": "rejected", "feedback": feedback}
+
+                        media_retry += 1
+                        print(f"[DEBUG-SCHED] Agent '{name}' media rejected (attempt {media_retry}) — re-running with feedback", flush=True)
+
+                        if name not in agent_memories:
+                            agent_memories[name] = []
+                        agent_memories[name].append({
+                            "output": approved_outputs.get(name, "")[:3000],
+                            "feedback": f"Media rejected: {feedback}",
+                            "round": media_retry,
+                        })
+
+                        rerun_result, rerun_output = await rerun_agent_with_feedback(
+                            idx, f"Media rejected: {feedback}", agent_memory=agent_memories.get(name)
+                        )
+                        if isinstance(rerun_result, Exception):
+                            return {"status": "error", "error": str(rerun_result)}
+
+                        approved_outputs[name] = rerun_output
+                        agent_outputs[idx] = rerun_result
+                        continue
+
+                    else:
+                        return result
+
+                return {"status": "error", "error": "Max media retries exceeded"}
+
             # Per-agent review state tracking
             agent_review_state = {}  # idx -> {retry_count, review_history, current_output, current_result}
             # Per-agent experiential memory: tracks previous outputs + feedback for retries
@@ -1056,6 +1131,10 @@ class ExecutionOrchestrator:
                                     review_summary="User หยุดตรวจ — ใช้ output ปัจจุบัน",
                                     review_history=state["review_history"])
                                 print(f"[DEBUG-SCHED] Agent '{name}' review skipped by user", flush=True)
+                                # Resolve media requests before marking done — dependent agents need media URLs in output
+                                media_result = await _resolve_media_for_approved_agent(idx)
+                                if media_result.get("status") == "rejected" and media_result.get("feedback"):
+                                    print(f"[DEBUG-SCHED] Agent '{name}' media rejected after skip-review — output kept as-is", flush=True)
                                 done_indices.add(idx)
                                 del agent_review_state[idx]
                             else:
@@ -1120,6 +1199,10 @@ class ExecutionOrchestrator:
                                     review_summary=review["summary"],
                                     review_history=state["review_history"])
                                 print(f"[DEBUG-SCHED] Agent '{name}' approved by Manager", flush=True)
+                                # Resolve media requests before marking done — dependent agents need media URLs in output
+                                media_result = await _resolve_media_for_approved_agent(idx)
+                                if media_result.get("status") == "rejected" and media_result.get("feedback"):
+                                    print(f"[DEBUG-SCHED] Agent '{name}' media rejected after manager approval — output kept as-is", flush=True)
                                 done_indices.add(idx)
                                 del agent_review_state[idx]
                             else:
@@ -1133,6 +1216,10 @@ class ExecutionOrchestrator:
                                         review_round=state["retry_count"] + 1,
                                         review_summary=f"ครบจำนวน retry สูงสุด ({agent_review_iters}) — ใช้ output ปัจจุบัน",
                                         review_history=state["review_history"])
+                                    # Resolve media even at max retries — auto-approve will generate, manual may still wait
+                                    media_result = await _resolve_media_for_approved_agent(idx)
+                                    if media_result.get("status") == "rejected" and media_result.get("feedback"):
+                                        print(f"[DEBUG-SCHED] Agent '{name}' media rejected at max retries — output kept as-is", flush=True)
                                     done_indices.add(idx)
                                     del agent_review_state[idx]
                                 else:

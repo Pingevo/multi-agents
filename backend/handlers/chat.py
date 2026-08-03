@@ -35,6 +35,7 @@ from backend.agents.schedule_store import ScheduledTaskStore
 from backend.core.scheduler import get_scheduler
 from backend.core.secretary import CentralManager
 from backend.core.orchestrator import ExecutionOrchestrator
+from backend.core.media_awaiter import MediaAwaiter
 from backend.core.messenger import StateMessenger
 from backend.attachment.processor import process_attachment, process_url
 from backend.attachment.security import check_model_modality_support, llm_manager_tier_check
@@ -1110,6 +1111,8 @@ async def on_chat_start():
     for key in ("ai_image_model", "ai_video_model", "ai_search_model", "ai_tts_model", "ai_stt_model", "ai_vision_model"):
         if settings.get(key):
             cl.user_session.set(key, settings[key])
+    # Restore autoApproveMedia — without this, the setting is lost on page refresh
+    cl.user_session.set("autoApproveMedia", settings.get("autoApproveMedia", False))
 
     # Now send initial state with team_id filtering
     current_team_id = cl.user_session.get("current_team_id")
@@ -1422,6 +1425,8 @@ async def on_message(message: cl.Message):
                             await messenger.update_task_image(task_id, result, prompt, media_type=media_type, team_id=cl.user_session.get("current_team_id"))
                         # Refresh notifications so the approval moves from "pending" to "completed" tab
                         await messenger.reply_notifications(team_id=cl.user_session.get("current_team_id"))
+                        # Resolve MediaAwaiter future so the orchestrator can continue
+                        MediaAwaiter.resolve_approval(approval_id, {"status": "approved", "url": result})
                         # Keep pending_media for regenerate after success
                 except Exception as e:
                     _debug(f"[DEBUG-APPROVE] Error: {_sanitize_error(e)}", flush=True)
@@ -1553,10 +1558,17 @@ async def on_message(message: cl.Message):
                 await messenger.reply(f"⚠️ prompt ว่าง กรุณาใส่ prompt แล้วลองใหม่")
         elif action_name == "reject_image":
             approval_id = payload.get("approval_id", "")
+            feedback = payload.get("feedback", "")
+            print(f"[DEBUG-REJECT] approval_id={approval_id}, feedback={feedback[:100]}", flush=True)
             if messenger:
                 await messenger.update_approval_status(approval_id, "rejected")
-                await messenger.reply(f"❌ ยกเลิกการสร้างสื่อ (ID: {approval_id})")
+                if feedback:
+                    await messenger.reply(f"❌ ยกเลิกการสร้างสื่อ (ID: {approval_id}) — Feedback: {feedback}")
+                else:
+                    await messenger.reply(f"❌ ยกเลิกการสร้างสื่อ (ID: {approval_id})")
                 cl.user_session.set(f"pending_media_{approval_id}", None)
+                # Resolve MediaAwaiter future so the orchestrator can process rejection
+                MediaAwaiter.resolve_approval(approval_id, {"status": "rejected", "feedback": feedback})
                 # Also clear from chat_store — prevents stale pending data buildup in JSON
                 _cs = cl.user_session.get("chat_store")
                 _sid = messenger.current_session_id if messenger else None
@@ -1647,6 +1659,8 @@ async def on_message(message: cl.Message):
                 cl.user_session.set("selected_model", settings.get("selected_model", ""))
                 for key in ("ai_image_model", "ai_video_model", "ai_search_model", "ai_tts_model", "ai_stt_model", "ai_vision_model"):
                     cl.user_session.set(key, settings.get(key, ""))
+                # Restore autoApproveMedia on session switch
+                cl.user_session.set("autoApproveMedia", settings.get("autoApproveMedia", False))
                 current_team_id = cl.user_session.get("current_team_id")
                 await messenger.reply_chat_sessions(team_id=current_team_id)
                 await messenger.reply_chat_history(session_id)
@@ -2080,6 +2094,20 @@ async def on_message(message: cl.Message):
                 # Going back to team list — show all sessions
                 if messenger:
                     await messenger.reply_chat_sessions()
+        elif action_name == "update_settings":
+            # Generic settings update — persists key/value pairs to cl.user_session and chat_store.
+            # Used by SettingsWindow for autoApproveMedia and future settings.
+            # Accept both { settings: { ... } } and flat { key: value } payloads.
+            settings_payload = payload.get("settings", {})
+            # Merge flat payload keys that aren't 'settings' itself
+            for key, value in payload.items():
+                if key != "settings":
+                    settings_payload[key] = value
+            for key, value in settings_payload.items():
+                cl.user_session.set(key, value)
+            if messenger and messenger.current_session_id:
+                messenger.chat_store.save_settings(messenger.current_session_id, settings_payload)
+            print(f"[DEBUG-SETTINGS] Updated: {list(settings_payload.keys())}", flush=True)
         elif action_name == "list_teams":
             team_registry = cl.user_session.get("team_registry") or TeamRegistry()
             if messenger:

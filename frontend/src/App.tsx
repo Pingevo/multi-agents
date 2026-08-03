@@ -473,6 +473,7 @@ function AppContent() {
   const [aiThinkingText, setAiThinkingText] = useState<string>('');
   const aiModalOpenRef = useRef(false);
   const [modelCatalogData, setModelCatalogData] = useState<{ recommended: Record<string, any[]>; searchResults: any[]; mediaCatalog: Record<string, any[]>; mediaSearchResults: any[] }>({ recommended: {}, searchResults: [], mediaCatalog: {}, mediaSearchResults: [] });
+  const [autoApproveMedia, setAutoApproveMedia] = useState(false);
   const socketRef = useRef<Socket | null>(null);
   const prevNotificationsRef = useRef<string[]>([]);
   const stoppedRef = useRef(false);
@@ -1208,6 +1209,11 @@ function AppContent() {
         if (agentId) {
           updateState((prev) => ({ agents: (prev.agents || []).filter(a => a.id !== agentId) }));
         }
+      } else if (name === 'update_settings') {
+        // Optimistic update for autoApproveMedia — backend persists via save_settings
+        if (payload?.autoApproveMedia !== undefined) {
+          setAutoApproveMedia(payload.autoApproveMedia);
+        }
       }
       sendAction(name, payload);
     },
@@ -1346,6 +1352,7 @@ function AppContent() {
         mediaSearchResults={modelCatalogData.mediaSearchResults}
         taskItems={(tasks || []) as any}
         uploadLimitMb={uploadLimitMb}
+        autoApproveMedia={autoApproveMedia}
       />
       <TeamCreateModal
         open={showCreateModal}
