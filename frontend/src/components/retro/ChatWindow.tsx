@@ -540,7 +540,12 @@ const ImageApprovalCard: React.FC<{
       </div>
       <div className="card-footer">
         {msg.imageError ? (
-          <button className="btn btn-warm" onClick={onRetry}>🔄 Retry</button>
+          <>
+            <button className="btn btn-warm" onClick={onRetry}>🔄 Retry</button>
+            {/* Dismiss — calls onReject to collapse card to minimal "Rejected" state.
+                Without this, error cards with persistent API failures (e.g. xAI 520) stay stuck. */}
+            <button className="btn btn-no" onClick={onReject}>✕ Dismiss</button>
+          </>
         ) : (
           <>
             <button className="btn btn-no" onClick={onReject}>❌ Reject</button>
@@ -549,6 +554,143 @@ const ImageApprovalCard: React.FC<{
         )}
       </div>
     </div>
+  );
+};
+
+// Batch media approval panel — groups consecutive image_approval messages when there are 2+
+// Shows Approve All / Reject All for pending items, with collapsible per-item details
+const MediaApprovalPanel: React.FC<{
+  messages: ChatMessage[];
+  onApprove?: (approvalId: string, model?: string) => void;
+  onReject?: (approvalId: string) => void;
+  onRetry?: (approvalId: string) => void;
+}> = ({ messages, onApprove, onReject, onRetry }) => {
+  const [collapsed, setCollapsed] = useState(false);
+  const [zoom, setZoom] = useState<string | null>(null);
+  const mediaLabels: Record<string, string> = {
+    image: 'Image', video: 'Video', tts: 'Audio', stt: 'Transcription', vision: 'Vision',
+  };
+
+  const pending = messages.filter(m => m.approvalStatus === 'pending' || m.approvalStatus === 'error');
+  const generated = messages.filter(m => m.approvalStatus === 'generated');
+  const approved = messages.filter(m => m.approvalStatus === 'approved');
+  const rejected = messages.filter(m => m.approvalStatus === 'rejected');
+
+  const summaryParts: string[] = [];
+  if (pending.length) summaryParts.push(`${pending.length} pending`);
+  if (approved.length) summaryParts.push(`${approved.length} generating`);
+  if (generated.length) summaryParts.push(`${generated.length} done`);
+  if (rejected.length) summaryParts.push(`${rejected.length} rejected`);
+
+  const handleApproveAll = () => {
+    pending.forEach(m => onApprove?.(m.approvalId || '', m.model));
+  };
+  const handleRejectAll = () => {
+    pending.forEach(m => onReject?.(m.approvalId || ''));
+  };
+
+  return (
+    <>
+    {zoom && (
+      <div className="tw-lightbox" onClick={() => setZoom(null)}>
+        {zoom.includes('.mp4') || zoom.includes('.webm') ? (
+          <video src={zoom} controls autoPlay style={{ maxWidth: '90vw', maxHeight: '90vh' }} />
+        ) : (
+          <img src={zoom} alt="Zoomed" />
+        )}
+      </div>
+    )}
+    <div className="tw-map">
+      {/* Header */}
+      <div className="tw-map-hdr" onClick={() => setCollapsed(!collapsed)}>
+        <ImageIcon size={14} style={{ color: 'var(--purple)', flexShrink: 0 }} />
+        <span style={{ fontWeight: 600, flexShrink: 0 }}>Media Approvals ({messages.length})</span>
+        <span className="tw-map-summary">{summaryParts.join(' · ')}</span>
+        <ChevronDown size={14} style={{ marginLeft: 'auto', transform: collapsed ? 'rotate(-90deg)' : '', transition: 'transform .15s', flexShrink: 0 }} />
+      </div>
+
+      {/* Batch actions — only when there are pending items */}
+      {pending.length > 0 && (
+        <div className="tw-map-actions">
+          <button className="btn btn-yes" onClick={handleApproveAll}>✓ Approve All ({pending.length})</button>
+          <button className="btn btn-no" onClick={handleRejectAll}>❌ Reject All</button>
+        </div>
+      )}
+
+      {/* Item list — collapsible */}
+      {!collapsed && (
+        <div className="tw-map-list">
+          {messages.map((msg, i) => {
+            const status = msg.approvalStatus as ImageApprovalStatus;
+            const label = mediaLabels[msg.mediaType || 'image'] || 'Image';
+
+            if (status === 'approved') {
+              return (
+                <div key={msg.id} className="tw-map-item approved">
+                  <Loader2 size={12} className="animate-spin" style={{ color: 'var(--ink3)', flexShrink: 0 }} />
+                  <span style={{ fontSize: '11px', color: 'var(--ink3)' }}>#{i + 1} {label} — Generating...</span>
+                </div>
+              );
+            }
+            if (status === 'generated') {
+              return (
+                <div key={msg.id} className="tw-map-item generated">
+                  <div className="tw-map-thumb" onClick={() => setZoom(withMediaToken(msg.imageUrl) || '')} style={{ cursor: 'pointer' }}>
+                    {msg.mediaType === 'video' ? (
+                      <video src={withMediaToken(msg.imageUrl)} muted style={{ width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' }} />
+                    ) : (
+                      <img src={withMediaToken(msg.imageUrl)} alt={msg.imagePrompt} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    )}
+                  </div>
+                  <div className="tw-map-info">
+                    <div className="tw-map-item-title">#{i + 1} {label} — {msg.agentName || 'Agent'} ✓</div>
+                    <div className="tw-map-prompt" title={msg.imagePrompt}>{msg.imagePrompt}</div>
+                    {msg.model && <div className="tw-map-model">🤖 {msg.model}</div>}
+                  </div>
+                </div>
+              );
+            }
+            if (status === 'rejected') {
+              return (
+                <div key={msg.id} className="tw-map-item rejected">
+                  <XCircle size={14} style={{ color: 'var(--red)', flexShrink: 0 }} />
+                  <span style={{ fontSize: '11px', color: 'var(--ink3)' }}>#{i + 1} {label} — Rejected</span>
+                </div>
+              );
+            }
+            // pending or error
+            return (
+              <div key={msg.id} className="tw-map-item pending">
+                <div className="tw-map-info">
+                  <div className="tw-map-item-title">#{i + 1} {label} — {msg.agentName || 'Agent'}</div>
+                  {msg.imageError ? (
+                    <div style={{ color: 'var(--red)', fontSize: '11px' }}>⚠ {msg.imageError}</div>
+                  ) : (
+                    <div className="tw-map-prompt" title={msg.imagePrompt}>{msg.imagePrompt}</div>
+                  )}
+                  {msg.model && <div className="tw-map-model">🤖 {msg.model}{msg.mediaType ? ` (${msg.mediaType})` : ''}{msg.duration ? ` · ${msg.duration}s` : ''}</div>}
+                </div>
+                <div className="tw-map-item-actions">
+                  {msg.imageError ? (
+                    <>
+                      <button className="btn btn-warm" style={{ padding: '2px 8px', fontSize: '10px' }} onClick={() => onRetry?.(msg.approvalId || '')}>🔄 Retry</button>
+                      {/* Dismiss — collapses stuck error items without retrying failed API */}
+                      <button className="btn btn-no" style={{ padding: '2px 8px', fontSize: '10px' }} onClick={() => onReject?.(msg.approvalId || '')}>✕</button>
+                    </>
+                  ) : (
+                    <>
+                      <button className="btn btn-no" style={{ padding: '2px 8px', fontSize: '10px' }} onClick={() => onReject?.(msg.approvalId || '')}>❌</button>
+                      <button className="btn btn-yes" style={{ padding: '2px 8px', fontSize: '10px' }} onClick={() => onApprove?.(msg.approvalId || '', msg.model)}>✓</button>
+                    </>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+    </>
   );
 };
 
@@ -1014,6 +1156,49 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
     setEditingSessionId(null); setEditTitle('');
   };
 
+  // Render messages — groups consecutive image_approval messages into a batch panel when there are 2+
+  const renderMessages = () => {
+    const result: React.ReactNode[] = [];
+    let i = 0;
+    while (i < messages.length) {
+      const msg = messages[i];
+      if (msg.messageType === 'image_approval') {
+        // Collect consecutive image_approval messages into a group
+        const group: ChatMessage[] = [];
+        while (i < messages.length && messages[i].messageType === 'image_approval') {
+          group.push(messages[i]);
+          i++;
+        }
+        if (group.length === 1) {
+          // Single approval — render as individual card (same as before)
+          const m = group[0];
+          result.push(
+            <ImageApprovalCard
+              key={m.id} msg={m}
+              onApprove={(model) => onApproveImage?.(m.approvalId || '', model)}
+              onReject={() => onRejectImage?.(m.approvalId || '')}
+              onRetry={() => onRetryImage?.(m.approvalId || '')}
+            />
+          );
+        } else {
+          // 2+ approvals — render as batch panel
+          result.push(
+            <MediaApprovalPanel
+              key={group[0].id} messages={group}
+              onApprove={(id, model) => onApproveImage?.(id, model)}
+              onReject={(id) => onRejectImage?.(id)}
+              onRetry={(id) => onRetryImage?.(id)}
+            />
+          );
+        }
+      } else {
+        result.push(renderMessage(msg));
+        i++;
+      }
+    }
+    return result;
+  };
+
   // Render messages
   const renderMessage = (msg: ChatMessage) => {
     const msgType = msg.messageType || 'text';
@@ -1063,14 +1248,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
       );
     }
     if (msgType === 'image_result') {
-      // image_result is normally merged into image_approval card by App.tsx (updates approvalStatus to 'generated')
-      // — return null here to avoid a duplicate separate card.
-      // But if merge failed (no matching approval card), image_result is added as standalone — render it.
-      if (msg.imageUrl) {
-        return (
-          <ImageResultCard key={msg.id} msg={msg} />
-        );
-      }
+      // image_result is merged into image_approval card by App.tsx (updates approvalStatus to 'generated')
+      // — return null to avoid duplicate card. The MediaApprovalPanel shows generated results inline.
       return null;
     }
     if (msgType === 'model_catalog') { return null; }
@@ -1177,7 +1356,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
             </div>
           ) : (
             <>
-              {messages.map(renderMessage)}
+              {renderMessages()}
 
               {/* Activity log */}
               {(activityLog.length > 0 || isProcessing) && (
