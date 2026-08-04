@@ -1,5 +1,7 @@
 """AgentFactory — creates CrewAI agents and tasks."""
 
+from datetime import datetime
+
 import chainlit as cl
 from crewai import Agent, Task, Crew, Process, LLM
 from backend.llm.manager import LLMManager
@@ -19,6 +21,11 @@ class AgentFactory:
     def _build_agent_backstory(self, spec: dict) -> str:
         """Compose deep persona from personality, expertise, brand_context, learnings."""
         parts = []
+
+        # Current date — agents must know "today" to judge whether data is
+        # current or future (parity with Claude/ChatGPT/Gemini system prompts)
+        today = datetime.now().strftime("%A, %B %d, %Y")
+        parts.append(f"Today's date: {today}")
 
         # Base identity
         name = spec.get("name", "Agent")

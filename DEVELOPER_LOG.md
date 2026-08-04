@@ -20,8 +20,40 @@ User สังเกตเห็นปัญหาใหญ่กว่า: ถ�
 - กฏนี้บันทึกใน `global_rules.md` + `SYSTEM_PROTOCOL.md` section 14 + `CLAUDE.md`
 
 ### Next
-- เริ่มทำ parity feature แรก: Current Date/Time injection (ใช้ CrewAI `inject_date=True`)
+- เริ่มทำ parity feature แรก: Current Date/Time injection
 - ทำตามวิธี bug-driven: เจอ bug วันที่ → ค้นหาตลาด → ทำให้เหมือน
+
+---
+
+## 2026-08-04 (session 4) — Date injection in agent backstory (Task B: search parity)
+
+### Context
+Bug: Agent rejected valid box office data as "future information" because it
+didn't know the current date. Market standard (Claude/ChatGPT/Gemini) injects
+the current date into the system prompt automatically. CrewAI 1.15.1 has no
+`inject_date` parameter on `Agent`, so the date must be injected into the
+backstory (which becomes part of the system prompt).
+
+### Changes (TDD: red → green)
+
+#### 1. `backend/agents/factory.py` — inject current date in `_build_agent_backstory()`
+- Added `from datetime import datetime` import
+- At the top of `_build_agent_backstory()`, before base identity, append
+  `Today's date: <weekday>, <month> <day>, <year>` to the parts list
+- Every agent now knows what "today" is, fixing the false "future data" rejection
+
+#### 2. `test_date_injection.py` (new) — 3 tests, all passing
+- `test_backstory_contains_current_date` — backstory contains current year
+- `test_backstory_contains_today_keyword` — backstory has explicit "Today's date" label
+- `test_date_appears_in_full_backstory_with_other_fields` — date injection works alongside other persona fields
+
+### Verification
+- `pytest test_date_injection.py`: 3 passed
+- `pytest test_date_injection.py test_orchestrator.py test_agent_registry.py`: 29 passed (no regressions)
+
+### Files Changed
+- `backend/agents/factory.py` — date injection in `_build_agent_backstory()`
+- `test_date_injection.py` (new)
 
 ---
 
