@@ -389,6 +389,7 @@ const ChatPlanCard: React.FC<{
         <div className="plan-models">
           {hasImageTool && renderMediaModel('Image', 'imageModel', msg.imageModel, '🖼️', 'image')}
           {hasVideoTool && renderMediaModel('Video', 'videoModel', msg.videoModel, '🎬', 'video')}
+          {hasSearchTool && renderMediaModel('Search', 'searchModel', msg.searchModel, '🔍', 'search')}
           {hasTtsTool && renderMediaModel('TTS', 'ttsModel', msg.ttsModel, '🔊', 'tts')}
           {hasSttTool && renderMediaModel('STT', 'sttModel', msg.sttModel, '🎙️', 'stt')}
           {hasVisionTool && renderMediaModel('Vision', 'visionModel', msg.visionModel, '👁️', 'vision')}
@@ -403,6 +404,7 @@ const ChatPlanCard: React.FC<{
           const missingModels: string[] = [];
           if (hasImageTool && !msg.imageModel) missingModels.push('Image');
           if (hasVideoTool && !msg.videoModel) missingModels.push('Video');
+          if (hasSearchTool && !msg.searchModel) missingModels.push('Search');
           if (hasTtsTool && !msg.ttsModel) missingModels.push('TTS');
           if (hasSttTool && !msg.sttModel) missingModels.push('STT');
           if (hasVisionTool && !msg.visionModel) missingModels.push('Vision');
@@ -550,9 +552,17 @@ const ImageApprovalCard: React.FC<{
           </>
         ) : showRejectInput ? (
           <>
+            {msg.instructionHistory && msg.instructionHistory.length > 0 && (
+              <div style={{ fontSize: '9px', color: 'var(--ink3)', marginBottom: '4px', borderTop: '1px dashed var(--line)', paddingTop: '4px', width: '100%' }}>
+                <span style={{ fontWeight: 600 }}>ประวัติคำสั่ง ({msg.instructionHistory.length}):</span>
+                {msg.instructionHistory.map((inst, hi) => (
+                  <div key={hi} style={{ marginTop: '2px' }}>• {inst}</div>
+                ))}
+              </div>
+            )}
             <input
               type="text"
-              placeholder="Feedback for agent (optional)..."
+              placeholder="พิมพ์คำสั่งใหม่ เช่น 'ทำให้สดใสขึ้น' แล้วกด Enter — agent จะแก้ prompt และสร้างใหม่ทันที"
               value={rejectFeedback}
               onChange={e => setRejectFeedback(e.target.value)}
               style={{ flex: 1, fontSize: '10px', padding: '4px 6px', border: '1px solid var(--line)', borderRadius: '3px', background: 'var(--paper)', color: 'var(--ink)' }}
@@ -562,12 +572,12 @@ const ImageApprovalCard: React.FC<{
                 if (e.key === 'Escape') { setShowRejectInput(false); setRejectFeedback(''); }
               }}
             />
-            <button className="btn btn-no" style={{ padding: '3px 8px', fontSize: '10px' }} onClick={() => onReject?.(rejectFeedback)}>Confirm Reject</button>
+            <button className="btn btn-no" style={{ padding: '3px 8px', fontSize: '10px' }} onClick={() => onReject?.(rejectFeedback)}>🔄 แก้ใหม่</button>
             <button className="btn" style={{ padding: '3px 8px', fontSize: '10px' }} onClick={() => { setShowRejectInput(false); setRejectFeedback(''); }}>Cancel</button>
           </>
         ) : (
           <>
-            <button className="btn btn-no" onClick={() => setShowRejectInput(true)}>❌ Reject</button>
+            <button className="btn btn-no" onClick={() => setShowRejectInput(true)}>🔄 แก้ใหม่</button>
             <button className="btn btn-yes" onClick={() => onApprove?.()}>✓ Generate</button>
           </>
         )}
@@ -588,6 +598,8 @@ const MediaApprovalPanel: React.FC<{
   const [zoom, setZoom] = useState<string | null>(null);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectFeedback, setRejectFeedback] = useState('');
+  const [showRejectAllInput, setShowRejectAllInput] = useState(false);
+  const [rejectAllFeedback, setRejectAllFeedback] = useState('');
   const mediaLabels: Record<string, string> = {
     image: 'Image', video: 'Video', tts: 'Audio', stt: 'Transcription', vision: 'Vision',
   };
@@ -606,9 +618,10 @@ const MediaApprovalPanel: React.FC<{
   const handleApproveAll = () => {
     pending.forEach(m => onApprove?.(m.approvalId || '', m.model));
   };
-  const handleRejectAll = () => {
-    const feedback = window.prompt('Feedback for all rejected items (optional):') || '';
-    pending.forEach(m => onReject?.(m.approvalId || '', feedback));
+  const handleRejectAllConfirm = () => {
+    pending.forEach(m => onReject?.(m.approvalId || '', rejectAllFeedback));
+    setShowRejectAllInput(false);
+    setRejectAllFeedback('');
   };
 
   return (
@@ -634,8 +647,29 @@ const MediaApprovalPanel: React.FC<{
       {/* Batch actions — only when there are pending items */}
       {pending.length > 0 && (
         <div className="tw-map-actions">
-          <button className="btn btn-yes" onClick={handleApproveAll}>✓ Approve All ({pending.length})</button>
-          <button className="btn btn-no" onClick={handleRejectAll}>❌ Reject All</button>
+          {showRejectAllInput ? (
+            <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'wrap', width: '100%' }}>
+              <input
+                type="text"
+                placeholder={`พิมพ์คำสั่งใหม่สำหรับ ${pending.length} items เช่น 'ทำให้สดใสขึ้น' แล้วกด Enter — agent จะแก้ prompt และสร้างใหม่ทันที`}
+                value={rejectAllFeedback}
+                onChange={e => setRejectAllFeedback(e.target.value)}
+                style={{ flex: 1, minWidth: '200px', fontSize: '10px', padding: '4px 6px', border: '1px solid var(--line)', borderRadius: '3px', background: 'var(--paper)', color: 'var(--ink)' }}
+                autoFocus
+                onKeyDown={e => {
+                  if (e.key === 'Enter') { handleRejectAllConfirm(); }
+                  if (e.key === 'Escape') { setShowRejectAllInput(false); setRejectAllFeedback(''); }
+                }}
+              />
+              <button className="btn btn-no" style={{ padding: '3px 8px', fontSize: '10px' }} onClick={handleRejectAllConfirm}>🔄 แก้ใหม่ทั้งหมด</button>
+              <button className="btn" style={{ padding: '3px 8px', fontSize: '10px' }} onClick={() => { setShowRejectAllInput(false); setRejectAllFeedback(''); }}>Cancel</button>
+            </div>
+          ) : (
+            <>
+              <button className="btn btn-yes" onClick={handleApproveAll}>✓ Approve All ({pending.length})</button>
+              <button className="btn btn-no" onClick={() => setShowRejectAllInput(true)}>🔄 แก้ใหม่ทั้งหมด</button>
+            </>
+          )}
         </div>
       )}
 
@@ -701,26 +735,36 @@ const MediaApprovalPanel: React.FC<{
                     </>
                   ) : (
                     <>
-                      <button className="btn btn-no" style={{ padding: '2px 8px', fontSize: '10px' }} onClick={() => { setRejectingId(msg.approvalId || ''); setRejectFeedback(''); }}>❌</button>
+                      <button className="btn btn-no" style={{ padding: '2px 8px', fontSize: '10px' }} onClick={() => { setRejectingId(msg.approvalId || ''); setRejectFeedback(''); }} title="แก้ใหม่ตามคำสั่ง">🔄</button>
                       <button className="btn btn-yes" style={{ padding: '2px 8px', fontSize: '10px' }} onClick={() => onApprove?.(msg.approvalId || '', msg.model)}>✓</button>
                     </>
                   )}
                   {rejectingId === msg.approvalId && (
-                    <div style={{ gridColumn: '1 / -1', display: 'flex', gap: '4px', alignItems: 'center', marginTop: '4px' }}>
-                      <input
-                        type="text"
-                        placeholder="Feedback (optional)..."
-                        value={rejectFeedback}
-                        onChange={e => setRejectFeedback(e.target.value)}
-                        style={{ flex: 1, fontSize: '10px', padding: '3px 6px', border: '1px solid var(--line)', borderRadius: '3px', background: 'var(--paper)', color: 'var(--ink)' }}
-                        autoFocus
-                        onKeyDown={e => {
-                          if (e.key === 'Enter') { onReject?.(msg.approvalId || '', rejectFeedback); setRejectingId(null); }
-                          if (e.key === 'Escape') { setRejectingId(null); setRejectFeedback(''); }
-                        }}
-                      />
-                      <button className="btn btn-no" style={{ padding: '2px 8px', fontSize: '10px' }} onClick={() => { onReject?.(msg.approvalId || '', rejectFeedback); setRejectingId(null); }}>Confirm</button>
-                      <button className="btn" style={{ padding: '2px 8px', fontSize: '10px' }} onClick={() => { setRejectingId(null); setRejectFeedback(''); }}>Cancel</button>
+                    <div style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '4px' }}>
+                      <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                        <input
+                          type="text"
+                          placeholder="พิมพ์คำสั่งใหม่ เช่น 'ทำให้สดใสขึ้น' แล้วกด Enter — agent จะแก้ prompt และสร้างใหม่ทันที"
+                          value={rejectFeedback}
+                          onChange={e => setRejectFeedback(e.target.value)}
+                          style={{ flex: 1, fontSize: '10px', padding: '3px 6px', border: '1px solid var(--line)', borderRadius: '3px', background: 'var(--paper)', color: 'var(--ink)' }}
+                          autoFocus
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') { onReject?.(msg.approvalId || '', rejectFeedback); setRejectingId(null); }
+                            if (e.key === 'Escape') { setRejectingId(null); setRejectFeedback(''); }
+                          }}
+                        />
+                        <button className="btn btn-no" style={{ padding: '2px 8px', fontSize: '10px' }} onClick={() => { onReject?.(msg.approvalId || '', rejectFeedback); setRejectingId(null); }}>🔄 แก้ใหม่</button>
+                        <button className="btn" style={{ padding: '2px 8px', fontSize: '10px' }} onClick={() => { setRejectingId(null); setRejectFeedback(''); }}>Cancel</button>
+                      </div>
+                      {msg.instructionHistory && msg.instructionHistory.length > 0 && (
+                        <div style={{ fontSize: '9px', color: 'var(--ink3)', borderTop: '1px dashed var(--line)', paddingTop: '4px' }}>
+                          <span style={{ fontWeight: 600 }}>ประวัติคำสั่ง ({msg.instructionHistory.length}):</span>
+                          {msg.instructionHistory.map((inst, hi) => (
+                            <div key={hi} style={{ marginTop: '2px' }}>• {inst}</div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

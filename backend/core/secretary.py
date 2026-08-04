@@ -13,6 +13,35 @@ from backend.agents.registry import AgentRegistry
 from backend.utils import _sanitize_error, _debug
 from backend.globals import STATE_IDLE, STATE_GATHERING_REQUIREMENTS
 
+
+def _build_plan_schema_section() -> str:
+    """Build the JSON schema section of the Secretary prompt.
+
+    Extracted so tests can verify search_model is marked REQUIRED (not deprecated).
+    """
+    return (
+        '  "image_model": "model_id from specialized catalog (REQUIRED if plan uses generate_image)",\n'
+        '  "video_model": "model_id from specialized catalog (REQUIRED if plan uses generate_video)",\n'
+        '  "search_model": "model_id from specialized catalog (REQUIRED if plan uses search_web)",\n'
+        '  "tts_model": "model_id from specialized catalog (REQUIRED if plan uses text_to_speech)",\n'
+        '  "stt_model": "model_id from specialized catalog (REQUIRED if plan uses transcribe_audio)",\n'
+        '  "vision_model": "model_id from specialized catalog (REQUIRED if plan uses analyze_image)"\n'
+    )
+
+
+def _build_design_rules_section() -> str:
+    """Build the Design Rules section of the Secretary prompt.
+
+    Extracted so tests can verify search_web → search_model mapping is present.
+    """
+    return (
+        "- Assign media models from the specialized catalog below when the plan uses media tools "
+        "(generate_image→image_model, generate_video→video_model, search_web→search_model, "
+        "text_to_speech→tts_model, transcribe_audio→stt_model, analyze_image→vision_model). "
+        "Leave empty if not needed.\n"
+    )
+
+
 class CentralManager:
     """AI Manager: ประเมินความต้องการ, ถาม requirement, วิเคราะห์และวางแผน multi-agent"""
 
@@ -312,6 +341,7 @@ class CentralManager:
             '      "review_iterations": null,\n'
             '      "max_iter": 25,\n'
             '      "max_retry_limit": 3,\n'
+            '      "max_search_calls": 0,\n'
             '      "allow_delegation": false\n'
             "    }\n"
             "  ]\n"
@@ -351,16 +381,12 @@ class CentralManager:
             '      "review_iterations": null,\n'
             '      "max_iter": 25,\n'
             '      "max_retry_limit": 3,\n'
+            '      "max_search_calls": 0,\n'
             '      "allow_delegation": false\n'
             "    }\n"
             "  ],\n"
-            '  "image_model": "model_id from specialized catalog (REQUIRED if plan uses generate_image)",\n'
-            '  "video_model": "model_id from specialized catalog (REQUIRED if plan uses generate_video)",\n'
-            '  "search_model": "(deprecated — web search is now built-in via OpenRouter server tools)",\n'
-            '  "tts_model": "model_id from specialized catalog (REQUIRED if plan uses text_to_speech)",\n'
-            '  "stt_model": "model_id from specialized catalog (REQUIRED if plan uses transcribe_audio)",\n'
-            '  "vision_model": "model_id from specialized catalog (REQUIRED if plan uses analyze_image)"\n'
-            "}\n\n"
+            + _build_plan_schema_section()
+            + "}\n\n"
             "Design Rules for plan:\n"
             "- Do NOT include a Manager agent in your response — the system has a Manager already. Only include worker agents.\n"
             "- REUSE existing team agents when possible — if a team agent already has the right role/tools, include it by name instead of creating a new one\n"
@@ -376,8 +402,8 @@ class CentralManager:
             "- Capabilities of type 'tool' (generate_image, generate_video, text_to_speech, transcribe_audio, analyze_image, generate_document) give external abilities\n"
             "- Capabilities of type 'model_trait' (reasoning, creative_writing, write_code, long_context) guide model selection\n"
             "- Assign each agent the most suitable model from: 'google/gemini-3.5-flash', 'anthropic/claude-sonnet-5', 'openai/gpt-5.6-luna'. Consider the agent's role and tasks when choosing.\n"
-            "- Leave image_model/video_model/search_model/tts_model/stt_model/vision_model empty — the user will select models in the plan card\n"
-            "- Write all content in the SAME language as the user's request\n"
+            + _build_design_rules_section()
+            + "- Write all content in the SAME language as the user's request\n"
             "- Name agents as 'Role #N' (e.g. Creative Writer #1, Graphic Designer #2)\n"
             "- Give each agent a personality (tone, communication_style, language) that fits their role\n"
             "- List specific expertise/skills for each agent (e.g. SEO, color theory, Thai consumer behavior)\n"
@@ -412,6 +438,7 @@ class CentralManager:
             "- When in doubt about whether a tool is needed, assign it — it is better to have the tool and not use it than to lack it.\n\n"
 
             f"Available capabilities:\n{caps_text}\n\n"
+            f"Specialized media model catalog (use these model IDs for media model fields):\n{media_catalog or 'none'}\n\n"
             f"{history_text}"
             f"{last_task_text}"
             f"{registry_text}"
@@ -533,6 +560,7 @@ class CentralManager:
                                 "review_iterations": item.get("review_iterations"),
                                 "max_iter": item.get("max_iter") or 25,  # CrewAI requires a number
                                 "max_retry_limit": item.get("max_retry_limit") or 3,  # CrewAI requires a number
+                                "max_search_calls": item.get("max_search_calls") or 0,  # 0 = unlimited
                                 "allow_delegation": item.get("allow_delegation", False) if isinstance(item.get("allow_delegation"), bool) else False,
                             })
                     if not agents:
@@ -573,12 +601,14 @@ class CentralManager:
                         "team_description": result.get("team_description", ""),
                         "agents": agents,
                         "model_assignment": model_assignment,
-                        "image_model": "",
-                        "video_model": "",
-                        "search_model": "",
-                        "tts_model": "",
-                        "stt_model": "",
-                        "vision_model": "",
+                        # Use LLM-selected media models — previously hardcoded to "" which
+                        # prevented auto-selection even when the LLM correctly assigned them
+                        "image_model": result.get("image_model", ""),
+                        "video_model": result.get("video_model", ""),
+                        "search_model": result.get("search_model", ""),
+                        "tts_model": result.get("tts_model", ""),
+                        "stt_model": result.get("stt_model", ""),
+                        "vision_model": result.get("vision_model", ""),
                     }
 
                 return result
@@ -686,6 +716,7 @@ class CentralManager:
             "- review_iterations (int or null, max Manager review rounds, null = unlimited)\n"
             "- max_iter (int, max agent thinking iterations, default 25)\n"
             "- max_retry_limit (int, max agent retries, default 3)\n"
+            "- max_search_calls (int, max search_web calls per agent, default 0 = unlimited; set > 0 for research agents to prevent over-searching)\n"
             "- allow_delegation (bool, allow agent to delegate to other agents, default false)\n\n"
             "Respond with ONLY this JSON (no other text):\n"
             "{\n"
@@ -910,16 +941,12 @@ class CentralManager:
             '      "review_iterations": null,\n'
             '      "max_iter": 25,\n'
             '      "max_retry_limit": 3,\n'
+            '      "max_search_calls": 0,\n'
             '      "allow_delegation": false\n'
             "    }\n"
             "  ],\n"
-            '  "image_model": "model_id from specialized catalog (REQUIRED if plan uses generate_image)",\n'
-            '  "video_model": "model_id from specialized catalog (REQUIRED if plan uses generate_video)",\n'
-            '  "search_model": "(deprecated — web search is now built-in via OpenRouter server tools)",\n'
-            '  "tts_model": "model_id from specialized catalog (REQUIRED if plan uses text_to_speech)",\n'
-            '  "stt_model": "model_id from specialized catalog (REQUIRED if plan uses transcribe_audio)",\n'
-            '  "vision_model": "model_id from specialized catalog (REQUIRED if plan uses analyze_image)"\n'
-            "}\n\n"
+            + _build_plan_schema_section()
+            + "}\n\n"
             "Design Rules for plan:\n"
             "- Do NOT include a Manager agent in your response — the system has a Manager already. Only include worker agents.\n"
             "- REUSE existing team agents when possible — if a team agent already has the right role/tools, include it by name instead of creating a new one\n"
@@ -933,11 +960,13 @@ class CentralManager:
             "- Each agent should have a clear, distinct responsibility\n"
             "- Assign capabilities based on the descriptions below\n"
             "- Assign each agent the most suitable model from: 'google/gemini-3.5-flash', 'anthropic/claude-sonnet-5', 'openai/gpt-5.6-luna'. Consider the agent's role and tasks when choosing.\n"
-            "- Write all content in the SAME language as the user's request\n"
+            + _build_design_rules_section()
+            + "- Write all content in the SAME language as the user's request\n"
             "- Name agents as 'Role #N' (e.g. Creative Writer #1)\n"
             "- Give each agent personality, expertise, and brand_context fields\n"
             "- backstory should be brief — personality, expertise, and brand_context carry the detail\n\n"
             f"Available capabilities:\n{caps_text}\n\n"
+            f"Specialized media model catalog (use these model IDs for media model fields):\n{media_catalog or 'none'}\n\n"
             f"{history_text}"
             f"{last_task_text}"
             f"{registry_text}"
@@ -1183,6 +1212,7 @@ class CentralManager:
                         "review_iterations": None,
                         "max_iter": 25,
                         "max_retry_limit": 3,
+                        "max_search_calls": 0,
                         "allow_delegation": False,
                     }
                 )
