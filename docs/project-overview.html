@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Project Overview — Dynamic Agent Management Platform</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+body{font-family:'Segoe UI',system-ui,sans-serif}
+.card:hover{transform:translateY(-2px);box-shadow:0 8px 25px rgba(0,0,0,.12)}
+.card{transition:transform .15s,box-shadow .15s}
+.mermaid{display:flex;justify-content:center;margin:1rem 0}
+.section-anchor{scroll-margin-top:60px}
+.badge{font-size:.65rem;padding:2px 8px;border-radius:9999px;font-weight:600}
+</style>
+</head>
+<body class="bg-gray-50 text-gray-800">
+
+<nav class="sticky top-0 z-50 bg-white shadow-md border-b border-gray-200">
+<div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+<div class="flex items-center gap-2"><span class="text-2xl">🪟</span><span class="font-bold text-lg">Agent OS — Project Overview</span></div>
+<div class="hidden md:flex gap-1 text-sm">
+<a href="#sec1" class="px-3 py-1.5 rounded-lg hover:bg-gray-100">1. โปรเจค</a>
+<a href="#sec2" class="px-3 py-1.5 rounded-lg hover:bg-gray-100">2. ภาพรวม</a>
+<a href="#sec3" class="px-3 py-1.5 rounded-lg hover:bg-gray-100">3. ไฟล์</a>
+<a href="#sec4" class="px-3 py-1.5 rounded-lg hover:bg-gray-100">4. Data Flow</a>
+<a href="#sec5" class="px-3 py-1.5 rounded-lg hover:bg-gray-100">5. โมดูล</a>
+<a href="#sec6" class="px-3 py-1.5 rounded-lg hover:bg-gray-100">6. State</a>
+<a href="#sec7" class="px-3 py-1.5 rounded-lg hover:bg-gray-100">7. Checklist</a>
+</div></div></nav>
+
+<!-- SEC 1 -->
+<section id="sec1" class="section-anchor max-w-7xl mx-auto px-4 py-12">
+<div class="text-center mb-10">
+<h1 class="text-4xl font-bold mb-4">Dynamic Agent Management Platform</h1>
+<p class="text-lg text-gray-600 max-w-3xl mx-auto">แพลตฟอร์มที่ให้ผู้ใช้พิมพ์คำสั่ง → AI ประเมินและสร้างแผน → ผู้ใช้อนุมัติ → AI Agent หลายตัวทำงานร่วมกัน → ส่งผลลัพธ์กลับ</p>
+</div>
+<div class="grid md:grid-cols-3 gap-6 mb-10">
+<div class="card bg-white rounded-2xl p-6 shadow-md border border-gray-100"><div class="text-3xl mb-3">💬</div><h3 class="font-bold text-lg mb-2">ผู้ใช้พิมพ์คำสั่ง</h3><p class="text-sm text-gray-600">พิมพ์ว่าต้องการอะไร เช่น "วิเคราะห์สินค้า X เปรียบเทียบคู่แข่ง" ระบบจะประเมินว่าต้องทำอะไรบ้าง</p></div>
+<div class="card bg-white rounded-2xl p-6 shadow-md border border-gray-100"><div class="text-3xl mb-3">📋</div><h3 class="font-bold text-lg mb-2">AI สร้างแผน</h3><p class="text-sm text-gray-600">AI ออกแบบ Agent ที่จำเป็น พร้อมเครื่องมือและโมเดล แสดงเป็น "แผน" ให้ผู้ใช้อนุมัติ</p></div>
+<div class="card bg-white rounded-2xl p-6 shadow-md border border-gray-100"><div class="text-3xl mb-3">🤖</div><h3 class="font-bold text-lg mb-2">Agent ทำงาน</h3><p class="text-sm text-gray-600">หลังอนุมัติ Agent ทำงานพร้อมกัน (CrewAI) มี Manager คุม ส่งผลลัพธ์เรียลไทม์</p></div>
+</div>
+<div class="bg-blue-50 border border-blue-200 rounded-xl p-6">
+<h3 class="font-bold text-lg mb-3">🎯 ฟีเจอร์หลัก</h3>
+<div class="grid md:grid-cols-2 gap-3 text-sm">
+<div>✓ สร้าง Agent อัตโนมัติจากคำขอ</div><div>✓ เลือกโมเดล AI ที่เหมาะสมให้แต่ละ Agent</div>
+<div>✓ เครื่องมือ: ค้นเว็บ, สร้างรูป, สร้างวิดีโอ, อ่านไฟล์, สร้างเสียง</div><div>✓ ความคืบหน้าเรียลไทม์ผ่าน WebSocket</div>
+<div>✓ ระบบ Review: Manager ตรวจสอบคุณภาพ</div><div>✓ อนุมัติการสร้างสื่อก่อนให้ AI ทำ</div>
+<div>✓ จัดการทีม Agent: สร้าง, แก้ไข, ลบ, ใช้ซ้ำ</div><div>✓ ประวัติแชท + ประวัติ Task</div>
+<div>✓ ทำงานตามเวลา (Schedule)</div><div>✓ รองรับไฟล์แนบ: รูป, PDF, เสียง, วิดีโอ, URL</div>
+<div>✓ คำนวณค่าใช้จ่าย (Credits)</div><div>✓ ล็อกอินผ่าน System81 OAuth</div>
+</div></div>
+<div class="mt-6 grid md:grid-cols-2 gap-6">
+<div class="card bg-white rounded-2xl p-6 shadow-md border border-gray-100"><h3 class="font-bold text-lg mb-2">🖥️ UI แบบ Modern</h3><p class="text-sm text-gray-600">React + TailwindCSS มี Chat Panel ด้านขวา Storyboard ด้านซ้าย</p><div class="mt-3 text-xs text-gray-400">MainLayout.tsx, ChatPanelRight.tsx, StoryboardArea.tsx</div></div>
+<div class="card bg-white rounded-2xl p-6 shadow-md border border-gray-100"><h3 class="font-bold text-lg mb-2">🪟 UI แบบ Retro (Win95)</h3><p class="text-sm text-gray-600">สไตล์ Windows 95 มีหน้าต่างลากได้, Taskbar, Start Menu</p><div class="mt-3 text-xs text-gray-400">RetroDesktop.tsx, ChatWindow.tsx, AgentsWindow.tsx</div></div>
+</div>
+</section>
+
+<!-- SEC 2 -->
+<section id="sec2" class="section-anchor bg-white py-12 border-y border-gray-200">
+<div class="max-w-7xl mx-auto px-4">
+<h2 class="text-3xl font-bold mb-2 text-center">ภาพรวมสถาปัตยกรรม</h2>
+<p class="text-center text-gray-500 mb-8">3 ชั้น: Frontend ↔ WebSocket ↔ Backend</p>
+<div class="mermaid">
+graph TB
+subgraph FE["🖥️ Frontend — port 5173"]
+App["App.tsx (Socket.IO)"]
+ModUI["Modern UI"]
+RetUI["Retro UI (Win95)"]
+App --> ModUI
+App --> RetUI
+end
+subgraph BE["⚙️ Backend — port 8000"]
+CL["Chainlit (app.py)"]
+Chat["chat.py"]
+Sec["Secretary<br/>ประเมิน+วางแผน"]
+Msg["Messenger<br/>ส่งข้อความ"]
+Orch["Orchestrator<br/>คุม Agent"]
+Crew["CrewAI Engine"]
+Tools["Tools"]
+LLM["LLM Manager"]
+Stores["Stores (JSON)"]
+Auth["Auth"]
+CL --> Chat
+Chat --> Sec
+Chat --> Orch
+Sec --> LLM
+Orch --> Crew
+Crew --> Tools
+Crew --> LLM
+Chat --> Msg
+Msg --> Stores
+CL --> Auth
+end
+subgraph EXT["🌐 External"]
+OR["OpenRouter API"]
+S81["System81 OAuth"]
+end
+App <-->|"WebSocket JSON"| CL
+LLM -->|"HTTP"| OR
+Auth -->|"HTTP"| S81
+style FE fill:#e3f2fd,stroke:#2196f3
+style BE fill:#fff3e0,stroke:#ff9800
+style EXT fill:#e8f5e9,stroke:#4caf50
+</div>
+<div class="grid md:grid-cols-3 gap-4 mt-8">
+<div class="bg-blue-50 rounded-xl p-5 border border-blue-200"><h3 class="font-bold text-blue-700 mb-2">🖥️ Frontend</h3><ul class="text-sm space-y-1"><li>React + TypeScript + TailwindCSS</li><li>Vite dev server (port 5173)</li><li>2 UI: Modern + Retro Win95</li><li>สื่อสารผ่าน WebSocket</li><li>45 ไฟล์, ~15,600 บรรทัด</li></ul></div>
+<div class="bg-orange-50 rounded-xl p-5 border border-orange-200"><h3 class="font-bold text-orange-700 mb-2">⚙️ Backend</h3><ul class="text-sm space-y-1"><li>Python + Chainlit (port 8000)</li><li>CrewAI multi-agent engine</li><li>JSON file persistence (ไม่มี DB)</li><li>OpenRouter API สำหรับ LLM</li><li>54 ไฟล์, ~13,900 บรรทัด</li></ul></div>
+<div class="bg-green-50 rounded-xl p-5 border border-green-200"><h3 class="font-bold text-green-700 mb-2">🌐 External</h3><ul class="text-sm space-y-1"><li>OpenRouter: LLM API</li><li>System81: OAuth login</li><li>Playwright: headless browser</li></ul></div>
+</div>
+</div>
+</section>
+
+<!-- SEC 3 -->
+<section id="sec3" class="section-anchor max-w-7xl mx-auto px-4 py-12">
+<h2 class="text-3xl font-bold mb-2 text-center">โครงสร้างไฟล์ทั้งหมด</h2>
+<p class="text-center text-gray-500 mb-8">ครบทุกไฟล์ พร้อมคำอธิบาย 1 บรรทัด</p>
+<div class="grid md:grid-cols-2 gap-6">
+<div class="bg-gray-900 text-gray-300 rounded-xl p-6 font-mono text-xs overflow-x-auto">
+<h3 class="text-white font-bold mb-3 text-sm">⚙️ Backend (54 ไฟล์, ~13,900 บรรทัด)</h3>
+<pre>app.py (317)           → ประตูเข้า HTTP (login, upload, media)
+backend/
+├── globals.py (67)    → ค่าคงที่, เส้นทางไฟล์, callbacks
+├── utils.py (32)      → mask API key, debug, URL extract
+├── credit_logger.py   → log ทุก LLM call ลง JSONL
+├── rest_api.py (165)  → FastAPI auth (ซ้ำกับ app.py)
+├── handlers/
+│   ├── chat.py (3141)     → รับข้อความ, ตัดสินใจ, สั่งทำงาน
+│   ├── actions.py (838)   → 19 action handlers
+│   └── auth_api.py (103)  → Auth ผ่าน Chainlit msg
+├── core/
+│   ├── messenger.py (916)      → ไปรษณีย์ ส่ง BE↔FE
+│   ├── orchestrator.py (1495)  → ผู้อำนวยการ คุม Agent
+│   ├── secretary.py (1204)     → มันสมอ ประเมิน+วางแผน
+│   ├── media_awaiter.py (350)  → รออนุมัติสื่อ
+│   ├── tool_validator.py (257) → ตรวจ Agent ใช้ tool ถูก
+│   ├── scheduler.py (105)      → รัน task ตามเวลา
+│   └── crewai_patch.py (34)    → แก้ CrewAI multimodal
+├── agents/
+│   ├── registry.py (219)       → คลัง Agent (JSON)
+│   ├── factory.py (250)        → สร้าง CrewAI Agent
+│   ├── capability.py (145)     → ความสามารถ Agent
+│   ├── chat_store.py (276)     → เก็บประวัติแชท
+│   ├── task_store.py (107)     → เก็บ Task (JSON)
+│   ├── team_registry.py (93)   → เก็บทีม (JSON)
+│   ├── templates.py (181)      → เทมเพลต Agent
+│   ├── tool_registry.py (36)   → ชื่อ tool → ฟังก์ชัน
+│   ├── history_store.py (58)   → audit log ราย task
+│   ├── schedule_store.py (114) → task ตามเวลา
+│   └── template_store.py (64)  → เทมเพลต task
+├── llm/
+│   ├── manager.py (496)    → เรียก LLM API + fallback
+│   ├── rotator.py (281)    → สลับ free model เมื่อ error
+│   ├── selector.py (233)   → เลือกโมเดลเหมาะกับงาน
+│   ├── catalog.py (152)    → ดึง+จัดประเภทโมเดล
+│   └── discovery.py (224)  → ค้นหาโมเดลตามความสามารถ
+├── tools/
+│   ├── search.py (82)      → ค้นเว็บ (DuckDuckGo)
+│   ├── media.py (58)       → สร้างรูป/วิดีโอ
+│   ├── audio.py (69)       → TTS, STT, วิเคราะห์รูป
+│   ├── browser.py (147)    → headless browser (Playwright)
+│   ├── document.py (72)    → สร้างเอกสาร
+│   └── web.py (74)         → scrape เว็บ
+├── attachment/
+│   ├── processor.py (719)  → ประมวลผลไฟล์+URL
+│   ├── security.py (41)    → ตรวจ modality + SSRF
+│   └── url.py (120)        → จำแนก URL + ดาวน์โหลด
+├── auth/
+│   ├── base.py (31)        → AuthProvider ABC
+│   ├── system81.py (143)   → OAuth ผ่าน Sellercenter
+│   ├── dev_login.py (42)   → login ด้วย user/pass
+│   ├── session.py (75)     → session token 7 วัน
+│   └── user_store.py (111) → ข้อมูล user (JSON)
+├── media/manager.py (409)  → สร้างสื่อผ่าน OpenRouter
+schemas/__init__.py (309)   → Pydantic schemas ทุก message</pre>
+</div>
+<div class="bg-gray-900 text-gray-300 rounded-xl p-6 font-mono text-xs overflow-x-auto">
+<h3 class="text-white font-bold mb-3 text-sm">🖥️ Frontend (45 ไฟล์, ~15,600 บรรทัด)</h3>
+<pre>frontend/src/
+├── main.tsx (12)          → React entry point
+├── App.tsx (1444)         → Socket.IO + state mgmt
+├── context/
+│   ├── PlatformContext    → state: agents, tasks, plan
+│   └── AuthContext        → state: login, token, user
+├── types/
+│   ├── platform.ts (130)  → Agent, Task, Plan types
+│   └── team.ts (20)       → Team types
+├── schemas/messages.ts    → TS message schemas
+├── utils/
+│   ├── credits.ts (21)    → format วันรีเซ็ตเครดิต
+│   └── media.ts (12)      → +token ให้ /api/media/ URL
+├── components/
+│   ├── chatTypes.ts       → ChatMessage types
+│   ├── ChatPanelRight     → Modern chat UI (2031)
+│   ├── StoryboardArea     → timeline แผน→ผล (860)
+│   ├── MainLayout         → Modern layout shell
+│   ├── Header             → แถบบน + credits + logout
+│   ├── ChatSidebar        → แชท session sidebar
+│   ├── AgentPalette       → กริด Agent + icons
+│   ├── DetailPanel        → รายละเอียด Agent
+│   ├── AgentFormModal     → ฟอร์มสร้าง/แก้ Agent
+│   ├── AgentConfigModal   → แก้ config Agent
+│   ├── AssignTaskModal    → มอบหมาย task
+│   ├── ModelPicker        → เลือกโมเดล + pricing
+│   ├── TeamCreateModal    → สร้างทีม
+│   ├── AICreateTeamModal  → AI สร้างทีมให้
+│   ├── TeamListPage       → หน้ารายการทีม
+│   ├── TeamDetailPage     → หน้ารายละเอียดทีม
+│   ├── TemplatesPanel     → เทมเพลต + schedule
+│   ├── Toast              → แจ้งเตือน
+│   ├── MarkdownRenderer   → render Markdown
+│   ├── LoginScreen        → หน้าล็อกอิน
+│   └── retro/             → UI สไตล์ Windows 95
+│       ├── RetroDesktop   → หน้า desktop หลัก
+│       ├── ChatWindow     → หน้าต่างแชท (1511)
+│       ├── AgentsWindow   → หน้าต่าง Agent (1186)
+│       ├── TasksWindow    → หน้าต่าง Task (776)
+│       ├── WindowManager  → จัดการ window state
+│       ├── RetroWindow    → window ลากได้
+│       ├── Taskbar        → แถบ taskbar
+│       ├── StartMenu      → เมนู Start
+│       ├── DesktopIcons   → icon บน desktop
+│       ├── ChatFeed       → component แชท
+│       ├── Notifications  → หน้าต่างแจ้งเตือน
+│       ├── SettingsWindow → หน้าต่างตั้งค่า
+│       ├── HistoryWindow  → ประวัติการทำงาน
+│       ├── ScheduleWindow → ตารางเวลา
+│       ├── AgentDetail    → รายละเอียด Agent
+│       ├── TeamRosterBar  → แถบทีม
+│       ├── Dialog         → dialog component
+│       ├── tasksToPlans   → แปลง Task→Plan
+│       └── types          → retro types</pre>
+</div>
+</div>
+<div class="mt-6 grid md:grid-cols-3 gap-4">
+<div class="bg-purple-50 rounded-xl p-5 border border-purple-200"><h3 class="font-bold text-purple-700 mb-2 text-sm">📄 Config & Docs (13 ไฟล์)</h3><ul class="text-xs space-y-1"><li>CONTEXT.md — domain glossary</li><li>ctl.sh — start/stop server</li><li>conftest.py — pytest fixtures</li><li>frontend/serve.py — prod proxy</li><li>docs/adr/ — 3 ADRs</li><li>scripts/ — GitHub issue scripts</li></ul></div>
+<div class="bg-green-50 rounded-xl p-5 border border-green-200"><h3 class="font-bold text-green-700 mb-2 text-sm">🧪 Tests (26 ไฟล์)</h3><ul class="text-xs space-y-1"><li>test_orchestrator, test_chat_store</li><li>test_plan_approval_flow</li><li>test_model_selector, test_rotator</li><li>test_integration_pipeline</li><li>tests/fake_llm_server.py</li><li>+ อีก 21 ไฟล์</li></ul></div>
+<div class="bg-yellow-50 rounded-xl p-5 border border-yellow-200"><h3 class="font-bold text-yellow-700 mb-2 text-sm">🔧 Utility (12 ไฟล์)</h3><ul class="text-xs space-y-1"><li>filter_video*.py — กรองโมเดลวิดีโอ</li><li>find_luma.py, find_video.py</li><li>test_video*.py — ทดสอบวิดีโอ</li><li>ไม่ใช่ส่วนของ app หลัก</li></ul></div>
+</div>
+</section>
+
+<!-- SEC 4 -->
+<section id="sec4" class="section-anchor bg-white py-12 border-y border-gray-200">
+<div class="max-w-7xl mx-auto px-4">
+<h2 class="text-3xl font-bold mb-2 text-center">Data Flow — ข้อมูลเดินยังไง</h2>
+<p class="text-center text-gray-500 mb-8">7 ขั้นตอนจากผู้ใช้พิมพ์จนถึงได้ผลลัพธ์</p>
+<div class="mermaid">
+sequenceDiagram
+actor U as ผู้ใช้
+participant FE as Frontend
+participant BE as Backend
+participant Sec as Secretary
+participant Orch as Orchestrator
+participant Crew as CrewAI
+participant LLM as OpenRouter
+U->>FE: 1. พิมพ์คำสั่ง
+FE->>BE: 2. WebSocket (JSON)
+BE->>Sec: 3. ประเมิน: chat/ask/plan?
+alt ตอบแชทตรงๆ
+Sec->>LLM: เรียก LLM
+LLM-->>Sec: คำตอบ
+Sec-->>BE: ส่งคำตอบ
+BE-->>FE: แสดงคำตอบ
+else สร้างแผน
+Sec->>LLM: วิเคราะห์+ออกแบบ Agent
+LLM-->>Sec: Agent specs
+Sec-->>BE: ส่งแผน
+BE-->>FE: แสดงการ์ดแผน
+U->>FE: 4. กดอนุมัติ
+FE->>BE: action "accept"
+BE->>Orch: 5. เริ่มทำงาน
+Orch->>Crew: สร้าง Crew
+Crew->>LLM: 6. Agent ทำงาน
+LLM-->>Crew: ผลลัพธ์
+Crew-->>Orch: output แต่ละ Agent
+Orch-->>BE: 7. ความคืบหน้า+ผล
+BE-->>FE: progress+result
+end
+</div>
+<div class="grid md:grid-cols-7 gap-2 mt-8">
+<div class="bg-blue-100 rounded-lg p-4 text-center"><div class="text-2xl mb-2">1️⃣</div><div class="font-bold text-sm">พิมพ์คำสั่ง</div><div class="text-xs text-gray-600 mt-1">ผู้ใช้พิมพ์ใน Chat</div></div>
+<div class="bg-blue-100 rounded-lg p-4 text-center"><div class="text-2xl mb-2">2️⃣</div><div class="font-bold text-sm">ส่ง WebSocket</div><div class="text-xs text-gray-600 mt-1">FE → BE (JSON)</div></div>
+<div class="bg-orange-100 rounded-lg p-4 text-center"><div class="text-2xl mb-2">3️⃣</div><div class="font-bold text-sm">Secretary ประเมิน</div><div class="text-xs text-gray-600 mt-1">chat / ask / plan?</div></div>
+<div class="bg-orange-100 rounded-lg p-4 text-center"><div class="text-2xl mb-2">4️⃣</div><div class="font-bold text-sm">ผู้ใช้อนุมัติ</div><div class="text-xs text-gray-600 mt-1">กด Accept</div></div>
+<div class="bg-green-100 rounded-lg p-4 text-center"><div class="text-2xl mb-2">5️⃣</div><div class="font-bold text-sm">Orchestrator เริ่ม</div><div class="text-xs text-gray-600 mt-1">สร้าง CrewAI</div></div>
+<div class="bg-green-100 rounded-lg p-4 text-center"><div class="text-2xl mb-2">6️⃣</div><div class="font-bold text-sm">Agent ทำงาน</div><div class="text-xs text-gray-600 mt-1">เรียก LLM+Tools</div></div>
+<div class="bg-purple-100 rounded-lg p-4 text-center"><div class="text-2xl mb-2">7️⃣</div><div class="font-bold text-sm">ส่งผลลัพธ์</div><div class="text-xs text-gray-600 mt-1">BE → FE</div></div>
+</div>
+<div class="mt-8 bg-yellow-50 border border-yellow-200 rounded-xl p-6">
+<h3 class="font-bold text-lg mb-3">📦 รูปแบบข้อความ (Message Types)</h3>
+<div class="grid md:grid-cols-2 gap-3 text-sm">
+<div><span class="badge bg-blue-100 text-blue-700">text</span> ข้อความธรรมดา</div>
+<div><span class="badge bg-orange-100 text-orange-700">plan</span> การ์ดแผน (Agent+Task)</div>
+<div><span class="badge bg-green-100 text-green-700">progress</span> ความคืบหน้า (%)</div>
+<div><span class="badge bg-purple-100 text-purple-700">result</span> ผลลัพธ์ราย Agent</div>
+<div><span class="badge bg-pink-100 text-pink-700">agent_progress</span> สถานะ Agent</div>
+<div><span class="badge bg-yellow-100 text-yellow-700">image_approval</span> ขออนุมัติสร้างรูป</div>
+<div><span class="badge bg-cyan-100 text-cyan-700">image_result</span> รูปที่สร้างเสร็จ</div>
+<div><span class="badge bg-gray-100 text-gray-700">chat_history</span> ประวัติแชท</div>
+</div></div>
+</div>
+</section>
+
+<!-- SEC 5 -->
+<section id="sec5" class="section-anchor max-w-7xl mx-auto px-4 py-12">
+<h2 class="text-3xl font-bold mb-2 text-center">แต่ละโมดูลทำอะไร</h2>
+<p class="text-center text-gray-500 mb-8">เปรียบเทียบเป็นบุคคลในบริษัท</p>
+<div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+
+<div class="card bg-white rounded-2xl p-6 shadow-md border-2 border-orange-200">
+<div class="text-3xl mb-3">🧠</div>
+<h3 class="font-bold text-lg mb-1">Secretary</h3>
+<p class="text-xs text-gray-500 mb-3">backend/core/secretary.py (1204)</p>
+<p class="text-sm text-gray-700">เหมือน<b>มันสมอของบริษัท</b> รับคำขอ → ประเมินว่าเป็นแชทธรรมดา คำถาม หรือต้องสร้างแผน → ถ้าต้องทำงาน จะออกแบบ Agent ที่จำเป็น ส่งแผนให้ผู้ใช้อนุมัติ</p>
+</div>
+
+<div class="card bg-white rounded-2xl p-6 shadow-md border-2 border-blue-200">
+<div class="text-3xl mb-3">🎬</div>
+<h3 class="font-bold text-lg mb-1">Orchestrator</h3>
+<p class="text-xs text-gray-500 mb-3">backend/core/orchestrator.py (1495)</p>
+<p class="text-sm text-gray-700">เหมือน<b>ผู้อำนวยการ</b> หลังอนุมัติแผน → สร้าง CrewAI Crew → สั่ง Agent ทำงานเป็น wave → ส่งความคืบหน้ากลับ → รวบรวมผลลัพธ์ → ส่งให้ Manager ตรวจ</p>
+</div>
+
+<div class="card bg-white rounded-2xl p-6 shadow-md border-2 border-green-200">
+<div class="text-3xl mb-3">📮</div>
+<h3 class="font-bold text-lg mb-1">Messenger</h3>
+<p class="text-xs text-gray-500 mb-3">backend/core/messenger.py (916)</p>
+<p class="text-sm text-gray-700">เหมือน<b>ไปรษณีย์</b> รับข้อความจาก Backend ส่งไป Frontend ผ่าน WebSocket มี 55 methods สำหรับส่ง text, plan, progress, result, บันทึกลิขิต, อัปเดต Agent status</p>
+</div>
+
+<div class="card bg-white rounded-2xl p-6 shadow-md border-2 border-purple-200">
+<div class="text-3xl mb-3">🏭</div>
+<h3 class="font-bold text-lg mb-1">Agent Factory</h3>
+<p class="text-xs text-gray-500 mb-3">backend/agents/factory.py (250)</p>
+<p class="text-sm text-gray-700">เหมือน<b>โรงงาน</b> รับ spec (ชื่อ, role, goal, persona, tools, model) → สร้าง CrewAI Agent พร้อม Task ให้ทำ → ส่งกลับให้ Orchestrator นำไปรวมเป็น Crew</p>
+</div>
+
+<div class="card bg-white rounded-2xl p-6 shadow-md border-2 border-pink-200">
+<div class="text-3xl mb-3">🤖</div>
+<h3 class="font-bold text-lg mb-1">CrewAI Engine</h3>
+<p class="text-xs text-gray-500 mb-3">external library (CrewAI)</p>
+<p class="text-sm text-gray-700">เหมือน<b>ทีมงาน</b> รับ Agent หลายตัว + Task หลายอัน → จัดการให้ทำงานพร้อมกัน (parallel) หรือทีละตัว (sequential) → ส่ง output กลับ</p>
+</div>
+
+<div class="card bg-white rounded-2xl p-6 shadow-md border-2 border-yellow-200">
+<div class="text-3xl mb-3">🔧</div>
+<h3 class="font-bold text-lg mb-1">Tools</h3>
+<p class="text-xs text-gray-500 mb-3">backend/tools/ (6 ไฟล์)</p>
+<p class="text-sm text-gray-700">เหมือน<b>เครื่องมือในกระเป๋า</b> ค้นเว็บ, สร้างรูป, สร้างวิดีโอ, อ่านเสียง, สร้างเอกสาร, เปิดเว็บด้วย browser ซึ่ง Agent เรียกใช้ได้ระหว่างทำงาน</p>
+</div>
+
+<div class="card bg-white rounded-2xl p-6 shadow-md border-2 border-cyan-200">
+<div class="text-3xl mb-3">📡</div>
+<h3 class="font-bold text-lg mb-1">LLM Manager</h3>
+<p class="text-xs text-gray-500 mb-3">backend/llm/manager.py (496)</p>
+<p class="text-sm text-gray-700">เหมือน<b>สายตรงไป AI</b> แปลงคำขอ → เรียก OpenRouter API → รับคำตอบ → มีระบบ fallback (สลับโมเดลเมื่อเจอ error) → บันทึกค่าใช้จ่าย</p>
+</div>
+
+<div class="card bg-white rounded-2xl p-6 shadow-md border-2 border-red-200">
+<div class="text-3xl mb-3">🗂️</div>
+<h3 class="font-bold text-lg mb-1">Stores</h3>
+<p class="text-xs text-gray-500 mb-3">backend/agents/*_store.py + *_registry.py</p>
+<p class="text-sm text-gray-700">เหมือน<b>ตู้เซฟ</b> เก็บทุกอย่างในไฟล์ JSON: Agent, Task, Team, Chat, History, Schedule, Template — ไม่มี database ใช้ไฟล์ธรรมดา</p>
+</div>
+
+<div class="card bg-white rounded-2xl p-6 shadow-md border-2 border-indigo-200">
+<div class="text-3xl mb-3">🔐</div>
+<h3 class="font-bold text-lg mb-1">Auth</h3>
+<p class="text-xs text-gray-500 mb-3">backend/auth/ (5 ไฟล์)</p>
+<p class="text-sm text-gray-700">เหมือน<b>รปภ.</b> ตรวจบัตรก่อนเข้า รองรับ System81 OAuth (production) และ DevLogin (username/password) ออก session token อายุ 7 วัน</p>
+</div>
+
+<div class="card bg-white rounded-2xl p-6 shadow-md border-2 border-teal-200">
+<div class="text-3xl mb-3">📎</div>
+<h3 class="font-bold text-lg mb-1">Attachment Processor</h3>
+<p class="text-xs text-gray-500 mb-3">backend/attachment/processor.py (719)</p>
+<p class="text-sm text-gray-700">เหมือน<b>เคาน์เตอร์เอกสาร</b> รับไฟล์/URL → จำแนกประเภท → แปลงเป็นรูปแบบที่ LLM เข้าใจ → ป้องกัน SSRF → ส่งให้ Agent ใช้</p>
+</div>
+
+<div class="card bg-white rounded-2xl p-6 shadow-md border-2 border-amber-200">
+<div class="text-3xl mb-3">🎨</div>
+<h3 class="font-bold text-lg mb-1">Media Manager</h3>
+<p class="text-xs text-gray-500 mb-3">backend/media/manager.py (409)</p>
+<p class="text-sm text-gray-700">เหมือน<b>ฝ่ายสร้างสรรค์</b> สร้างรูป, วิดีโอ, เสียง ผ่าน OpenRouter → ส่งให้ผู้ใช้อนุมัติก่อน → บันทึกไฟล์ → ส่ง URL กลับ</p>
+</div>
+
+<div class="card bg-white rounded-2xl p-6 shadow-md border-2 border-lime-200">
+<div class="text-3xl mb-3">⏰</div>
+<h3 class="font-bold text-lg mb-1">Scheduler</h3>
+<p class="text-xs text-gray-500 mb-3">backend/core/scheduler.py (105)</p>
+<p class="text-sm text-gray-700">เหมือน<b>นาฬิกาปลุก</b> รัน task ตามเวลาที่กำหนด (ทุกวัน/สัปดาห์/เดือน) ใช้ BackgroundScheduler ตรวจ task ที่ถึงเวลาแล้วสั่งทำงาน</p>
+</div>
+
+</div>
+
+<div class="mt-8 bg-gray-100 rounded-xl p-6">
+<h3 class="font-bold text-lg mb-3">🖥️ Frontend สองรูปแบบ</h3>
+<div class="grid md:grid-cols-2 gap-4">
+<div class="bg-white rounded-lg p-4 border border-gray-200">
+<h4 class="font-bold text-sm mb-2 text-blue-600">Modern UI</h4>
+<p class="text-xs text-gray-600">หน้าจอสวยทันสมัย: <code>MainLayout</code> เป็นกรอบหลัก, <code>ChatPanelRight</code> แสดงแชท+แผน+ผลลัพธ์, <code>StoryboardArea</code> แสดง timeline, <code>AgentPalette</code> แสดง Agent เป็นกริด, <code>ModelPicker</code> เลือกโมเดล</p>
+</div>
+<div class="bg-white rounded-lg p-4 border border-gray-200">
+<h4 class="font-bold text-sm mb-2 text-purple-600">Retro UI (Win95)</h4>
+<p class="text-xs text-gray-600">สไตล์ Windows 95: <code>RetroDesktop</code> เป็น desktop, <code>ChatWindow</code> หน้าต่างแชท, <code>AgentsWindow</code> หน้าต่าง Agent, <code>TasksWindow</code> หน้าต่าง Task, <code>Taskbar</code> + <code>StartMenu</code> + <code>DesktopIcons</code></p>
+</div>
+</div></div>
+</section>
+
+<!-- SEC 6 -->
+<section id="sec6" class="section-anchor bg-white py-12 border-y border-gray-200">
+<div class="max-w-7xl mx-auto px-4">
+<h2 class="text-3xl font-bold mb-2 text-center">State Machine — สถานะของ Task</h2>
+<p class="text-center text-gray-500 mb-8">Task เปลี่ยนสถานะยังไงตั้งแต่เริ่มจนจบ</p>
+<div class="mermaid">
+stateDiagram-v2
+[*] --> pending: ผู้ใช้ส่งคำขอ
+pending --> planning: Secretary ประเมิน
+planning --> awaiting_approval: ส่งแผนให้ผู้ใช้
+awaiting_approval --> approved: ผู้ใช้กด Accept
+awaiting_approval --> rejected: ผู้ใช้กด Reject
+awaiting_approval --> revised: ผู้ใช้แก้ไข
+revised --> awaiting_approval: ส่งแผนใหม่
+approved --> running: Orchestrator เริ่ม
+rejected --> [*]
+running --> awaiting_media: Agent ขอสร้างสื่อ
+awaiting_media --> running: ผู้ใช้อนุมัติสื่อ
+awaiting_media --> running: ผู้ใช้ปฏิเสธ (ข้าม)
+running --> reviewing: Manager ตรวจงาน
+reviewing --> completed: ผ่าน
+reviewing --> running: ไม่ผ่าน (ทำใหม่)
+completed --> [*]
+running --> failed: เกิด error
+failed --> [*]
+</div>
+<div class="grid md:grid-cols-2 gap-6 mt-8">
+<div class="bg-blue-50 rounded-xl p-5 border border-blue-200">
+<h3 class="font-bold text-blue-700 mb-2">📊 สถานะหลัก</h3>
+<ul class="text-sm space-y-1">
+<li><b>pending</b> — รอให้ Secretary ประเมิน</li>
+<li><b>planning</b> — Secretary กำลังวิเคราะห์</li>
+<li><b>awaiting_approval</b> — รอผู้ใช้อนุมัติแผน</li>
+<li><b>approved</b> — ผู้ใช้อนุมัติแล้ว</li>
+<li><b>running</b> — Agent กำลังทำงาน</li>
+<li><b>reviewing</b> — Manager กำลังตรวจ</li>
+<li><b>completed</b> — เสร็จและผ่านการตรวจ</li>
+<li><b>failed</b> — เกิด error ระหว่างทำงาน</li>
+<li><b>rejected</b> — ผู้ใช้ปฏิเสธแผน</li>
+</ul></div>
+<div class="bg-orange-50 rounded-xl p-5 border border-orange-200">
+<h3 class="font-bold text-orange-700 mb-2">🔄 สถานะ Agent</h3>
+<ul class="text-sm space-y-1">
+<li><b>idle</b> — ยังไม่ได้ทำงาน</li>
+<li><b>working</b> — กำลังทำ Task</li>
+<li><b>waiting</b> — รอสื่ออนุมัติ</li>
+<li><b>done</b> — ทำเสร็จแล้ว</li>
+<li><b>error</b> — เกิดปัญหา</li>
+</ul>
+<div class="mt-4 pt-3 border-t border-orange-200">
+<h4 class="font-bold text-sm mb-1">💾 การเก็บ State</h4>
+<p class="text-xs text-gray-600">State ทั้งหมดเก็บใน <code>cl.user_session</code> (Chainlit) — เป็น dict ไม่มี type safety และเก็บใน JSON files ผ่าน TaskStore</p>
+</div></div>
+</div>
+</div>
+</section>
+
+<!-- SEC 7 -->
+<section id="sec7" class="section-anchor max-w-7xl mx-auto px-4 py-12">
+<h2 class="text-3xl font-bold mb-2 text-center">Checklist — ทำความเข้าใจครบหรือยัง?</h2>
+<p class="text-center text-gray-500 mb-8">ถ้าตอบได้หมด = เข้าใจโปรเจคแล้ว</p>
+
+<div class="grid md:grid-cols-2 gap-6">
+<div class="bg-white rounded-2xl p-6 shadow-md border border-gray-200">
+<h3 class="font-bold text-lg mb-3 text-green-600">✅ พื้นฐาน</h3>
+<div class="space-y-2 text-sm">
+<div class="flex items-start gap-2"><input type="checkbox" class="mt-1"> <span>รู้ว่าโปรเจคคือแพลตฟอร์มสร้าง AI Agent อัตโนมัติ</span></div>
+<div class="flex items-start gap-2"><input type="checkbox" class="mt-1"> <span>รู้ว่ามี 2 UI: Modern และ Retro Win95</span></div>
+<div class="flex items-start gap-2"><input type="checkbox" class="mt-1"> <span>รู้ว่า Frontend สื่อสารกับ Backend ผ่าน WebSocket</span></div>
+<div class="flex items-start gap-2"><input type="checkbox" class="mt-1"> <span>รู้ว่า Backend ใช้ Chainlit + CrewAI</span></div>
+<div class="flex items-start gap-2"><input type="checkbox" class="mt-1"> <span>รู้ว่าไม่มี database — เก็บใน JSON files</span></div>
+<div class="flex items-start gap-2"><input type="checkbox" class="mt-1"> <span>รู้ว่า LLM มาจาก OpenRouter API</span></div>
+<div class="flex items-start gap-2"><input type="checkbox" class="mt-1"> <span>รู้ว่าล็อกอินผ่าน System81 OAuth</span></div>
+</div></div>
+
+<div class="bg-white rounded-2xl p-6 shadow-md border border-gray-200">
+<h3 class="font-bold text-lg mb-3 text-blue-600">✅ Data Flow</h3>
+<div class="space-y-2 text-sm">
+<div class="flex items-start gap-2"><input type="checkbox" class="mt-1"> <span>รู้ว่าผู้ใช้พิมพ์ → Secretary ประเมิน → สร้างแผน → อนุมัติ → Agent ทำงาน</span></div>
+<div class="flex items-start gap-2"><input type="checkbox" class="mt-1"> <span>รู้ว่า Secretary แยกได้ว่าเป็น chat / ask / plan</span></div>
+<div class="flex items-start gap-2"><input type="checkbox" class="mt-1"> <span>รู้ว่า Orchestrator สร้าง CrewAI Crew และสั่ง Agent</span></div>
+<div class="flex items-start gap-2"><input type="checkbox" class="mt-1"> <span>รู้ว่า Messenger ส่งข้อความ BE↔FE ผ่าน WebSocket</span></div>
+<div class="flex items-start gap-2"><input type="checkbox" class="mt-1"> <span>รู้ว่ามีระบบ Review: Manager ตรวจงานก่อนส่งมอบ</span></div>
+<div class="flex items-start gap-2"><input type="checkbox" class="mt-1"> <span>รู้ว่ามีระบบอนุมัติสื่อ (รูป/วิดีโอ) ก่อนสร้าง</span></div>
+</div></div>
+
+<div class="bg-white rounded-2xl p-6 shadow-md border border-gray-200">
+<h3 class="font-bold text-lg mb-3 text-orange-600">✅ โมดูลหลัก</h3>
+<div class="space-y-2 text-sm">
+<div class="flex items-start gap-2"><input type="checkbox" class="mt-1"> <span>รู้ว่า chat.py (3141 บรรทัด) เป็นไฟล์ใหญ่สุด รับทุก message</span></div>
+<div class="flex items-start gap-2"><input type="checkbox" class="mt-1"> <span>รู้ว่า actions.py มี 19 action handlers (accept, reject, edit, ฯลฯ)</span></div>
+<div class="flex items-start gap-2"><input type="checkbox" class="mt-1"> <span>รู้ว่า LLM Manager มี fallback + rotator (สลับโมเดล)</span></div>
+<div class="flex items-start gap-2"><input type="checkbox" class="mt-1"> <span>รู้ว่า Tools มี 6 ตัว: search, media, audio, browser, document, web</span></div>
+<div class="flex items-start gap-2"><input type="checkbox" class="mt-1"> <span>รู้ว่า Attachment Processor จัดการไฟล์+URL พร้อม SSRF protection</span></div>
+<div class="flex items-start gap-2"><input type="checkbox" class="mt-1"> <span>รู้ว่า Scheduler รัน task ตามเวลา (daily/weekly/monthly)</span></div>
+</div></div>
+
+<div class="bg-white rounded-2xl p-6 shadow-md border border-gray-200">
+<h3 class="font-bold text-lg mb-3 text-purple-600">✅ สถาปัตยกรรม</h3>
+<div class="space-y-2 text-sm">
+<div class="flex items-start gap-2"><input type="checkbox" class="mt-1"> <span>รู้ว่า state เก็บใน cl.user_session (ไม่มี type safety)</span></div>
+<div class="flex items-start gap-2"><input type="checkbox" class="mt-1"> <span>รู้ว่ามี 3 ADRs ใน docs/adr/</span></div>
+<div class="flex items-start gap-2"><input type="checkbox" class="mt-1"> <span>รู้ว่า rest_api.py ซ้ำกับ app.py (technical debt)</span></div>
+<div class="flex items-start gap-2"><input type="checkbox" class="mt-1"> <span>รู้ว่า ChatWindow.tsx (retro) ซ้ำกับ ChatPanelRight.tsx (modern)</span></div>
+<div class="flex items-start gap-2"><input type="checkbox" class="mt-1"> <span>รู้ว่ามี 26 test files + fake_llm_server</span></div>
+<div class="flex items-start gap-2"><input type="checkbox" class="mt-1"> <span>รู้ว่า frontend/serve.py เป็น prod reverse proxy</span></div>
+</div></div>
+</div>
+
+<div class="mt-8 text-center">
+<div class="inline-block bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-xl px-8 py-4 shadow-lg">
+<p class="text-lg font-bold">🎯 พร้อมไปต่อ</p>
+<p class="text-sm opacity-90">ถ้าติ๊กครบทุกข้อ = เข้าใจโปรเจคแล้ว พร้อมทำ Architecture Review</p>
+</div></div>
+</section>
+
+<!-- FOOTER -->
+<footer class="bg-gray-900 text-gray-400 py-8">
+<div class="max-w-7xl mx-auto px-4 text-center">
+<p class="text-sm">Dynamic Agent Management Platform — Project Overview</p>
+<p class="text-xs mt-2 opacity-60">Backend: 54 ไฟล์ (~13,900 บรรทัด) | Frontend: 45 ไฟล์ (~15,600 บรรทัด) | Tests: 26 ไฟล์ | Total: ~140 ไฟล์</p>
+</div>
+</footer>
+
+<script>mermaid.initialize({startOnLoad:true,theme:'default',securityLevel:'loose'});</script>
+</body>
+</html>
