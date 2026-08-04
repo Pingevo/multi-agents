@@ -228,3 +228,17 @@ class SAMLProvider(AuthProvider):      # SAML SSO
 - `POST /api/auth/verify` — verify session token
 - `POST /api/auth/logout` — revoke session token
 - `GET /api/auth/login-url` — ดึง System81 OAuth login URL
+
+## 14. Market Parity Baseline (NON-NEGOTIABLE)
+
+**หลักการ:** อะไรที่ AI chat / AI agent ในตลาด (Claude, ChatGPT, Gemini, Devin, Cursor, Replit Agent, etc.) ทำได้ ระบบเราต้องทำได้
+
+เว็บของเรามีเพียงสมองจาก API Key ของ OpenRouter — แต่นั่นคือสมองเดียวกับที่ตลาดใช้
+วิธีการสร้าง วิธีการแก้ไข มันต้องมีอยู่แล้ว ไม่มีอะไรที่ทำไม่ได้ นอกจากข้อจำกัดที่จำกัดไว้จริงๆ
+
+### กฏ
+- **ไม่ต้องถาม user ก่อนทำ parity feature** — ค้นหาว่าตลาดทำยังไง แล้วทำให้เหมือน
+- **ไม่มี manual checklist** — checklist ไม่มีทางครบ ตลาดเปลี่ยนเร็ว และเราไม่รู้ทุก feature
+- **Bug-driven parity**: เมื่อเจอ bug หรือ user อยาก feature → ค้นหาว่าตลาดทำยังไง → ทำให้เหมือน
+- **หากตลาดทำได้ เราต้องทำได้** — ใช้ OpenRouter API เหมือนกัน ถ้าเขาทำได้ เราทำได้
+- **ข้อจำกัดที่แท้จริง** = API rate limit, model capability, browser security sandbox — ไม่ใช่ "ไม่รู้ทำยังไง"

@@ -1,5 +1,30 @@
 # Developer Log
 
+## 2026-08-04 (session 3) — Rule: Market Parity Baseline
+
+### Context
+หลังจากแก้ search_model bug พบปัญหาใหม่: agent ไม่รู้วันที่ปัจจุบัน เลยตัดข้อมูล box office ที่ถูกต้องออกเพราะคิดว่าเป็น "อนาคต" (เห็นวันที่ กรกฎาคม-สิงหาคม 2026 ในผลค้นหา แต่ไม่รู้ว่า "วันนี้" คือ 4 ส.ค. 2026)
+
+User สังเกตเห็นปัญหาใหญ่กว่า: ถ้าตลาด (Claude/ChatGPT/Gemini) มี feature นี้อยู่แล้ว เราไม่ควรต้องมาเจอทีละอย่างผ่าน bug — เราควรสำรวจและทำให้ครบตั้งแต่ต้น
+
+### Changes
+- `~/.codeium/windsurf/memories/global_rules.md` — เพิ่มกฏ "Market Parity Baseline" (NON-NEGOTIABLE)
+- `SYSTEM_PROTOCOL.md` — เพิ่ม section 14 "Market Parity Baseline" พร้อม checklist 10 features
+- `CLAUDE.md` — เพิ่ม Market Parity Baseline เป็น key rule แรกใน Project protocol
+
+### Parity Approach
+- สำรวจตลาด: Claude, ChatGPT, Gemini, Devin, Cursor, Replit Agent, AI agent frameworks
+- พบ 100+ features รวม real-world actions (email, calendar, shopping, booking)
+- **บทเรียน**: manual checklist ไม่มีทางครบ — ทุกครั้งที่สำรวจเพิ่ม ก็เจอ feature ใหม่
+- **วิธีที่ใช้**: Bug-driven parity — เจอ bug หรือ user อยาก feature → ค้นหาตลาด → ทำให้เหมือน
+- กฏนี้บันทึกใน `global_rules.md` + `SYSTEM_PROTOCOL.md` section 14 + `CLAUDE.md`
+
+### Next
+- เริ่มทำ parity feature แรก: Current Date/Time injection (ใช้ CrewAI `inject_date=True`)
+- ทำตามวิธี bug-driven: เจอ bug วันที่ → ค้นหาตลาด → ทำให้เหมือน
+
+---
+
 ## 2026-08-04 (session 2) — Bugfix: search_web used openrouter/free (slow 48-65s) instead of user-selected model
 
 ### Context
