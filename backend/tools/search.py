@@ -2,18 +2,54 @@
 
 import requests
 from crewai.tools import tool
-from backend.globals import _progress_callback, _search_model, _thread_local
+from backend.globals import (
+    _progress_callback, _search_model, _thread_local,
+    DEFAULT_SEARCH_ENGINE, DEFAULT_SEARCH_MAX_RESULTS,
+)
 from backend.utils import _sanitize_error
 from backend.llm.manager import LLMManager
 
 
-def _call_openrouter_web_search(llm_mgr: LLMManager, model: str, query: str) -> str:
-    """Call OpenRouter chat completions with the 'web' plugin enabled.
+def _build_web_search_tool(search_config: dict | None = None) -> dict:
+    """Build the OpenRouter `openrouter:web_search` server-tool object.
 
-    CrewAI's LLM.call() does not forward extra_body/additional_params to the
-    underlying HTTP request, so we call the OpenRouter API directly to inject
-    the web-search plugin. Without the plugin, openrouter/free sometimes
-    routes to the 'Stealth' provider which returns 502 'Invalid URL'.
+    Replaces the deprecated `plugins: [{id: "web"}]` format. The model decides
+    when to search (server tool) rather than being forced to search every call
+    (plugin behavior).
+
+    Parameters come from `search_config` (agent spec field) with defaults from
+    globals (No Hardcode rule). Extracted as a pure function so tests can verify
+    the tool shape without making HTTP calls.
+    """
+    cfg = search_config or {}
+    parameters = {
+        "engine": cfg.get("engine", DEFAULT_SEARCH_ENGINE),
+        "max_results": cfg.get("max_results", DEFAULT_SEARCH_MAX_RESULTS),
+    }
+    # Optional parameters — only include when config provides them
+    for opt_key in ("max_total_results", "search_context_size", "max_uses",
+                    "max_characters", "allowed_domains", "excluded_domains"):
+        if opt_key in cfg and cfg[opt_key] is not None:
+            parameters[opt_key] = cfg[opt_key]
+    return {"type": "openrouter:web_search", "parameters": parameters}
+
+
+def _get_search_config() -> dict:
+    """Read search_config from _thread_local (set by orchestrator from agent spec).
+
+    Falls back to empty dict (→ defaults) when not set. Mirrors the
+    max_search_calls pattern for per-agent, parallel-safe config.
+    """
+    return getattr(_thread_local, "search_config", {}) or {}
+
+
+def _call_openrouter_web_search(llm_mgr: LLMManager, model: str, query: str) -> str:
+    """Call OpenRouter chat completions with the `openrouter:web_search` server tool.
+
+    Uses the server-tool format (`tools: [{type: "openrouter:web_search"}]`)
+    rather than the deprecated `plugins: [{id: "web"}]` format. The server tool
+    lets the model decide when to search; the old plugin forced a search on
+    every call.
     """
     search_prompt = (
         f"Search the web for: {query}\n\n"
@@ -27,6 +63,7 @@ def _call_openrouter_web_search(llm_mgr: LLMManager, model: str, query: str) -> 
         "1. A summary of findings (with inline citations)\n"
         "2. A 'Sources:' section listing all URLs used"
     )
+    web_tool = _build_web_search_tool(_get_search_config())
     resp = requests.post(
         f"{llm_mgr.base_url}/chat/completions",
         headers={
@@ -37,7 +74,7 @@ def _call_openrouter_web_search(llm_mgr: LLMManager, model: str, query: str) -> 
             "model": model,
             "messages": [{"role": "user", "content": search_prompt}],
             "temperature": 0.3,
-            "plugins": [{"id": "web", "max_results": 5}],
+            "tools": [web_tool],
         },
         timeout=60,
     )

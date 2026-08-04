@@ -342,6 +342,7 @@ class CentralManager:
             '      "max_iter": 25,\n'
             '      "max_retry_limit": 3,\n'
             '      "max_search_calls": 0,\n'
+            '      "search_config": {},\n'
             '      "allow_delegation": false\n'
             "    }\n"
             "  ]\n"
@@ -382,6 +383,7 @@ class CentralManager:
             '      "max_iter": 25,\n'
             '      "max_retry_limit": 3,\n'
             '      "max_search_calls": 0,\n'
+            '      "search_config": {},\n'
             '      "allow_delegation": false\n'
             "    }\n"
             "  ],\n"
@@ -561,6 +563,7 @@ class CentralManager:
                                 "max_iter": item.get("max_iter") or 25,  # CrewAI requires a number
                                 "max_retry_limit": item.get("max_retry_limit") or 3,  # CrewAI requires a number
                                 "max_search_calls": item.get("max_search_calls") or 0,  # 0 = unlimited
+                                "search_config": item.get("search_config") or {},  # web search server-tool params (engine, max_results, etc.)
                                 "allow_delegation": item.get("allow_delegation", False) if isinstance(item.get("allow_delegation"), bool) else False,
                             })
                     if not agents:
@@ -717,6 +720,7 @@ class CentralManager:
             "- max_iter (int, max agent thinking iterations, default 25)\n"
             "- max_retry_limit (int, max agent retries, default 3)\n"
             "- max_search_calls (int, max search_web calls per agent, default 0 = unlimited; set > 0 for research agents to prevent over-searching)\n"
+            "- search_config (object, optional web search server-tool params: {engine: auto|native|exa|firecrawl|parallel|perplexity, max_results: 1-25, max_total_results, search_context_size: low|medium|high}. Only set for research agents needing specific search engine/control)\n"
             "- allow_delegation (bool, allow agent to delegate to other agents, default false)\n\n"
             "Respond with ONLY this JSON (no other text):\n"
             "{\n"
@@ -942,6 +946,7 @@ class CentralManager:
             '      "max_iter": 25,\n'
             '      "max_retry_limit": 3,\n'
             '      "max_search_calls": 0,\n'
+            '      "search_config": {},\n'
             '      "allow_delegation": false\n'
             "    }\n"
             "  ],\n"
@@ -1213,6 +1218,7 @@ class CentralManager:
                         "max_iter": 25,
                         "max_retry_limit": 3,
                         "max_search_calls": 0,
+                        "search_config": {},
                         "allow_delegation": False,
                     }
                 )

@@ -516,6 +516,9 @@ class ExecutionOrchestrator:
                 _thread_local.max_search_calls = spec_max if spec_max > 0 else (DEFAULT_MAX_SEARCH_CALLS if has_search else 0)
                 if _thread_local.max_search_calls > 0:
                     print(f"[DEBUG-SEARCH-LIMIT] Agent '{spec.get('name', '')}' max_search_calls={_thread_local.max_search_calls}", flush=True)
+                # Per-agent web search server-tool config (engine, max_results, etc.)
+                # Passed through to OpenRouter `openrouter:web_search` tool (No Hardcode)
+                _thread_local.search_config = spec.get("search_config") or {}
                 set_llm_call_context(f"agent:{spec.get('name', f'Agent {idx+1}')}")
                 import time as _time
                 print(f"[DEBUG-PARALLEL-START] Agent {idx} '{spec.get('name', '')}' starting at {_time.time():.3f}", flush=True)

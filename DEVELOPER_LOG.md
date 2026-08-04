@@ -1,5 +1,57 @@
 # Developer Log
 
+## 2026-08-04 (session 5) — Migrate search from deprecated plugin to server tool (Task A: search parity)
+
+### Context
+OpenRouter deprecated `plugins: [{id: "web"}]` in favor of
+`tools: [{type: "openrouter:web_search", parameters: {...}}]` (server tool).
+Without migration, search breaks when OpenRouter removes plugin support.
+Server tool also lets the model decide when to search (vs plugin forcing
+search every call) — matches Claude/ChatGPT/Gemini behavior.
+
+### Changes (TDD: red → green)
+
+#### 1. `backend/globals.py` — search server-tool defaults (No Hardcode)
+- Added `DEFAULT_SEARCH_ENGINE = "auto"` and `DEFAULT_SEARCH_MAX_RESULTS = 5`
+- Defaults overridable per-agent via spec's `search_config` field
+
+#### 2. `backend/tools/search.py` — server tool format
+- Added `_build_web_search_tool(search_config)` — pure function, builds
+  `{"type": "openrouter:web_search", "parameters": {...}}` from config +
+  defaults. Testable without HTTP (matches `_resolve_search_model` pattern)
+- Added `_get_search_config()` — reads `_thread_local.search_config`
+  (set by orchestrator from agent spec), mirrors `max_search_calls` pattern
+- `_call_openrouter_web_search` now sends `tools: [web_tool]` instead of
+  `plugins: [{"id": "web", "max_results": 5}]`
+
+#### 3. Agent spec wiring — `search_config` field through the pipeline
+- `backend/core/orchestrator.py` — set `_thread_local.search_config` from spec
+- `backend/agents/registry.py` — add/serialize `search_config` (3 places)
+- `backend/handlers/actions.py` — add/serialize `search_config` (2 places)
+- `backend/core/messenger.py` — serialize `search_config`
+- `backend/core/secretary.py` — JSON templates (4) + parsing + description
+
+#### 4. `test_web_search_migration.py` (new) — 8 tests, all passing
+- `TestBuildWebSearchTool` (7): type, parameters key, default engine/max_results,
+  custom config override, partial config, no plugins key
+- `TestCallUsesServerTool` (1): request body uses `tools` not `plugins`
+
+### Verification
+- `pytest test_web_search_migration.py`: 8 passed
+- `pytest` (6 test files): 50 passed (no regressions)
+
+### Files Changed
+- `backend/globals.py` — search server-tool defaults
+- `backend/tools/search.py` — `_build_web_search_tool`, `_get_search_config`, server tool format
+- `backend/core/orchestrator.py` — wire `search_config` to `_thread_local`
+- `backend/agents/registry.py` — `search_config` in allow-lists + serialization
+- `backend/handlers/actions.py` — `search_config` in allow-lists + serialization
+- `backend/core/messenger.py` — `search_config` serialization
+- `backend/core/secretary.py` — `search_config` in templates + parsing + description
+- `test_web_search_migration.py` (new)
+
+---
+
 ## 2026-08-04 (session 3) — Rule: Market Parity Baseline
 
 ### Context
