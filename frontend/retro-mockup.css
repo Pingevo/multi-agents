@@ -854,6 +854,7 @@ html,body{height:100%;overflow:hidden;font-family:var(--font);font-size:13px;col
   flex-shrink:0;white-space:nowrap
 }
 .tw-ti-badge.done{color:var(--green);background:rgba(90,122,74,.1)}
+.tw-ti-badge.stopped{color:var(--amber);background:rgba(200,146,32,.1)}
 .tw-ti-badge.running{color:var(--amber);background:rgba(200,146,32,.1)}
 .tw-ti-badge.pending{color:var(--red);background:rgba(160,48,32,.1)}
 
@@ -891,6 +892,7 @@ html,body{height:100%;overflow:hidden;font-family:var(--font);font-size:13px;col
   flex-shrink:0
 }
 .tw-flow-badge.done{color:var(--green);background:rgba(90,122,74,.1)}
+.tw-flow-badge.stopped{color:var(--amber);background:rgba(200,146,32,.1)}
 .tw-flow-badge.running{color:var(--amber);background:rgba(200,146,32,.1)}
 .tw-flow-badge.pending{color:var(--red);background:rgba(160,48,32,.1)}
 
@@ -940,12 +942,8 @@ html,body{height:100%;overflow:hidden;font-family:var(--font);font-size:13px;col
   box-shadow:0 0 0 2px rgba(192,80,30,.15)
 }
 .tw-node.done{border-color:rgba(90,122,74,.4)}
+.tw-node.stopped{border-color:var(--amber)}
 .tw-node.running{border-color:var(--amber)}
-.tw-node.running::after{
-  content:'';position:absolute;inset:-2px;border-radius:var(--r);
-  border:2px solid transparent;border-top-color:var(--amber);
-  animation:spin 1s linear infinite;pointer-events:none
-}
 .tw-node.waiting{border-color:var(--purple)}
 .tw-node.review{border-color:var(--blue)}
 .tw-node-av{
@@ -970,6 +968,7 @@ html,body{height:100%;overflow:hidden;font-family:var(--font);font-size:13px;col
   font-size:8px;font-weight:700;padding:2px 6px;border-radius:2px
 }
 .tw-node-status.done{color:var(--green);background:rgba(90,122,74,.1)}
+.tw-node-status.stopped{color:var(--amber);background:rgba(200,146,32,.1)}
 .tw-node-status.error{color:var(--red);background:rgba(160,48,32,.1)}
 .tw-node-status.running{color:var(--amber);background:rgba(200,146,32,.1)}
 .tw-node-status.waiting{color:var(--purple);background:rgba(106,74,122,.1)}

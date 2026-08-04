@@ -133,6 +133,7 @@ const parseChatReply = (message: any): Omit<ChatMessage, 'id' | 'timestamp'> | n
           model: (p as any).model || '',
           approvalStatus: (p as any).approvalStatus || 'pending',
           imageError: (p as any).imageError || '',
+          instructionHistory: (p as any).instructionHistory || [],
         };
       }
 
@@ -1293,8 +1294,19 @@ function AppContent() {
     addActivity('Stopped');
     // Fix: remove progress cards from chat when user stops — without this, the progress card
     // stays visible even though execution has stopped, making it look like the system is still working
-    // Keep agent_progress on cancel — TasksWindow still needs output/review data after stop.
     setChatMessages(prev => prev.filter(m => m.messageType !== 'progress'));
+    // Fix: update agent_progress statuses so agents don't stay "running"/"waiting_approval"/"awaiting_review"
+    // after stop — without this, the TasksWindow shows agents stuck in waiting state forever.
+    setChatMessages(prev => prev.map(m => {
+      if (m.messageType !== 'agent_progress' || !m.agentProgressList) return m;
+      const updatedAgents = m.agentProgressList.map(a => {
+        if (a.status === 'running' || a.status === 'pending' || a.status === 'waiting_approval' || a.status === 'awaiting_review') {
+          return { ...a, status: 'error' as const, reviewSummary: 'หยุดโดยผู้ใช้' };
+        }
+        return a;
+      });
+      return { ...m, agentProgressList: updatedAgents };
+    }));
   }, [sendMessage, addActivity]);
 
   if (authLoading) {

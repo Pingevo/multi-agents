@@ -4,6 +4,8 @@ from backend.tools.media import generate_image, generate_video
 from backend.tools.audio import text_to_speech, transcribe_audio, analyze_image
 from backend.tools.document import generate_document
 from backend.tools.browser import browse_web
+from backend.tools.search import search_web
+from backend.tools.web import scrape_web
 from backend.agents.capability import CapabilityRegistry
 
 class ToolRegistry:
@@ -18,6 +20,8 @@ class ToolRegistry:
         self.register("analyze_image", analyze_image)
         self.register("generate_document", generate_document)
         self.register("browse_web", browse_web)
+        self.register("search_web", search_web)
+        self.register("scrape_web", scrape_web)
         self._cap_registry = CapabilityRegistry()
 
     def register(self, name: str, tool):

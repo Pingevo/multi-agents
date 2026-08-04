@@ -13,7 +13,7 @@ function autolinkUrls(text: string): string {
 const MarkdownRenderer: React.FC<{ content: string; className?: string }> = ({ content, className = '' }) => {
   const processed = autolinkUrls(content);
   return (
-    <div className={className} style={{ fontSize: '12px', color: 'var(--ink)', lineHeight: '1.6' }}>
+    <div className={className} style={{ fontSize: '12px', color: 'var(--ink)', lineHeight: '1.6', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{

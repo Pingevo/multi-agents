@@ -72,6 +72,7 @@ class AgentRegistry:
             "review_iterations": spec.get("review_iterations"),
             "max_iter": spec.get("max_iter"),
             "max_retry_limit": spec.get("max_retry_limit"),
+            "max_search_calls": spec.get("max_search_calls", 0),
             "allow_delegation": spec.get("allow_delegation", False),
             "status": "Idle",
             "created_at": datetime.now().isoformat(),
@@ -142,7 +143,7 @@ class AgentRegistry:
                             "expertise", "brand_context", "learnings",
                             "tools", "model", "team_id", "template_id",
                             "output_format", "quality_criteria", "review_iterations",
-                            "max_iter", "max_retry_limit", "allow_delegation", "depends_on"):
+                            "max_iter", "max_retry_limit", "allow_delegation", "depends_on", "max_search_calls"):
                     if key in fields:
                         agent[key] = fields[key]
                 self._save()
@@ -185,6 +186,7 @@ class AgentRegistry:
             "review_iterations": agent.get("review_iterations"),
             "max_iter": agent.get("max_iter"),
             "max_retry_limit": agent.get("max_retry_limit"),
+            "max_search_calls": agent.get("max_search_calls", 0),
             "allow_delegation": agent.get("allow_delegation", False),
         }
 

@@ -183,6 +183,7 @@ class ChatReplyImageApproval(BaseModel):
     model: str = ""  # generation model that will be used
     approvalStatus: str = "pending"  # "pending", "approved", "rejected", "error"
     imageError: str = ""  # error message if approvalStatus is "error"
+    instructionHistory: list[str] = []  # user instructions given when rejecting this media
 
 
 class ChatReplyImageResult(BaseModel):

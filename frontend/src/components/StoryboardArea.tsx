@@ -590,6 +590,22 @@ function buildRuns(chatMessages: ChatMessage[]): StoryboardRun[] {
         agentName: msg.agentName || '',
       });
     }
+    // Also extract from image_approval cards merged with image_result — App.tsx merges
+    // image_result into image_approval cards (approvalStatus='generated', imageUrl set)
+    // instead of adding image_result as a separate chatMessage, so buildRuns must check
+    // both message types to populate imageResults during live sessions.
+    if (msg.messageType === 'image_approval' && msg.approvalStatus === 'generated' && msg.imageUrl) {
+      const alreadyAdded = currentRun.imageResults.some(ir => ir.approvalId === (msg.approvalId || ''));
+      if (!alreadyAdded) {
+        currentRun.imageResults.push({
+          imageUrl: msg.imageUrl || '',
+          prompt: msg.imagePrompt || '',
+          approvalId: msg.approvalId || '',
+          mediaType: msg.mediaType || 'image',
+          agentName: msg.agentName || '',
+        });
+      }
+    }
   }
 
   if (currentRun) runs.push(currentRun);

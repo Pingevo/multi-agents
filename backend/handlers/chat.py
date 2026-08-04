@@ -180,14 +180,16 @@ async def execute_multi_agent_task(
         # via _build_last_task_context_from_chat_store, ensuring per-session isolation (Issue #30)
 
         if messenger:
+            was_cancelled = cl.user_session.get("cancel_generation") or False
             final_agents = []
             for i, spec in enumerate(agent_specs):
                 out = agent_outputs[i] if i < len(agent_outputs) else {}
                 final_agents.append({
                     "name": spec.get("name", "Agent"),
                     "role": spec.get("role", ""),
-                    "status": "complete",
+                    "status": "error" if was_cancelled else "complete",
                     "progress": 100,
+                    "review_summary": "หยุดโดยผู้ใช้" if was_cancelled else "",
                     "output": (out.get("output", "") or "")[:MAX_OUTPUT_CHARS],
                     "model": spec.get("model", ""),
                 })
@@ -197,8 +199,9 @@ async def execute_multi_agent_task(
                 final_agents.append({
                     "name": "Manager",
                     "role": "Project Manager",
-                    "status": "complete",
+                    "status": "error" if was_cancelled else "complete",
                     "progress": 100,
+                    "review_summary": "หยุดโดยผู้ใช้" if was_cancelled else "",
                     "output": (manager_output.get("output", "") or "")[:MAX_OUTPUT_CHARS],
                     "model": "",
                 })
@@ -805,6 +808,26 @@ def _restore_conversation_history(session_id: str, chat_store: ChatStore) -> lis
         # No cap — send full content (Issue #30)
         history.append({"role": role, "content": content})
     return history
+
+
+async def _fetch_media_catalog_summary(llm_manager: LLMManager) -> str:
+    """Fetch a text summary of available media models for the Manager LLM prompt.
+
+    Uses ModelDiscoveryService.get_catalog_summary() to list image, video, TTS,
+    search, vision, and STT model IDs. Returns "none" on error or if not using OpenRouter.
+    """
+    if not llm_manager._is_openrouter():
+        return "none"
+    try:
+        discovery = ModelDiscoveryService(
+            base_url=llm_manager.base_url, api_key=llm_manager.api_key
+        )
+        loop = asyncio.get_event_loop()
+        summary = await loop.run_in_executor(None, discovery.get_catalog_summary)
+        return summary or "none"
+    except Exception as e:
+        print(f"[DEBUG-MEDIA-CATALOG] Failed to fetch: {e}", flush=True)
+        return "none"
 
 
 def _build_media_catalog_entries(models: list[dict], media_type: str) -> list[dict]:
@@ -1572,15 +1595,19 @@ async def on_message(message: cl.Message):
             if messenger:
                 await messenger.update_approval_status(approval_id, "rejected")
                 if feedback:
-                    await messenger.reply(f"❌ ยกเลิกการสร้างสื่อ (ID: {approval_id}) — Feedback: {feedback}")
+                    await messenger.reply(f"🔄 แก้ไขสื่อตามคำสั่ง: \"{feedback}\" — กำลังสร้างใหม่...")
                 else:
                     await messenger.reply(f"❌ ยกเลิกการสร้างสื่อ (ID: {approval_id})")
                 cl.user_session.set(f"pending_media_{approval_id}", None)
                 # Resolve MediaAwaiter future so the orchestrator can process rejection
                 MediaAwaiter.resolve_approval(approval_id, {"status": "rejected", "feedback": feedback})
-                # Also clear from chat_store — prevents stale pending data buildup in JSON
+                # Store instruction history before clearing pending media —
+                # so the frontend can display the history of user instructions
                 _cs = cl.user_session.get("chat_store")
                 _sid = messenger.current_session_id if messenger else None
+                if _cs and _sid and feedback:
+                    _cs.append_instruction_history(_sid, approval_id, feedback)
+                # Also clear from chat_store — prevents stale pending data buildup in JSON
                 if _cs and _sid:
                     _cs.clear_pending_media(_sid, approval_id)
                 await messenger.reply_notifications(team_id=cl.user_session.get("current_team_id"))
@@ -2302,7 +2329,7 @@ async def on_message(message: cl.Message):
             # Quick assess: check if user wants to create agents or plan work
             model_table = "none"
             valid_model_ids = set()
-            media_catalog = "none"
+            media_catalog = await _fetch_media_catalog_summary(llm_manager)
             registry_agents = registry.list_agents()
             current_team_id = cl.user_session.get("current_team_id")
             team_agents = None
@@ -2378,7 +2405,7 @@ async def on_message(message: cl.Message):
             # Build model table for unified call
             model_table = "none"
             valid_model_ids = set()
-            media_catalog = "none"
+            media_catalog = await _fetch_media_catalog_summary(llm_manager)
 
             thinking_id = f"thinking-{int(time.time())}"
             if messenger:
@@ -2898,7 +2925,7 @@ async def on_message(message: cl.Message):
             # Build model table for unified call
             model_table = "none"
             valid_model_ids = set()
-            media_catalog = "none"
+            media_catalog = await _fetch_media_catalog_summary(llm_manager)
 
             # Pass registry and team agents so LLM can reuse existing agents
             registry_agents = registry.list_agents()

@@ -21,6 +21,18 @@ from typing import Any, Optional
 import chainlit as cl
 
 
+def should_auto_approve_on_retry(user_auto_approve: bool, retry_count: int) -> bool:
+    """Determine if media should be auto-approved on this attempt.
+
+    First attempt (retry_count=0): respect user's auto_approve setting.
+    Retry attempts (retry_count>0): always auto-approve — the user already
+    gave instructions by rejecting with feedback, so the regenerated prompt
+    is implicitly approved and should generate immediately without another
+    approval card.
+    """
+    return user_auto_approve or retry_count > 0
+
+
 class MediaAwaiter:
     """Manages media approval futures and resolution.
 

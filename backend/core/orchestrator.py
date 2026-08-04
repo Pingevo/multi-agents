@@ -18,7 +18,7 @@ from crewai.events.types.tool_usage_events import ToolUsageStartedEvent, ToolUsa
 from crewai.events.types.task_events import TaskStartedEvent, TaskCompletedEvent
 from crewai.events.types.llm_events import LLMCallCompletedEvent
 from crewai.events import event_types
-from backend.globals import _progress_callback, _media_tool_results, _thread_local, _search_model, user_prompt_ctx
+from backend.globals import _progress_callback, _media_tool_results, _thread_local, _search_model, user_prompt_ctx, DEFAULT_MAX_SEARCH_CALLS
 from backend.utils import _sanitize_error, _debug
 from backend.llm.manager import LLMManager, _is_rate_limit_error
 from backend.llm.selector import ModelSelector
@@ -28,7 +28,7 @@ from backend.agents.tool_registry import ToolRegistry
 from backend.agents.registry import AgentRegistry
 from backend.agents.templates import validate_template_output, detect_template_id, get_template_contract
 from backend.core.messenger import StateMessenger
-from backend.core.media_awaiter import MediaAwaiter
+from backend.core.media_awaiter import MediaAwaiter, should_auto_approve_on_retry
 from backend.credit_logger import log_llm_call
 
 MAX_REVIEW_RETRIES = int(os.environ.get("MAX_REVIEW_RETRIES", "3"))
@@ -199,6 +199,43 @@ class ExecutionOrchestrator:
             result.append(entry)
         return result
 
+    def _send_manager_progress(self, progress_pct: int, current_task: str, agent_specs: list[dict], agent_outputs: list[dict]):
+        """Send Manager progress update to frontend (all agents complete, Manager working).
+
+        Reusable helper used at 50% (reviewing) and 85% (synthesizing) checkpoints.
+        """
+        if not self._agent_progress_callback or not self._main_loop or not self._ctx:
+            return
+        progress = self._build_progress({}, self._agent_state)
+        for i, spec in enumerate(agent_specs):
+            progress[i]["status"] = "complete"
+            progress[i]["progress"] = 100
+            if i < len(agent_outputs):
+                progress[i]["output"] = (agent_outputs[i].get("output", "") or "")[:MAX_OUTPUT_CHARS]
+            # Preserve review_history from agent_state
+            if i in self._agent_state:
+                progress[i]["review_history"] = self._agent_state[i].get("review_history", [])
+                progress[i]["review_round"] = self._agent_state[i].get("review_round", 0)
+                progress[i]["review_summary"] = self._agent_state[i].get("review_summary", "")
+        progress.append({
+            "name": "Manager",
+            "role": "Reviewing deliverables",
+            "status": "running",
+            "progress": progress_pct,
+            "current_task": current_task,
+        })
+        ctx = self._ctx
+        loop = self._main_loop
+        callback = self._agent_progress_callback
+
+        def _schedule_manager_progress():
+            print(f"[DEBUG-synth] Sending Manager progress {progress_pct}% to frontend", flush=True)
+            loop.create_task(
+                _async_progress_callback(callback, progress),
+                context=ctx,
+            )
+        loop.call_soon_threadsafe(_schedule_manager_progress)
+
     def _register_event_listeners(self):
         # Persistent per-agent state — accumulates all fields across updates
         self._agent_state: dict[int, dict] = {}
@@ -223,6 +260,13 @@ class ExecutionOrchestrator:
                             "progress": 0,
                             "model": self._agent_specs[idx].get("model", "") if idx < len(self._agent_specs) else "",
                         }
+                    # High-water mark: progress should never go backwards while running.
+                    # Without this, calling multiple tools makes progress jump 50→70→50→70.
+                    new_prog = upd.get("progress")
+                    if new_prog is not None and self._agent_state[idx].get("status") == "running":
+                        cur_prog = self._agent_state[idx].get("progress", 0)
+                        if new_prog < cur_prog:
+                            upd = {k: v for k, v in upd.items() if k != "progress"}
                     self._agent_state[idx].update(upd)
                 progress = self._build_progress({}, self._agent_state)
             ctx = self._ctx
@@ -464,6 +508,14 @@ class ExecutionOrchestrator:
                 """Run one agent on its task as a standalone Crew (sync, for thread pool).
                 Falls back to local LLM on rate limit errors."""
                 _thread_local.agent_name = spec.get("name", f"Agent {idx+1}")
+                # Per-agent search call limit (config-driven via agent spec max_search_calls)
+                # Apply default for agents with search_web tool when spec doesn't set a limit
+                _thread_local.search_call_count = 0
+                spec_max = spec.get("max_search_calls") or 0
+                has_search = "search_web" in (spec.get("tools", []) or [])
+                _thread_local.max_search_calls = spec_max if spec_max > 0 else (DEFAULT_MAX_SEARCH_CALLS if has_search else 0)
+                if _thread_local.max_search_calls > 0:
+                    print(f"[DEBUG-SEARCH-LIMIT] Agent '{spec.get('name', '')}' max_search_calls={_thread_local.max_search_calls}", flush=True)
                 set_llm_call_context(f"agent:{spec.get('name', f'Agent {idx+1}')}")
                 import time as _time
                 print(f"[DEBUG-PARALLEL-START] Agent {idx} '{spec.get('name', '')}' starting at {_time.time():.3f}", flush=True)
@@ -897,7 +949,7 @@ class ExecutionOrchestrator:
                     result = await MediaAwaiter.resolve_media_dependencies(
                         agent_name=name,
                         media_tool_results=_media_tool_results,
-                        auto_approve=auto_approve,
+                        auto_approve=should_auto_approve_on_retry(auto_approve, media_retry),
                         session_id=session_id or "",
                         messenger=_hist_messenger,
                         media_gen_manager=media_gen,
@@ -1339,36 +1391,7 @@ class ExecutionOrchestrator:
                     manager_goal = manager_agent.get("goal", manager_goal)
 
             # Send progress: all agents complete, Manager synthesizing
-            if self._agent_progress_callback and self._main_loop and self._ctx:
-                progress = self._build_progress({}, self._agent_state)
-                for i, spec in enumerate(agent_specs):
-                    progress[i]["status"] = "complete"
-                    progress[i]["progress"] = 100
-                    if i < len(agent_outputs):
-                        progress[i]["output"] = (agent_outputs[i].get("output", "") or "")[:MAX_OUTPUT_CHARS]
-                    # Preserve review_history from agent_state
-                    if i in self._agent_state:
-                        progress[i]["review_history"] = self._agent_state[i].get("review_history", [])
-                        progress[i]["review_round"] = self._agent_state[i].get("review_round", 0)
-                        progress[i]["review_summary"] = self._agent_state[i].get("review_summary", "")
-                progress.append({
-                    "name": "Manager",
-                    "role": "Reviewing deliverables",
-                    "status": "running",
-                    "progress": 50,
-                    "current_task": "Reviewing team deliverables for quality",
-                })
-                ctx = self._ctx
-                loop = self._main_loop
-                callback = self._agent_progress_callback
-
-                def _schedule_manager_progress():
-                    print(f"[DEBUG-synth] Sending Manager 'running' progress to frontend", flush=True)
-                    loop.create_task(
-                        _async_progress_callback(callback, progress),
-                        context=ctx,
-                    )
-                loop.call_soon_threadsafe(_schedule_manager_progress)
+            self._send_manager_progress(50, "Reviewing team deliverables for quality", agent_specs, agent_outputs)
 
             synthesis_prompt = (
                 f"User request: {user_input}\n\n"
@@ -1430,8 +1453,12 @@ class ExecutionOrchestrator:
                         raise
                     finally:
                         clear_llm_call_context()
+                # Progress 85%: Manager synthesis LLM call is about to start (long, 15-60s)
+                self._send_manager_progress(85, "Manager กำลังสรุปผลและตรวจสอบคุณภาพ...", agent_specs, agent_outputs)
                 manager_raw = await loop.run_in_executor(None, _synthesis_call)
             else:
+                # Progress 85%: Manager synthesis LLM call is about to start (long, 15-60s)
+                self._send_manager_progress(85, "Manager กำลังสรุปผลและตรวจสอบคุณภาพ...", agent_specs, agent_outputs)
                 manager_raw = await loop.run_in_executor(
                     None, lambda: self.llm_manager.call_with_fallback(synthesis_prompt, caller="manager_synthesis")
                 )

@@ -97,7 +97,7 @@ class TestLogHistoryBroadcast(unittest.TestCase):
         ms = self._make_messenger()
         with patch.object(ms.history_store, "add_entry") as mock_add:
             ms.log_history("task-1", "Test", "Manager", "สร้าง plan")
-            mock_add.assert_called_once_with("task-1", "Test", "Manager", "สร้าง plan", "")
+            mock_add.assert_called_once_with("task-1", "Test", "Manager", "สร้าง plan", "", team_id="")
 
     def test_log_history_schedules_broadcast_in_async_context(self):
         ms = self._make_messenger()

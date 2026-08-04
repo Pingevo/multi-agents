@@ -82,6 +82,19 @@ function buildRuns(chatMessages: ChatMessage[]): StoryboardRun[] {
         mediaType: msg.mediaType || 'image', agentName: msg.agentName || '',
       });
     }
+    // Also extract from image_approval cards merged with image_result — App.tsx merges
+    // image_result into image_approval cards (approvalStatus='generated', imageUrl set)
+    // instead of adding image_result as a separate chatMessage, so buildRuns must check
+    // both message types to populate imageResults during live sessions.
+    if (msg.messageType === 'image_approval' && msg.approvalStatus === 'generated' && msg.imageUrl) {
+      const alreadyAdded = currentRun.imageResults.some(ir => ir.approvalId === (msg.approvalId || ''));
+      if (!alreadyAdded) {
+        currentRun.imageResults.push({
+          imageUrl: msg.imageUrl || '', prompt: msg.imagePrompt || '', approvalId: msg.approvalId || '',
+          mediaType: msg.mediaType || 'image', agentName: msg.agentName || '',
+        });
+      }
+    }
   }
   if (currentRun) runs.push(currentRun);
   const visible = runs.filter(r => r.planStatus !== 'rejected' && (r.planAgents.length > 0 || r.result));
@@ -121,6 +134,7 @@ function computeWaves(agents: { name: string; depends_on?: string[] }[]): { name
 // Status helpers
 const statusInfo = (status: string) => {
   const s = (status || '').toLowerCase();
+  if (s.includes('stop')) return { cls: 'stopped', text: '⏹ ยกเลิก', color: 'var(--amber)' };
   if (s.includes('complete') || s.includes('done')) return { cls: 'done', text: '✓ Done', color: 'var(--green)' };
   if (s.includes('error')) return { cls: 'error', text: 'Error', color: 'var(--red)' };
   if (s.includes('running')) return { cls: 'running', text: 'Running', color: 'var(--amber)' };
@@ -163,9 +177,12 @@ const FlowNode: React.FC<{
   selected: boolean;
   onClick: () => void;
 }> = ({ agent, progress, selected, onClick }) => {
-  const status = progress?.status || 'pending';
+  const rawStatus = progress?.status || 'pending';
+  // If review_summary indicates a stop, override "complete" → "stopped" for display
+  const wasStopped = progress?.reviewSummary?.includes('หยุดโดย') || progress?.review_summary?.includes('หยุดโดย');
+  const status = (rawStatus === 'complete' && wasStopped) ? 'stopped' : rawStatus;
   const si = statusInfo(status);
-  const pct = status === 'complete' ? 100 : status === 'error' ? 100 : progress?.progress || 0;
+  const pct = status === 'complete' ? 100 : status === 'error' ? 100 : status === 'stopped' ? 100 : progress?.progress || 0;
   const isComplete = status === 'complete';
   const isError = status === 'error';
   const isRunning = status === 'running';
@@ -201,7 +218,7 @@ const FlowNode: React.FC<{
       {/* Review summary for completed agents */}
       {isComplete && progress?.review_summary && (
         <div className="tw-node-review-done">
-          {progress.review_summary.includes('หยุดโดยผู้ใช้') || progress.review_summary.includes('ยังไม่ตรวจ') || progress.review_summary.includes('Cancelled') ? (
+          {progress.review_summary.includes('หยุดโดย') || progress.review_summary.includes('ยังไม่ตรวจ') || progress.review_summary.includes('Cancelled') ? (
             <span style={{ color: 'var(--amber)' }}>ยังไม่ตรวจสอบ</span>
           ) : (
             <span style={{ color: 'var(--green)' }}>ตรวจผ่าน</span>
@@ -247,9 +264,11 @@ const ResultPanel: React.FC<{
     );
   }
 
-  const status = progress?.status || 'pending';
+  const rawStatus = progress?.status || 'pending';
+  const wasStopped = progress?.reviewSummary?.includes('หยุดโดย') || progress?.review_summary?.includes('หยุดโดย');
+  const status = (rawStatus === 'complete' && wasStopped) ? 'stopped' : rawStatus;
   const si = statusInfo(status);
-  const pct = status === 'complete' ? 100 : status === 'error' ? 100 : progress?.progress || 0;
+  const pct = status === 'complete' ? 100 : status === 'error' ? 100 : status === 'stopped' ? 100 : progress?.progress || 0;
 
   const hasOutput = !!progress?.output;
   const hasReview = !!(progress?.review_history && progress.review_history.length > 0);
@@ -306,7 +325,7 @@ const ResultPanel: React.FC<{
               {progress?.review_summary && (
                 <div style={{ fontSize: '10px', marginBottom: '4px' }}>
                   {status === 'complete' ? (
-                    progress.review_summary.includes('หยุดโดยผู้ใช้') || progress.review_summary.includes('ยังไม่ตรวจ') || progress.review_summary.includes('Cancelled')
+                    progress.review_summary.includes('หยุดโดย') || progress.review_summary.includes('ยังไม่ตรวจ') || progress.review_summary.includes('Cancelled')
                       ? <span style={{ color: 'var(--amber)' }}>ยังไม่ตรวจสอบ</span>
                       : <span style={{ color: 'var(--green)' }}>ตรวจผ่าน</span>
                   ) : (
@@ -586,8 +605,9 @@ export const TasksWindow: React.FC<TasksWindowProps> = ({
     runOverallProgress = selectedRun.progress
       ? Math.round(selectedRun.progress.filter(p => planAgentNames.has(p.name)).reduce((sum, p) => sum + (p.status === 'complete' ? 100 : p.progress || 0), 0) / Math.max(totalCount, 1))
       : selectedRun.result ? 100 : 0;
-    const frameStatus = selectedRun.planStatus === 'pending' ? 'pending' : selectedRun.result ? 'done' : 'running';
-    runStatusText = selectedRun.planStatus === 'pending' ? 'รออนุมัติ' : selectedRun.result ? (selectedRun.result.error ? 'Error' : 'เสร็จสิ้น') : runOverallProgress > 0 ? `${runOverallProgress}%` : 'เริ่ม...';
+    const wasStopped = selectedRun.progress?.some(p => p.reviewSummary?.includes('หยุดโดย') || p.review_summary?.includes('หยุดโดย'));
+    const frameStatus = selectedRun.planStatus === 'pending' ? 'pending' : selectedRun.result ? (wasStopped ? 'stopped' : 'done') : 'running';
+    runStatusText = selectedRun.planStatus === 'pending' ? 'รออนุมัติ' : selectedRun.result ? (selectedRun.result.error ? 'Error' : wasStopped ? 'ยกเลิก' : 'เสร็จสิ้น') : runOverallProgress > 0 ? `${runOverallProgress}%` : 'เริ่ม...';
     runStatusCls = frameStatus;
     runFrameIcon = selectedRun.planType === 'create_agents' ? '🤖' : '📝';
   }
@@ -609,8 +629,9 @@ export const TasksWindow: React.FC<TasksWindowProps> = ({
           const prog = run.progress
             ? Math.round(run.progress.filter(p => planAgentNames.has(p.name)).reduce((sum, p) => sum + (p.status === 'complete' ? 100 : p.progress || 0), 0) / Math.max(totalCount, 1))
             : run.result ? 100 : 0;
-          const st = run.planStatus === 'pending' ? 'pending' : run.result ? 'done' : 'running';
-          const stText = run.planStatus === 'pending' ? 'รอ' : run.result ? (run.result.error ? 'Error' : 'Done') : `${prog}%`;
+          const runWasStopped = run.progress?.some(p => p.reviewSummary?.includes('หยุดโดย') || p.review_summary?.includes('หยุดโดย'));
+          const st = run.planStatus === 'pending' ? 'pending' : run.result ? (runWasStopped ? 'stopped' : 'done') : 'running';
+          const stText = run.planStatus === 'pending' ? 'รอ' : run.result ? (run.result.error ? 'Error' : runWasStopped ? 'ยกเลิก' : 'Done') : `${prog}%`;
           return (
             <TaskListItem
               key={`run-${run.runIndex}`}
@@ -632,8 +653,8 @@ export const TasksWindow: React.FC<TasksWindowProps> = ({
               icon="📋"
               title={task.input?.slice(0, 50) || task.title?.slice(0, 50) || 'งานไม่มีชื่อ'}
               progress={task.progress || 0}
-              statusText={task.status || 'pending'}
-              statusCls={task.status === 'done' ? 'done' : task.status === 'running' ? 'running' : 'pending'}
+              statusText={task.status === 'stopped' ? 'ยกเลิก' : task.status === 'done' ? 'เสร็จสิ้น' : task.status === 'running' ? 'กำลังทำงาน' : 'รออนุมัติ'}
+              statusCls={task.status === 'done' ? 'done' : task.status === 'stopped' ? 'stopped' : task.status === 'running' ? 'running' : 'pending'}
               active={false}
               onClick={() => {}}
             />
@@ -751,7 +772,13 @@ export const TasksWindow: React.FC<TasksWindowProps> = ({
             )}
             {allComplete && !selectedRun.result && !hasWaitingApproval && !hasAwaitingReview && (
               <div className="tw-flow-banner synthesizing">
-                <Loader2 size={12} className="animate-spin" /> Combining all agent outputs...
+                <Loader2 size={12} className="animate-spin" /> {(() => {
+                  const mgr = selectedRun.progress?.find(p => p.name === 'Manager');
+                  if (mgr && mgr.progress && mgr.progress > 0) {
+                    return `${mgr.current_task || 'Manager กำลังสรุปผล...'} (${mgr.progress}%)`;
+                  }
+                  return 'Combining all agent outputs...';
+                })()}
               </div>
             )}
           </>

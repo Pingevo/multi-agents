@@ -61,10 +61,13 @@ const formatPrice = (price: any): string => {
 };
 
 const getRelevantPriceFields = (model: ModelCatalogEntry, mediaType?: string): { label: string; value: any }[] => {
-  const fields: { label: string; value: any }[] = [
+  // For media models, only show Input/Output if they have a known price —
+  // avoids "Unknown" noise when the model is priced per-image/per-second instead of per-token
+  const showBaseFields = !mediaType || (parsePrice(model.prompt_price) !== null || parsePrice(model.completion_price) !== null);
+  const fields: { label: string; value: any }[] = showBaseFields ? [
     { label: 'Input', value: model.prompt_price },
     { label: 'Output', value: model.completion_price },
-  ];
+  ] : [];
   if (mediaType === 'image') {
     if (model.image_price !== undefined && model.image_price !== '?') fields.push({ label: 'Image', value: model.image_price });
     if (model.image_output_price !== undefined && model.image_output_price !== '?') fields.push({ label: 'Image Output', value: model.image_output_price });
@@ -496,13 +499,19 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1 }}>
-              <div>
-                <div style={{ fontSize: '8px', color: 'var(--ink3)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '2px' }}>Context</div>
-                <div style={{ fontSize: '10px', color: 'var(--ink)' }}>{formatContext(previewModel.context_length)} tokens</div>
-              </div>
+              {/* Hide context length for media models — it's often "?" and irrelevant for per-image/per-second pricing */}
+              {!(isMediaPicker && formatContext(previewModel.context_length) === '?') && (
+                <div>
+                  <div style={{ fontSize: '8px', color: 'var(--ink3)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '2px' }}>Context</div>
+                  <div style={{ fontSize: '10px', color: 'var(--ink)' }}>{formatContext(previewModel.context_length)} tokens</div>
+                </div>
+              )}
 
               <div>
-                <div style={{ fontSize: '8px', color: 'var(--ink3)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '2px' }}>Cost / 1M tokens</div>
+                {/* Show per-unit cost label for media models, per-1M-tokens for text models */}
+                <div style={{ fontSize: '8px', color: 'var(--ink3)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '2px' }}>
+                  {mediaType === 'image' ? 'Cost / image' : mediaType === 'video' ? 'Cost / second' : mediaType === 'tts' || mediaType === 'stt' ? 'Cost / 1K chars' : mediaType === 'search' ? 'Cost / search' : 'Cost / 1M tokens'}
+                </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
                   {getRelevantPriceFields(previewModel, mediaType).map(({ label, value }) => (
                     <div key={label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '10px' }}>

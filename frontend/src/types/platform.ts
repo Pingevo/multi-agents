@@ -118,6 +118,7 @@ export interface PendingApproval {
   model?: string;
   approvalStatus?: 'pending' | 'approved' | 'rejected' | 'error';
   imageError?: string;
+  instructionHistory?: string[];
 }
 
 export interface ImageResult {

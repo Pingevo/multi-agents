@@ -103,6 +103,7 @@ class StateMessenger:
                 "review_iterations": a.get("review_iterations"),
                 "max_iter": a.get("max_iter"),
                 "max_retry_limit": a.get("max_retry_limit"),
+                "max_search_calls": a.get("max_search_calls", 0),
                 "allow_delegation": a.get("allow_delegation", False),
             }
             for a in agents
@@ -357,7 +358,7 @@ class StateMessenger:
                 tool_description=a.get("tool_description", ""),
                 model=a.get("model", ""),
                 review_round=a.get("review_round", 0),
-                review_summary=a.get("review_summary", ""),
+                review_summary=a.get("review_summary") or "",
                 review_feedback=a.get("review_feedback", ""),
                 review_history=a.get("review_history", []),
             )
@@ -419,12 +420,13 @@ class StateMessenger:
         await self._send_ws(json.dumps(payload, ensure_ascii=False))
         self._persist_to_task_session({"role": "assistant", "content": output, "messageType": "text", "agentName": agent_name, "agentId": agent_id})
 
-    async def reply_image_approval(self, prompt: str, approval_id: str, agent_name: str = "", media_type: str = "image", duration: int = 0, model: str = "", approval_status: str = "pending", image_error: str = "", task_session_id: str = ""):
+    async def reply_image_approval(self, prompt: str, approval_id: str, agent_name: str = "", media_type: str = "image", duration: int = 0, model: str = "", approval_status: str = "pending", image_error: str = "", task_session_id: str = "", instruction_history: list[str] | None = None):
         """Send a media approval card — user must approve before generation.
-        
+
         task_session_id: the session ID when the task was started. If the user has since
         switched sessions, the WebSocket message is skipped (only persisted) to prevent
         the card from appearing in the wrong session.
+        instruction_history: list of user instructions previously given when rejecting this media.
         """
         payload = chat_reply(ChatReplyImageApproval(
             imagePrompt=prompt,
@@ -435,13 +437,14 @@ class StateMessenger:
             model=model,
             approvalStatus=approval_status,
             imageError=image_error,
+            instructionHistory=instruction_history or [],
         ))
         # Route through _send_ws() for sessionId injection and session guard
         await self._send_ws(json.dumps(payload, ensure_ascii=False))
         # Persist to the task's original session, not the current session
         _persist_sid = task_session_id or self._persist_session_id()
         if _persist_sid:
-            self.chat_store.add_message(_persist_sid, {"role": "assistant", "messageType": "image_approval", "imagePrompt": prompt, "approvalId": approval_id, "agentName": agent_name, "mediaType": media_type, "duration": duration, "model": model, "approvalStatus": approval_status, "imageError": image_error})
+            self.chat_store.add_message(_persist_sid, {"role": "assistant", "messageType": "image_approval", "imagePrompt": prompt, "approvalId": approval_id, "agentName": agent_name, "mediaType": media_type, "duration": duration, "model": model, "approvalStatus": approval_status, "imageError": image_error, "instructionHistory": instruction_history or []})
 
     async def reply_agent_review(self, review_id: str, task_id: str, agent_name: str, agent_role: str, output: str, review_status: str = "pending"):
         """Send a per-agent review card — user must approve before dependents can start"""
@@ -808,6 +811,7 @@ class StateMessenger:
                     model=msgs[i].get("model", ""),
                     approvalStatus=status,
                     imageError=msgs[i].get("imageError", ""),
+                    instructionHistory=msgs[i].get("instructionHistory", []),
                 ))
                 json_str = json.dumps(payload, ensure_ascii=False)
                 print(f"[UPDATE-APPROVAL] Sending status={status} for {approval_id}", flush=True)

@@ -66,6 +66,7 @@ export interface ChatMessage {
   duration?: number;
   model?: string;
   imageError?: string;
+  instructionHistory?: string[];
   modelCatalogRecommended?: Record<string, any[]>;
   modelCatalogSearchResults?: any[];
   modelCatalogSelected?: string;
