@@ -2,7 +2,7 @@ import type { ChatMessage, PlanAgent, ResultAgent } from '../chatTypes';
 
 // User message — right-aligned orange bubble
 export const FeedUserMessage: React.FC<{ msg: ChatMessage }> = ({ msg }) => (
-  <div className="self-end max-w-[80%] bg-orange text-white rounded-retro px-3 py-2 text-[12px] leading-relaxed">
+  <div className="self-end max-w-[80%] bg-orange text-white rounded-retro px-3 py-2 text-[12px] leading-relaxed" style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
     {msg.content}
     {msg.attachments && msg.attachments.length > 0 && (
       <div className="mt-2 flex flex-col gap-1">
@@ -38,7 +38,7 @@ export const FeedAgentMessage: React.FC<{
 }> = ({ avatar, name, children, meta }) => (
   <div className="flex items-start gap-2 self-start max-w-[80%]">
     <div className="w-7 h-7 rounded-full bg-cream border border-line flex items-center justify-center text-sm flex-shrink-0">{avatar}</div>
-    <div className="bg-cream border border-line rounded-retro px-3 py-2 text-[12px] leading-relaxed text-ink">
+    <div className="bg-cream border border-line rounded-retro px-3 py-2 text-[12px] leading-relaxed text-ink" style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
       <span className="font-semibold text-ink-2 text-[11px] mr-1.5">{name}</span>
       {children}
       {meta && <span className="text-[10px] text-ink-3 font-mono ml-1.5">{meta}</span>}

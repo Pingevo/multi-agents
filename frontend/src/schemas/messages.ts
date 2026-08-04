@@ -132,6 +132,7 @@ export interface ChatReplyImageApproval {
   mediaType: string;
   duration: number;
   model: string;
+  instructionHistory?: string[];
 }
 
 export interface ChatReplyImageResult {

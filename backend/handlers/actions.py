@@ -512,7 +512,7 @@ async def on_action_confirm_tuning(action: cl.Action):
                     update_fields[field] = new_value
                 elif field == "depends_on":
                     update_fields["depends_on"] = new_value if isinstance(new_value, list) else [new_value]
-                elif field in ("review_iterations", "max_iter", "max_retry_limit"):
+                elif field in ("review_iterations", "max_iter", "max_retry_limit", "max_search_calls"):
                     try:
                         update_fields[field] = int(new_value)
                     except (ValueError, TypeError):
@@ -641,6 +641,7 @@ async def on_action_create_team(action: cl.Action):
             "review_iterations": agent_entry.get("review_iterations"),
             "max_iter": agent_entry.get("max_iter"),
             "max_retry_limit": agent_entry.get("max_retry_limit"),
+            "max_search_calls": agent_entry.get("max_search_calls", 0),
             "allow_delegation": agent_entry.get("allow_delegation", False),
         }
         new_agent = registry.add_agent(agent_spec)
@@ -810,7 +811,7 @@ async def on_action_config_agent(action: cl.Action):
     for key in ("name", "role", "goal", "persona", "model", "tools", "expertise",
                 "personality", "brand_context", "template_id", "depends_on",
                 "output_format", "quality_criteria", "review_iterations",
-                "max_iter", "max_retry_limit", "allow_delegation"):
+                "max_iter", "max_retry_limit", "allow_delegation", "max_search_calls"):
         if key in payload:
             fields[key] = payload[key]
 

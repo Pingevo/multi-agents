@@ -31,7 +31,7 @@ interface ChatPanelRightProps {
   onConfirmTuning?: (proposals?: any[]) => void;
   onRejectTuning?: () => void;
   onApproveImage?: (approvalId: string, model?: string) => void;
-  onRejectImage?: (approvalId: string) => void;
+  onRejectImage?: (approvalId: string, feedback?: string) => void;
   onRetryImage?: (approvalId: string) => void;
   onEditImagePrompt?: (approvalId: string, newPrompt: string) => void;
   onApproveAgentResult?: (reviewId: string) => void;
@@ -118,14 +118,14 @@ const PlanCard: React.FC<{
   const [editingManager, setEditingManager] = useState(false);
   const managerModelRef = useRef<HTMLButtonElement | null>(null);
   return (
-    <div className={`rounded-xl border bg-bg overflow-hidden ${isPending ? 'border-accent/30' : 'border-border'}`}>
+    <div className={`rounded-xl border bg-bg overflow-hidden ${isPending ? 'border-accent/30' : 'border-border opacity-60'}`}>
       <div className="flex items-center justify-between px-3.5 py-2.5 bg-accent/5 border-b border-accent/20">
         <div className="flex items-center gap-2">
           <span className="text-sm">📋</span>
           <span className="font-semibold text-[13px] text-accent-light">
             {planType === 'create_agents'
-              ? (planStatus === 'approved' ? 'สร้าง Agent (อนุมัติแล้ว)' : planStatus === 'rejected' ? 'สร้าง Agent (ปฏิเสธ)' : 'สร้าง Agent')
-              : (planStatus === 'approved' ? 'แผนงาน (อนุมัติแล้ว)' : planStatus === 'rejected' ? 'แผนงาน (ปฏิเสธ)' : 'แผนงาน')}
+              ? (planStatus === 'approved' ? 'สร้าง Agent (อนุมัติแล้ว)' : planStatus === 'rejected' ? 'สร้าง Agent (ปฏิเสธ)' : planStatus === 'discarded' ? 'สร้าง Agent (ยกเลิก)' : 'สร้าง Agent')
+              : (planStatus === 'approved' ? 'แผนงาน (อนุมัติแล้ว)' : planStatus === 'rejected' ? 'แผนงาน (ปฏิเสธ)' : planStatus === 'discarded' ? 'แผนงาน (ยกเลิก)' : 'แผนงาน')}
           </span>
         </div>
         {planType !== 'create_agents' && (
@@ -808,7 +808,7 @@ const ImageApprovalCard: React.FC<{
   mediaSearchResults?: ModelCatalogEntry[];
   onFetchMediaCatalog?: (mediaType: string) => void;
   onSearchModels?: (query: string) => void;
-  onApprove?: (model?: string) => void; onReject?: () => void; onRetry?: () => void;
+  onApprove?: (model?: string) => void; onReject?: (feedback?: string) => void; onRetry?: () => void;
 }> = ({ prompt, agentName, approvalStatus, mediaType = 'image', duration = 0, model = '', imageError = '', mediaCatalog, mediaSearchResults, onFetchMediaCatalog, onSearchModels, onApprove, onReject, onRetry }) => {
   const isPending = approvalStatus === 'pending';
   const isError = approvalStatus === 'error';
@@ -892,7 +892,7 @@ const ImageApprovalCard: React.FC<{
               <button onClick={() => onApprove?.(selectedModel || undefined)} className="px-3 py-1 rounded-md bg-purple-500 text-white text-xs font-medium hover:bg-purple-600 transition-colors">
                 {meta.icon} Generate
               </button>
-              <button onClick={onReject} className="px-3 py-1 rounded-md bg-surface-2 text-text-2 text-xs font-medium border border-border hover:bg-surface-3 transition-colors">
+              <button onClick={() => onReject?.()} className="px-3 py-1 rounded-md bg-surface-2 text-text-2 text-xs font-medium border border-border hover:bg-surface-3 transition-colors">
                 ❌ Cancel
               </button>
             </div>
@@ -903,7 +903,7 @@ const ImageApprovalCard: React.FC<{
             <button onClick={onRetry} className="px-3 py-1 rounded-md bg-purple-500 text-white text-xs font-medium hover:bg-purple-600 transition-colors">
               🔄 Retry
             </button>
-            <button onClick={onReject} className="px-3 py-1 rounded-md bg-surface-2 text-text-2 text-xs font-medium border border-border hover:bg-surface-3 transition-colors">
+            <button onClick={() => onReject?.()} className="px-3 py-1 rounded-md bg-surface-2 text-text-2 text-xs font-medium border border-border hover:bg-surface-3 transition-colors">
               ❌ Cancel
             </button>
           </div>
@@ -1596,7 +1596,7 @@ export const ChatPanelRight: React.FC<ChatPanelRightProps> = ({
                               onFetchMediaCatalog={onFetchMediaCatalog}
                               onSearchModels={handleSearchModels}
                               onApprove={(model) => onApproveImage?.(msg.approvalId || '', model)}
-                              onReject={() => onRejectImage?.(msg.approvalId || '')}
+                              onReject={(feedback) => onRejectImage?.(msg.approvalId || '', feedback)}
                               onRetry={() => onRetryImage?.(msg.approvalId || '')}
                             />
                           </div>

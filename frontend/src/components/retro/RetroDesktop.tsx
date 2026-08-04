@@ -59,6 +59,7 @@ interface RetroDesktopProps {
   mediaSearchResults: ModelCatalogEntry[];
   taskItems?: TaskItem[];
   uploadLimitMb?: number;
+  autoApproveMedia?: boolean;
 }
 
 const windowConfig: Record<WindowId, { title: string; icon: string; width: number; height: number }> = {
@@ -230,8 +231,8 @@ const DesktopInner: React.FC<RetroDesktopProps> = (props) => {
     props.onAction('approve_image', { approval_id: approvalId, model });
   }, [props.onAction]);
 
-  const handleRejectImage = useCallback((approvalId: string) => {
-    props.onAction('reject_image', { approval_id: approvalId });
+  const handleRejectImage = useCallback((approvalId: string, feedback?: string) => {
+    props.onAction('reject_image', { approval_id: approvalId, feedback });
   }, [props.onAction]);
 
   const handleRetryImage = useCallback((approvalId: string) => {
@@ -370,6 +371,8 @@ const DesktopInner: React.FC<RetroDesktopProps> = (props) => {
             team={props.team}
             onBack={props.onBack}
             onDeleteTeam={props.onDeleteTeam}
+            onAction={props.onAction}
+            autoApproveMedia={props.autoApproveMedia}
           />
         );
       case 'notifications':

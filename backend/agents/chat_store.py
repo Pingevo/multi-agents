@@ -140,7 +140,7 @@ class ChatStore:
         cutoff = datetime.now() - timedelta(days=self._NOTIFICATION_MAX_AGE_DAYS)
         results: list[dict] = []
 
-        sessions = self.list_sessions(team_id=team_id) if team_id else self.list_sessions()
+        sessions = self.list_sessions(team_id=team_id, include_unassigned=True) if team_id else self.list_sessions()
         for session in sessions:
             sid = session.get("id", "")
             stitle = session.get("title", "")
@@ -207,6 +207,60 @@ class ChatStore:
             session["pending_media"].pop(approval_id, None)
             session["updated_at"] = datetime.now().isoformat()
             self._save()
+
+    def clear_all_pending_media(self, session_id: str):
+        """Clear ALL pending media for a session — used on new task start to prevent
+        stale approvals from previous runs accumulating and showing as 40+ pending items."""
+        session = self.get_session(session_id)
+        if session and "pending_media" in session:
+            session["pending_media"] = {}
+            session["updated_at"] = datetime.now().isoformat()
+            self._save()
+
+    # ============================================================
+    # Instruction history — user feedback given when rejecting media
+    # Stored per approval_id so the frontend can display the history of
+    # instructions the user gave to refine the media prompt.
+    # ============================================================
+
+    def append_instruction_history(self, session_id: str, approval_id: str, instruction: str):
+        """Append a user instruction to the history for a given approval_id.
+
+        Called when the user rejects media with feedback. The instruction is
+        stored both in a per-approval_id map AND in the corresponding
+        image_approval message so it can be displayed in the UI and restored
+        after refresh.
+        """
+        if not instruction:
+            return
+        session = self.get_session(session_id)
+        if not session:
+            return
+        history_map = session.setdefault("instruction_history", {})
+        history = history_map.setdefault(approval_id, [])
+        history.append(instruction)
+        # Also update the image_approval message so instructionHistory is
+        # restored when messages are loaded after a page refresh
+        for msg in session.get("messages", []):
+            if msg.get("messageType") == "image_approval" and msg.get("approvalId") == approval_id:
+                msg["instructionHistory"] = list(history)
+                break
+        session["updated_at"] = datetime.now().isoformat()
+        self._save()
+
+    def get_instruction_history(self, session_id: str, approval_id: str) -> list[str]:
+        """Return the list of user instructions for a given approval_id."""
+        session = self.get_session(session_id)
+        if not session:
+            return []
+        return session.get("instruction_history", {}).get(approval_id, [])
+
+    def get_all_instruction_history(self, session_id: str) -> dict[str, list[str]]:
+        """Return all instruction history for a session — used to restore on chat start/switch."""
+        session = self.get_session(session_id)
+        if not session:
+            return {}
+        return session.get("instruction_history", {})
 
     # ============================================================
     # Media tool results persistence — survives backend restart

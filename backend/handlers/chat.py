@@ -35,6 +35,7 @@ from backend.agents.schedule_store import ScheduledTaskStore
 from backend.core.scheduler import get_scheduler
 from backend.core.secretary import CentralManager
 from backend.core.orchestrator import ExecutionOrchestrator
+from backend.core.media_awaiter import MediaAwaiter
 from backend.core.messenger import StateMessenger
 from backend.attachment.processor import process_attachment, process_url
 from backend.attachment.security import check_model_modality_support, llm_manager_tier_check
@@ -89,6 +90,8 @@ async def execute_multi_agent_task(
     # Capture session ID at task start — used to prevent cross-session leak if user switches
     # sessions while task is running. Approval cards should only appear in the original session.
     _task_session_id = messenger.current_session_id if messenger else None
+    if messenger:
+        messenger.task_session_id = _task_session_id
     from backend.globals import _thread_local, user_prompt_ctx
     _thread_local.user_prompt = user_input[:200]
     user_prompt_ctx.set(user_input[:200])
@@ -177,14 +180,16 @@ async def execute_multi_agent_task(
         # via _build_last_task_context_from_chat_store, ensuring per-session isolation (Issue #30)
 
         if messenger:
+            was_cancelled = cl.user_session.get("cancel_generation") or False
             final_agents = []
             for i, spec in enumerate(agent_specs):
                 out = agent_outputs[i] if i < len(agent_outputs) else {}
                 final_agents.append({
                     "name": spec.get("name", "Agent"),
                     "role": spec.get("role", ""),
-                    "status": "complete",
+                    "status": "error" if was_cancelled else "complete",
                     "progress": 100,
+                    "review_summary": "หยุดโดยผู้ใช้" if was_cancelled else "",
                     "output": (out.get("output", "") or "")[:MAX_OUTPUT_CHARS],
                     "model": spec.get("model", ""),
                 })
@@ -194,8 +199,9 @@ async def execute_multi_agent_task(
                 final_agents.append({
                     "name": "Manager",
                     "role": "Project Manager",
-                    "status": "complete",
+                    "status": "error" if was_cancelled else "complete",
                     "progress": 100,
+                    "review_summary": "หยุดโดยผู้ใช้" if was_cancelled else "",
                     "output": (manager_output.get("output", "") or "")[:MAX_OUTPUT_CHARS],
                     "model": "",
                 })
@@ -449,6 +455,8 @@ async def execute_multi_agent_task(
             await messenger.reply(f"❌ งานล้มเหลว: {str(e)[:500]}")
             messenger.log_history(task_id, user_input[:80], "System", "เกิดข้อผิดพลาด: ", str(e)[:200], team_id=_tid or "")
     finally:
+        if messenger:
+            messenger.task_session_id = None
         for spec in agent_specs:
             rid = spec.get("registry_id")
             if rid:
@@ -498,6 +506,9 @@ async def execute_task_with_agent(
     messenger = get_messenger()
     task_id = str(uuid.uuid4())[:8]
     agent_name = agent_spec.get("name", "Agent")
+    _task_session_id = messenger.current_session_id if messenger else None
+    if messenger:
+        messenger.task_session_id = _task_session_id
     from backend.globals import _thread_local, user_prompt_ctx
     _thread_local.user_prompt = user_input[:200]
     user_prompt_ctx.set(user_input[:200])
@@ -588,6 +599,8 @@ async def execute_task_with_agent(
             await messenger.reply(f"❌ งานของ {agent_name} ล้มเหลว: {str(e)[:500]}")
             messenger.log_history(task_id, user_input[:80], "System", "เกิดข้อผิดพลาด: ", str(e)[:200], team_id=_tid or "")
     finally:
+        if messenger:
+            messenger.task_session_id = None
         if registry_id:
             registry.update_status(registry_id, "Idle")
             # Auto-learning: store task outcome
@@ -795,6 +808,26 @@ def _restore_conversation_history(session_id: str, chat_store: ChatStore) -> lis
         # No cap — send full content (Issue #30)
         history.append({"role": role, "content": content})
     return history
+
+
+async def _fetch_media_catalog_summary(llm_manager: LLMManager) -> str:
+    """Fetch a text summary of available media models for the Manager LLM prompt.
+
+    Uses ModelDiscoveryService.get_catalog_summary() to list image, video, TTS,
+    search, vision, and STT model IDs. Returns "none" on error or if not using OpenRouter.
+    """
+    if not llm_manager._is_openrouter():
+        return "none"
+    try:
+        discovery = ModelDiscoveryService(
+            base_url=llm_manager.base_url, api_key=llm_manager.api_key
+        )
+        loop = asyncio.get_event_loop()
+        summary = await loop.run_in_executor(None, discovery.get_catalog_summary)
+        return summary or "none"
+    except Exception as e:
+        print(f"[DEBUG-MEDIA-CATALOG] Failed to fetch: {e}", flush=True)
+        return "none"
 
 
 def _build_media_catalog_entries(models: list[dict], media_type: str) -> list[dict]:
@@ -1110,6 +1143,8 @@ async def on_chat_start():
     for key in ("ai_image_model", "ai_video_model", "ai_search_model", "ai_tts_model", "ai_stt_model", "ai_vision_model"):
         if settings.get(key):
             cl.user_session.set(key, settings[key])
+    # Restore autoApproveMedia — without this, the setting is lost on page refresh
+    cl.user_session.set("autoApproveMedia", settings.get("autoApproveMedia", False))
 
     # Now send initial state with team_id filtering
     current_team_id = cl.user_session.get("current_team_id")
@@ -1422,6 +1457,8 @@ async def on_message(message: cl.Message):
                             await messenger.update_task_image(task_id, result, prompt, media_type=media_type, team_id=cl.user_session.get("current_team_id"))
                         # Refresh notifications so the approval moves from "pending" to "completed" tab
                         await messenger.reply_notifications(team_id=cl.user_session.get("current_team_id"))
+                        # Resolve MediaAwaiter future so the orchestrator can continue
+                        MediaAwaiter.resolve_approval(approval_id, {"status": "approved", "url": result})
                         # Keep pending_media for regenerate after success
                 except Exception as e:
                     _debug(f"[DEBUG-APPROVE] Error: {_sanitize_error(e)}", flush=True)
@@ -1553,13 +1590,24 @@ async def on_message(message: cl.Message):
                 await messenger.reply(f"⚠️ prompt ว่าง กรุณาใส่ prompt แล้วลองใหม่")
         elif action_name == "reject_image":
             approval_id = payload.get("approval_id", "")
+            feedback = payload.get("feedback", "")
+            print(f"[DEBUG-REJECT] approval_id={approval_id}, feedback={feedback[:100]}", flush=True)
             if messenger:
                 await messenger.update_approval_status(approval_id, "rejected")
-                await messenger.reply(f"❌ ยกเลิกการสร้างสื่อ (ID: {approval_id})")
+                if feedback:
+                    await messenger.reply(f"🔄 แก้ไขสื่อตามคำสั่ง: \"{feedback}\" — กำลังสร้างใหม่...")
+                else:
+                    await messenger.reply(f"❌ ยกเลิกการสร้างสื่อ (ID: {approval_id})")
                 cl.user_session.set(f"pending_media_{approval_id}", None)
-                # Also clear from chat_store — prevents stale pending data buildup in JSON
+                # Resolve MediaAwaiter future so the orchestrator can process rejection
+                MediaAwaiter.resolve_approval(approval_id, {"status": "rejected", "feedback": feedback})
+                # Store instruction history before clearing pending media —
+                # so the frontend can display the history of user instructions
                 _cs = cl.user_session.get("chat_store")
                 _sid = messenger.current_session_id if messenger else None
+                if _cs and _sid and feedback:
+                    _cs.append_instruction_history(_sid, approval_id, feedback)
+                # Also clear from chat_store — prevents stale pending data buildup in JSON
                 if _cs and _sid:
                     _cs.clear_pending_media(_sid, approval_id)
                 await messenger.reply_notifications(team_id=cl.user_session.get("current_team_id"))
@@ -1647,6 +1695,8 @@ async def on_message(message: cl.Message):
                 cl.user_session.set("selected_model", settings.get("selected_model", ""))
                 for key in ("ai_image_model", "ai_video_model", "ai_search_model", "ai_tts_model", "ai_stt_model", "ai_vision_model"):
                     cl.user_session.set(key, settings.get(key, ""))
+                # Restore autoApproveMedia on session switch
+                cl.user_session.set("autoApproveMedia", settings.get("autoApproveMedia", False))
                 current_team_id = cl.user_session.get("current_team_id")
                 await messenger.reply_chat_sessions(team_id=current_team_id)
                 await messenger.reply_chat_history(session_id)
@@ -2080,14 +2130,49 @@ async def on_message(message: cl.Message):
                 # Going back to team list — show all sessions
                 if messenger:
                     await messenger.reply_chat_sessions()
+        elif action_name == "update_settings":
+            # Generic settings update — persists key/value pairs to cl.user_session and chat_store.
+            # Used by SettingsWindow for autoApproveMedia and future settings.
+            # Accept both { settings: { ... } } and flat { key: value } payloads.
+            settings_payload = payload.get("settings", {})
+            # Merge flat payload keys that aren't 'settings' itself
+            for key, value in payload.items():
+                if key != "settings":
+                    settings_payload[key] = value
+            for key, value in settings_payload.items():
+                cl.user_session.set(key, value)
+            if messenger and messenger.current_session_id:
+                messenger.chat_store.save_settings(messenger.current_session_id, settings_payload)
+            print(f"[DEBUG-SETTINGS] Updated: {list(settings_payload.keys())}", flush=True)
         elif action_name == "list_teams":
             team_registry = cl.user_session.get("team_registry") or TeamRegistry()
             if messenger:
                 await messenger.reply_team_list(team_registry)
         return
 
+    # Set task_session_id early — protects assess_and_plan phase (thinking, plan cards)
+    # from session leaks when user switches chats mid-processing. Execution functions
+    # (execute_multi_agent_task, execute_task_with_agent) already set/clear this themselves,
+    # but they override with the same value. This outer set guards the pre-execution phase.
+    # Cleared at function exit and in exception handlers below.
+    _msg_session_id = messenger.current_session_id if messenger else None
+    if messenger:
+        messenger.task_session_id = _msg_session_id
+
     # Reset cancel flag for new real user message (not action commands)
     cl.user_session.set("cancel_generation", False)
+
+    # Clear stale pending media and media_tool_results from previous runs —
+    # without this, the MediaApprovalPanel accumulates items across runs and shows
+    # 40+ pending approvals that are actually from old tasks.
+    if messenger and messenger.current_session_id:
+        _cs = cl.user_session.get("chat_store")
+        if _cs:
+            _cs.clear_all_pending_media(messenger.current_session_id)
+            _cs.clear_media_tool_results(messenger.current_session_id)
+    # Also clear the in-memory global list — orchestrator's run_async does this too,
+    # but we clear here so the frontend doesn't see stale items before the run starts
+    _g._media_tool_results.clear()
 
     # Persist user message to chat session
     if messenger:
@@ -2223,6 +2308,10 @@ async def on_message(message: cl.Message):
 
     # If user sends a new message while a plan is pending, discard old plan and reprocess
     if state == STATE_AWAITING_APPROVAL:
+        # Mark old plan as "discarded" in chat_store — without this, the plan stays "pending"
+        # forever and gets restored on session switch or page refresh, showing stale accept/reject buttons
+        if messenger:
+            messenger.update_plan_status("discarded")
         cl.user_session.set("state", STATE_IDLE)
         cl.user_session.set("current_agent_specs", None)
         cl.user_session.set("current_input", None)
@@ -2240,7 +2329,7 @@ async def on_message(message: cl.Message):
             # Quick assess: check if user wants to create agents or plan work
             model_table = "none"
             valid_model_ids = set()
-            media_catalog = "none"
+            media_catalog = await _fetch_media_catalog_summary(llm_manager)
             registry_agents = registry.list_agents()
             current_team_id = cl.user_session.get("current_team_id")
             team_agents = None
@@ -2298,6 +2387,8 @@ async def on_message(message: cl.Message):
             cl.user_session.set("last_attachment_name", None)
             cl.user_session.set("last_attachment_mime", None)
             # Don't clear attachment_context/plugins here — agents need them during task execution
+            if messenger:
+                messenger.task_session_id = None
         return
 
     if state == STATE_IDLE:
@@ -2314,7 +2405,7 @@ async def on_message(message: cl.Message):
             # Build model table for unified call
             model_table = "none"
             valid_model_ids = set()
-            media_catalog = "none"
+            media_catalog = await _fetch_media_catalog_summary(llm_manager)
 
             thinking_id = f"thinking-{int(time.time())}"
             if messenger:
@@ -2834,7 +2925,7 @@ async def on_message(message: cl.Message):
             # Build model table for unified call
             model_table = "none"
             valid_model_ids = set()
-            media_catalog = "none"
+            media_catalog = await _fetch_media_catalog_summary(llm_manager)
 
             # Pass registry and team agents so LLM can reuse existing agents
             registry_agents = registry.list_agents()
@@ -3055,6 +3146,8 @@ async def on_message(message: cl.Message):
 
         except Exception as e:
             cl.user_session.set("state", STATE_IDLE)
+            if messenger:
+                messenger.task_session_id = None
             if _is_rate_limit_error(e):
                 llm_mgr = LLMManager()
                 llm_mgr.report_rate_limit()
@@ -3066,6 +3159,10 @@ async def on_message(message: cl.Message):
     elif state in (STATE_CREATING_AGENT, STATE_EXECUTING, STATE_PLANNING, STATE_ASSESSING):
         if messenger:
             await messenger.notify(f"⏳ รอสถานะปัจจุบัน: {state}")
+
+    # Safety net: clear task_session_id at function exit if still set
+    if messenger and messenger.task_session_id is not None:
+        messenger.task_session_id = None
 
 
 

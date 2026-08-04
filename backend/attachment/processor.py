@@ -10,6 +10,9 @@ from backend.attachment.security import check_model_modality_support, llm_manage
 from backend.attachment.url import classify_url, download_with_limit, MAX_TEXT_LENGTH, AUDIO_FORMAT_MAP, _is_localhost_url, is_js_required_domain
 from backend.globals import DATA_DIR
 
+# Max video size to embed as base64 in LLM context; larger videos return metadata only
+VIDEO_EMBED_MAX_SIZE = 50 * 1024 * 1024  # 50MB
+
 _VIDEO_MIME_MAP = {
     ".mp4": "video/mp4", ".mov": "video/quicktime",
     ".webm": "video/webm", ".mpeg": "video/mpeg", ".mpg": "video/mpeg",
@@ -368,7 +371,7 @@ async def process_attachment(file_url: str, file_name: str, file_mime: str, user
     if file_mime.startswith("video/"):
         try:
             file_size = os.path.getsize(file_path)
-            if file_size < 50 * 1024 * 1024:
+            if file_size < VIDEO_EMBED_MAX_SIZE:
                 with open(file_path, "rb") as f:
                     file_bytes = f.read()
                 b64 = base64.b64encode(file_bytes).decode("utf-8")
@@ -566,7 +569,7 @@ async def process_url(url: str) -> dict:
     if url_type == "video":
         try:
             video_bytes = download_with_limit(url, timeout=60)
-            if len(video_bytes) < 50 * 1024 * 1024:
+            if len(video_bytes) < VIDEO_EMBED_MAX_SIZE:
                 b64 = base64.b64encode(video_bytes).decode("utf-8")
                 crewai_files = {}
                 try:

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { CreditsInfo } from '../../types/platform';
 import type { Team } from '../../types/team';
 import { useAuth } from '../../context/AuthContext';
@@ -9,12 +10,15 @@ interface SettingsWindowProps {
   team: Team;
   onBack: () => void;
   onDeleteTeam: (teamId: string) => void;
+  onAction?: (name: string, payload?: Record<string, any>) => void;
+  autoApproveMedia?: boolean;
 }
 
 export const SettingsWindow: React.FC<SettingsWindowProps> = ({
-  credits, connectionStatus, systemStatus, team, onBack, onDeleteTeam,
+  credits, connectionStatus, systemStatus, team, onBack, onDeleteTeam, onAction, autoApproveMedia,
 }) => {
   const { user, logout } = useAuth();
+  const [autoApprove, setAutoApprove] = useState(autoApproveMedia ?? false);
   return (
     <div className="h-full flex flex-col">
       <div className="px-3 py-2 border-b border-line bg-cream">
@@ -86,6 +90,30 @@ export const SettingsWindow: React.FC<SettingsWindowProps> = ({
           ) : (
             <div className="text-[10px] text-ink-3">No credit info available.</div>
           )}
+        </div>
+
+        {/* Media Generation — auto-approve toggle so users can skip manual approval
+            once they've tuned their agents to produce consistent results */}
+        <div className="bg-paper border border-line rounded-retro p-3">
+          <div className="text-[11px] font-bold text-ink mb-2">Media Generation</div>
+          <div className="flex items-center justify-between">
+            <div className="flex flex-col">
+              <span className="text-[10px] text-ink-2">Auto-Approve Media</span>
+              <span className="text-[9px] text-ink-3">Skip manual review for generated images, videos, and audio</span>
+            </div>
+            <button
+              className={`relative w-8 h-4 rounded-full transition-colors ${autoApprove ? 'bg-green' : 'bg-line-2'}`}
+              onClick={() => {
+                const next = !autoApprove;
+                setAutoApprove(next);
+                onAction?.('update_settings', { autoApproveMedia: next });
+              }}
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-paper transition-transform ${autoApprove ? 'translate-x-4' : ''}`}
+              />
+            </button>
+          </div>
         </div>
 
         {/* Account */}

@@ -133,6 +133,7 @@ const parseChatReply = (message: any): Omit<ChatMessage, 'id' | 'timestamp'> | n
           model: (p as any).model || '',
           approvalStatus: (p as any).approvalStatus || 'pending',
           imageError: (p as any).imageError || '',
+          instructionHistory: (p as any).instructionHistory || [],
         };
       }
 
@@ -473,9 +474,15 @@ function AppContent() {
   const [aiThinkingText, setAiThinkingText] = useState<string>('');
   const aiModalOpenRef = useRef(false);
   const [modelCatalogData, setModelCatalogData] = useState<{ recommended: Record<string, any[]>; searchResults: any[]; mediaCatalog: Record<string, any[]>; mediaSearchResults: any[] }>({ recommended: {}, searchResults: [], mediaCatalog: {}, mediaSearchResults: [] });
+  const [autoApproveMedia, setAutoApproveMedia] = useState(false);
   const socketRef = useRef<Socket | null>(null);
   const prevNotificationsRef = useRef<string[]>([]);
   const stoppedRef = useRef(false);
+  const activeSessionIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    activeSessionIdRef.current = activeSessionId;
+  }, [activeSessionId]);
 
   const addChatMessage = useCallback((msg: Omit<ChatMessage, 'id' | 'timestamp'>) => {
     setChatMessages((prev) => {
@@ -610,6 +617,24 @@ function AppContent() {
       // TEMP: log ALL incoming messages to find where image_result disappears
       const _text = message?.output || message?.content || '';
       console.log('[TRACE-WS] msg type=' + message?.type + ' output=' + (typeof _text === 'string' ? _text.substring(0, 120) : typeof _text));
+
+      // Extract sessionId from the raw JSON payload for session filtering
+      let _msgSessionId: string | null = null;
+      let _msgType: string | null = null;
+      try {
+        const _parsed = JSON.parse(_text);
+        _msgSessionId = _parsed.sessionId || _parsed.payload?.sessionId || null;
+        _msgType = _parsed.payload?.messageType || null;
+      } catch { /* not JSON, skip */ }
+
+      // Session filter: skip messages from a different session
+      // Exempt cross-session message types that are not session-specific
+      const _crossSessionTypes = new Set(['chat_sessions', 'notifications', 'team_list', 'history_data', 'model_catalog']);
+      if (_msgSessionId && activeSessionIdRef.current && _msgSessionId !== activeSessionIdRef.current && !_crossSessionTypes.has(_msgType || '')) {
+        console.log(`[SESSION-FILTER] Dropping message type=${_msgType} sessionId=${_msgSessionId} activeSession=${activeSessionIdRef.current}`);
+        return;
+      }
+
       // Check for team list first
       const teamList = parseTeamList(message);
       if (teamList) {
@@ -640,9 +665,10 @@ function AppContent() {
           }
           clearActivity();
         } else if ('sessions' in sessionData) {
-          // chat_sessions — update session list
+          // chat_sessions — update session list and ref immediately
           setChatSessions(sessionData.sessions);
           setActiveSessionId(sessionData.currentSessionId);
+          activeSessionIdRef.current = sessionData.currentSessionId || null;
         } else if ('historyLogs' in (sessionData as any)) {
           // history_data — update history logs
           setHistoryLogs((sessionData as any).historyLogs);
@@ -997,6 +1023,14 @@ function AppContent() {
         ? `${message}\n\n${attachmentParts.join('\n')}`
         : message;
       const prefixed = `__mode:${inputMode}__\n${messageToSend}`;
+      // Optimistically mark any pending plan as discarded — user started a new request
+      setChatMessages((prev) =>
+        prev.map((m) =>
+          m.messageType === 'plan' && m.planStatus === 'pending'
+            ? { ...m, planStatus: 'discarded' }
+            : m
+        )
+      );
       addChatMessage({
         role: 'user',
         content: message,
@@ -1130,11 +1164,40 @@ function AppContent() {
         addActivity(_retryLabels[_rmt] || 'Retrying image generation...');
       } else if (name === 'new_chat') {
         setChatMessages([]);
+        setThinkingText('');
+        setThinkingDuration(null);
+        setIsThinking(false);
+        isThinkingRef.current = false;
+        thinkingStartRef.current = null;
+        setIsProcessing(false);
+        clearActivity();
         updateState({ tasks: [], current_plan: null });
       } else if (name === 'delete_chat') {
         setChatMessages([]);
+        setThinkingText('');
+        setThinkingDuration(null);
+        setIsThinking(false);
+        isThinkingRef.current = false;
+        thinkingStartRef.current = null;
+        setIsProcessing(false);
+        clearActivity();
         setNotifications([]);
         updateState({ current_plan: null, notifications: [] });
+      } else if (name === 'switch_chat') {
+        // Update ref immediately so WebSocket messages arriving before useEffect can be filtered correctly
+        activeSessionIdRef.current = payload?.session_id || null;
+        // Clear messages on session switch — without this, messages from the previous
+        // session stay visible until chat_history arrives from the backend, causing
+        // user messages and bubbles to appear in the wrong session.
+        setChatMessages([]);
+        setThinkingText('');
+        setThinkingDuration(null);
+        setIsThinking(false);
+        isThinkingRef.current = false;
+        thinkingStartRef.current = null;
+        setIsProcessing(false);
+        clearActivity();
+        updateState({ current_plan: null });
       } else if (name === 'set_selected_model') {
         setSelectedModel(payload?.model_id || '');
       } else if (name === 'change_media_model') {
@@ -1208,6 +1271,11 @@ function AppContent() {
         if (agentId) {
           updateState((prev) => ({ agents: (prev.agents || []).filter(a => a.id !== agentId) }));
         }
+      } else if (name === 'update_settings') {
+        // Optimistic update for autoApproveMedia — backend persists via save_settings
+        if (payload?.autoApproveMedia !== undefined) {
+          setAutoApproveMedia(payload.autoApproveMedia);
+        }
       }
       sendAction(name, payload);
     },
@@ -1226,8 +1294,19 @@ function AppContent() {
     addActivity('Stopped');
     // Fix: remove progress cards from chat when user stops — without this, the progress card
     // stays visible even though execution has stopped, making it look like the system is still working
-    // Keep agent_progress on cancel — TasksWindow still needs output/review data after stop.
     setChatMessages(prev => prev.filter(m => m.messageType !== 'progress'));
+    // Fix: update agent_progress statuses so agents don't stay "running"/"waiting_approval"/"awaiting_review"
+    // after stop — without this, the TasksWindow shows agents stuck in waiting state forever.
+    setChatMessages(prev => prev.map(m => {
+      if (m.messageType !== 'agent_progress' || !m.agentProgressList) return m;
+      const updatedAgents = m.agentProgressList.map(a => {
+        if (a.status === 'running' || a.status === 'pending' || a.status === 'waiting_approval' || a.status === 'awaiting_review') {
+          return { ...a, status: 'error' as const, reviewSummary: 'หยุดโดยผู้ใช้' };
+        }
+        return a;
+      });
+      return { ...m, agentProgressList: updatedAgents };
+    }));
   }, [sendMessage, addActivity]);
 
   if (authLoading) {
@@ -1346,6 +1425,7 @@ function AppContent() {
         mediaSearchResults={modelCatalogData.mediaSearchResults}
         taskItems={(tasks || []) as any}
         uploadLimitMb={uploadLimitMb}
+        autoApproveMedia={autoApproveMedia}
       />
       <TeamCreateModal
         open={showCreateModal}

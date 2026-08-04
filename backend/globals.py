@@ -64,3 +64,7 @@ _media_tool_results = []  # Captures tool results directly (not agent final answ
 _thread_local = threading.local()  # Per-thread storage for agent name (parallel-safe)
 user_prompt_ctx: contextvars.ContextVar = contextvars.ContextVar("user_prompt", default="")  # Cross-thread user_prompt
 _search_model = ""  # AI-selected OpenRouter search model (set per run)
+
+# Default per-agent search call limit when agent has search_web tool but spec doesn't set max_search_calls.
+# Like max_iter=25 / max_retry_limit=3: a sensible default that spec can override.
+DEFAULT_MAX_SEARCH_CALLS = 5

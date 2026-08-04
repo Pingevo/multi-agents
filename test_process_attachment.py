@@ -216,7 +216,7 @@ class TestProcessUrlYouTube(unittest.TestCase):
         result = asyncio.get_event_loop().run_until_complete(
             process_url("https://www.youtube.com/watch?v=abc123")
         )
-        self.assertEqual(result["type"], "multimodal")
+        self.assertEqual(result["type"], "metadata")
         block = result["content_blocks"][0]
         self.assertEqual(block["type"], "video_url")
         self.assertEqual(block["video_url"]["url"], "https://www.youtube.com/watch?v=abc123")
@@ -503,11 +503,13 @@ class TestProcessUrlVideo(unittest.TestCase):
 
     def test_video_url_large_returns_metadata(self):
         from app import process_url
+        from backend.attachment.processor import VIDEO_EMBED_MAX_SIZE
         mock_response = MagicMock()
-        mock_response.iter_content.return_value = [b"x" * (21 * 1024 * 1024)]
+        # Send video larger than VIDEO_EMBED_MAX_SIZE so it returns metadata, not multimodal
+        mock_response.iter_content.return_value = [b"x" * (VIDEO_EMBED_MAX_SIZE + 1024 * 1024)]
         mock_response.raise_for_status = MagicMock()
         with patch("app.requests.get", return_value=mock_response):
-            with patch("app.MAX_URL_DOWNLOAD_SIZE", 100 * 1024 * 1024):
+            with patch("app.MAX_URL_DOWNLOAD_SIZE", VIDEO_EMBED_MAX_SIZE + 10 * 1024 * 1024):
                 result = asyncio.get_event_loop().run_until_complete(
                     process_url("https://example.com/bigvideo.mp4")
                 )

@@ -1,71 +1,42 @@
-"""Test: OpenRouter web_search + web_fetch server tools are injected into agent LLM config."""
+"""Test: web search and scraping tools are registered in ToolRegistry alongside media tools."""
 
 import pytest
-from unittest.mock import patch, MagicMock
-from backend.llm.manager import LLMManager
+from backend.agents.tool_registry import ToolRegistry
 
 
-class TestWebSearchServerTools:
-    """Verify that LLMManager injects openrouter:web_search and openrouter:web_fetch server tools."""
+class TestWebSearchToolsRegistered:
+    """Verify that search_web and scrape_web are registered in ToolRegistry alongside other tools."""
 
-    def test_build_llm_includes_web_search_and_web_fetch(self):
-        """When building an OpenRouter LLM, additional_params should include server tools."""
-        manager = LLMManager()
-        # Override to use OpenRouter provider
-        manager.provider = "openrouter"
-        manager.base_url = "https://openrouter.ai/api/v1"
-        manager.api_key = "test-key"
-        manager._default_model = "openrouter/free"
+    def test_search_web_is_registered(self):
+        """search_web should be in the tool registry."""
+        registry = ToolRegistry()
+        tool_names = registry.list_tools()
+        assert "search_web" in tool_names, f"search_web not found in registry: {tool_names}"
 
-        with patch("chainlit.user_session") as mock_session:
-            mock_session.get.return_value = None  # No attachment plugins
-            llm = manager._build_llm("openrouter", "openrouter/free", "https://openrouter.ai/api/v1", "test-key")
+    def test_scrape_web_is_registered(self):
+        """scrape_web should be in the tool registry."""
+        registry = ToolRegistry()
+        tool_names = registry.list_tools()
+        assert "scrape_web" in tool_names, f"scrape_web not found in registry: {tool_names}"
 
-        # Check additional_params contains server tools
-        assert llm.additional_params is not None
-        extra_body = llm.additional_params.get("extra_body", {})
-        tools = extra_body.get("tools", [])
-        tool_types = [t.get("type") for t in tools]
-        assert "openrouter:web_search" in tool_types, f"web_search not in tools: {tool_types}"
-        assert "openrouter:web_fetch" in tool_types, f"web_fetch not in tools: {tool_types}"
+    def test_media_tools_still_registered_alongside_search(self):
+        """generate_image and generate_document should still be registered alongside search tools."""
+        registry = ToolRegistry()
+        tool_names = registry.list_tools()
+        assert "generate_image" in tool_names, "generate_image missing from registry"
+        assert "generate_document" in tool_names, "generate_document missing from registry"
+        assert "browse_web" in tool_names, "browse_web missing from registry"
 
-    def test_web_fetch_uses_free_engine(self):
-        """web_fetch should use engine 'openrouter' (free) to avoid credit costs."""
-        manager = LLMManager()
-        manager.provider = "openrouter"
-        manager.base_url = "https://openrouter.ai/api/v1"
-        manager.api_key = "test-key"
-        manager._default_model = "openrouter/free"
+    def test_all_tools_coexist(self):
+        """All expected tools should be registered simultaneously."""
+        registry = ToolRegistry()
+        tool_names = set(registry.list_tools())
+        expected = {"generate_image", "generate_video", "text_to_speech", "transcribe_audio",
+                    "analyze_image", "generate_document", "browse_web", "search_web", "scrape_web"}
+        missing = expected - tool_names
+        assert not missing, f"Missing tools from registry: {missing}"
 
-        with patch("chainlit.user_session") as mock_session:
-            mock_session.get.return_value = None
-            llm = manager._build_llm("openrouter", "openrouter/free", "https://openrouter.ai/api/v1", "test-key")
 
-        extra_body = llm.additional_params.get("extra_body", {})
-        tools = extra_body.get("tools", [])
-        web_fetch_tool = [t for t in tools if t.get("type") == "openrouter:web_fetch"]
-        assert len(web_fetch_tool) == 1
-        assert web_fetch_tool[0].get("parameters", {}).get("engine") == "auto"
-
-    def test_attachment_plugins_still_work_with_server_tools(self):
-        """Server tools should be added alongside attachment plugins, not replacing them."""
-        manager = LLMManager()
-        manager.provider = "openrouter"
-        manager.base_url = "https://openrouter.ai/api/v1"
-        manager.api_key = "test-key"
-        manager._default_model = "openrouter/free"
-
-        mock_plugins = [{"id": "file-parser"}]
-        with patch("chainlit.user_session") as mock_session:
-            mock_session.get.return_value = mock_plugins
-            llm = manager._build_llm("openrouter", "openrouter/free", "https://openrouter.ai/api/v1", "test-key")
-
-        extra_body = llm.additional_params.get("extra_body", {})
-        # Both plugins and tools should be present
-        assert "plugins" in extra_body, "attachment plugins should still be present"
-        assert "tools" in extra_body, "server tools should be added"
-        tool_types = [t.get("type") for t in extra_body["tools"]]
-        assert "openrouter:web_search" in tool_types
 
 
 class TestUrlExtraction:
