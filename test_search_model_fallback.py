@@ -19,7 +19,7 @@ import sys
 sys.path.insert(0, '/Users/its-dev2/my-agent-app')
 
 from backend.tools.search import _resolve_search_model
-from backend.globals import _search_model
+import backend.globals as _globals
 
 
 class TestSearchModelFallback:
@@ -27,26 +27,26 @@ class TestSearchModelFallback:
 
     def test_uses_ai_search_model_when_set(self, monkeypatch):
         """When ai_search_model is set, it takes priority."""
-        monkeypatch.setattr("backend.tools.search._search_model", "perplexity/sonar")
+        monkeypatch.setattr(_globals, "_search_model", "perplexity/sonar")
         result = _resolve_search_model(selected_model="anthropic/claude-sonnet-5")
         assert result == "perplexity/sonar"
 
     def test_falls_back_to_selected_model_when_ai_search_empty(self, monkeypatch):
         """When ai_search_model is empty, use selected_model (top bar), NOT openrouter/free."""
-        monkeypatch.setattr("backend.tools.search._search_model", "")
+        monkeypatch.setattr(_globals, "_search_model", "")
         result = _resolve_search_model(selected_model="anthropic/claude-sonnet-5")
         assert result == "anthropic/claude-sonnet-5"
         assert result != "openrouter/free"
 
     def test_does_not_use_openrouter_free_when_selected_set(self, monkeypatch):
         """Critical: must never fall to openrouter/free when selected_model is set."""
-        monkeypatch.setattr("backend.tools.search._search_model", "")
+        monkeypatch.setattr(_globals, "_search_model", "")
         result = _resolve_search_model(selected_model="openai/gpt-4o-mini")
         assert "free" not in result.lower()
 
     def test_falls_back_to_default_when_both_empty(self, monkeypatch):
         """When both ai_search_model and selected_model are empty, use _default_model."""
-        monkeypatch.setattr("backend.tools.search._search_model", "")
+        monkeypatch.setattr(_globals, "_search_model", "")
         # _default_model is read from LLMManager; we test the resolution logic
         # by passing default_model explicitly
         result = _resolve_search_model(selected_model="", default_model="openrouter/free")

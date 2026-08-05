@@ -3,9 +3,10 @@
 import requests
 from crewai.tools import tool
 from backend.globals import (
-    _progress_callback, _search_model, _thread_local,
+    _progress_callback, _thread_local,
     DEFAULT_SEARCH_ENGINE, DEFAULT_SEARCH_MAX_RESULTS,
 )
+import backend.globals as _globals
 from backend.utils import _sanitize_error
 from backend.llm.manager import LLMManager
 
@@ -118,8 +119,11 @@ def _resolve_search_model(selected_model: str = "", default_model: str = "") -> 
 
     Extracted so tests can verify the fallback logic without making HTTP calls.
     """
-    if _search_model:
-        return _search_model
+    # Read dynamically from globals module — `from X import Y` would copy the
+    # binding at import time, so reassignment in orchestrator (global _search_model)
+    # wouldn't be visible here. This is the Python module-rebinding gotcha.
+    if _globals._search_model:
+        return _globals._search_model
     if selected_model:
         return selected_model
     if default_model:
@@ -133,7 +137,7 @@ def search_web(query: str) -> str:
 
     Returns factual information with source URLs. Always cite sources.
     """
-    global _progress_callback, _search_model
+    global _progress_callback
     if _progress_callback:
         _progress_callback(50, "🔍 กำลังค้นหาข้อมูลจากเว็บ...")
 

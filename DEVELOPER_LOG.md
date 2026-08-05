@@ -1,5 +1,50 @@
 # Developer Log
 
+## 2026-08-05 (session 6) — Fix search_model propagation (Python module-rebinding gotcha)
+
+### Context
+Manual test หลัง Task A commit เจอ bug: plan approval ตั้ง `search_model=perplexity/sonar-pro`
+(เห็นใน `[DEBUG-MODELS]` log) แต่ `search_web` ใช้ `openrouter/free` จริง (เห็นใน
+`[SearchTool] Searching` log) — user เลือก paid model แต่ระบบใช้ free
+
+### Root cause (diagnosing-bugs skill, 6 phases)
+Python module-rebinding gotcha: `from backend.globals import _search_model` ใน
+`backend/tools/search.py` คัดลอก binding ตอน import ครั้งเดียว — การ reassign
+`_search_model` ใน orchestrator (ผ่าน `global _search_model`) ไม่ส่งผลให้
+`_resolve_search_model` ใน search.py เห็นค่าใหม่
+
+### Fix
+- `backend/tools/search.py`: เปลี่ยนจาก `from backend.globals import _search_model`
+  เป็น `import backend.globals as _globals` แล้วอ่าน `_globals._search_model`
+  แบบ dynamic ใน `_resolve_search_model`
+- ลบ `global _search_model` ออกจาก `search_web` (ไม่ได้ assign แล้ว)
+
+### Tests (TDD: red → green)
+- `test_search_model_propagation.py` (new, 2 tests): จับ bug จริง — set
+  `g._search_model` แล้วเรียก `_resolve_search_model` ต้องเห็นค่าใหม่
+- `test_search_model_fallback.py`: แก้ 4 tests ที่ใช้ `monkeypatch` กับ
+  `backend.tools.search._search_model` (เลิกใช้แล้ว) → เปลี่ยนเป็น patch
+  `backend.globals._search_model` แทน
+
+### Verification
+- `pytest test_search_model_propagation.py`: 2 passed (red → green)
+- `pytest test_web_search_migration.py test_search_model_fallback.py test_date_injection.py test_search_model_propagation.py`: 20 passed
+- `pytest test_orchestrator.py test_agent_registry.py test_handler_wiring.py`: 35 passed
+- รวม 55 tests ผ่านหมด ไม่มี regression
+
+### Files Changed
+- `backend/tools/search.py` — dynamic read ของ `_globals._search_model`
+- `test_search_model_propagation.py` (new) — regression test สำหรับ bug นี้
+- `test_search_model_fallback.py` — แก้ monkeypatch target ให้ตรงกับ dynamic read
+
+### Post-mortem
+สมมติฐานแรก (`global _search_model` หาย) ผิด — มีอยู่แล้ว สมมติฐานจริงคือ
+Python gotcha: `from X import Y` คัดลอก binding ไม่ใช่ reference บทเรียน:
+ถ้า module A reassign global ที่ module B import ไว้, B ต้องอ่านแบบ dynamic
+(`import X; X.Y`) ไม่ใช่ `from X import Y`
+
+---
+
 ## 2026-08-04 (session 5) — Migrate search from deprecated plugin to server tool (Task A: search parity)
 
 ### Context
