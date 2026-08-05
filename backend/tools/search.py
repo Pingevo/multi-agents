@@ -1,50 +1,50 @@
 """Search tool using OpenRouter AI-selected search model."""
 
-import requests
 from crewai.tools import tool
-from backend.globals import _progress_callback, _search_model, _thread_local
+from backend.globals import _progress_callback, _thread_local
+import backend.globals as _globals
 from backend.utils import _sanitize_error
 from backend.llm.manager import LLMManager
+from backend.tools.search_adapter import SearchAdapter
+
+
+def _get_search_config() -> dict:
+    """Read search_config from _thread_local (set by orchestrator from agent spec).
+
+    Falls back to empty dict (→ defaults) when not set. Mirrors the
+    max_search_calls pattern for per-agent, parallel-safe config.
+    """
+    return getattr(_thread_local, "search_config", {}) or {}
+
+
+def _build_search_adapter(llm_mgr: LLMManager) -> SearchAdapter:
+    """Build a SearchAdapter wired to llm_mgr + ModelDiscoveryService.
+
+    The discovery service is constructed lazily from llm_mgr's config so the
+    adapter can check model capabilities (tools vs web_search_options) without
+    the caller knowing about catalog internals.
+    """
+    discovery = None
+    try:
+        from backend.llm.discovery import ModelDiscoveryService
+        discovery = ModelDiscoveryService(
+            base_url=llm_mgr.base_url, api_key=llm_mgr.api_key,
+        )
+    except Exception:
+        pass  # adapter falls back to prefix heuristic when discovery unavailable
+    return SearchAdapter(llm_manager=llm_mgr, discovery=discovery)
 
 
 def _call_openrouter_web_search(llm_mgr: LLMManager, model: str, query: str) -> str:
-    """Call OpenRouter chat completions with the 'web' plugin enabled.
+    """Call OpenRouter chat completions for web search, picking the format per model.
 
-    CrewAI's LLM.call() does not forward extra_body/additional_params to the
-    underlying HTTP request, so we call the OpenRouter API directly to inject
-    the web-search plugin. Without the plugin, openrouter/free sometimes
-    routes to the 'Stealth' provider which returns 502 'Invalid URL'.
+    Delegates to SearchAdapter which checks model capability via
+    ModelDiscoveryService and sends `tools` (server tool) for tools-capable
+    models or `web_search_options` for perplexity built-in search models.
+    Fixes the perplexity 404 bug (P0.2).
     """
-    search_prompt = (
-        f"Search the web for: {query}\n\n"
-        "Provide factual, up-to-date information.\n"
-        "CRITICAL: You MUST include source URLs for every claim you make.\n"
-        "List each source URL on a separate line prefixed with 'Source: '.\n"
-        "If you cannot find reliable sources for a claim, explicitly state "
-        "'No reliable source found' instead of fabricating information.\n"
-        "Do NOT invent URLs or make up sources.\n"
-        "Format your response as:\n"
-        "1. A summary of findings (with inline citations)\n"
-        "2. A 'Sources:' section listing all URLs used"
-    )
-    resp = requests.post(
-        f"{llm_mgr.base_url}/chat/completions",
-        headers={
-            "Authorization": f"Bearer {llm_mgr.api_key}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "model": model,
-            "messages": [{"role": "user", "content": search_prompt}],
-            "temperature": 0.3,
-            "plugins": [{"id": "web", "max_results": 5}],
-        },
-        timeout=60,
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-    return content
+    adapter = _build_search_adapter(llm_mgr)
+    return adapter.search(query, model, search_config=_get_search_config())
 
 
 def _check_search_call_limit() -> str | None:
@@ -81,8 +81,11 @@ def _resolve_search_model(selected_model: str = "", default_model: str = "") -> 
 
     Extracted so tests can verify the fallback logic without making HTTP calls.
     """
-    if _search_model:
-        return _search_model
+    # Read dynamically from globals module — `from X import Y` would copy the
+    # binding at import time, so reassignment in orchestrator (global _search_model)
+    # wouldn't be visible here. This is the Python module-rebinding gotcha.
+    if _globals._search_model:
+        return _globals._search_model
     if selected_model:
         return selected_model
     if default_model:
@@ -96,7 +99,7 @@ def search_web(query: str) -> str:
 
     Returns factual information with source URLs. Always cite sources.
     """
-    global _progress_callback, _search_model
+    global _progress_callback
     if _progress_callback:
         _progress_callback(50, "🔍 กำลังค้นหาข้อมูลจากเว็บ...")
 

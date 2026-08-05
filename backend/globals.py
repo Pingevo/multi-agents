@@ -68,3 +68,8 @@ _search_model = ""  # AI-selected OpenRouter search model (set per run)
 # Default per-agent search call limit when agent has search_web tool but spec doesn't set max_search_calls.
 # Like max_iter=25 / max_retry_limit=3: a sensible default that spec can override.
 DEFAULT_MAX_SEARCH_CALLS = 5
+
+# Default web search server-tool parameters (OpenRouter `openrouter:web_search`).
+# Overridable per-agent via spec's `search_config` field (No Hardcode rule).
+DEFAULT_SEARCH_ENGINE = "auto"  # auto = native provider search, or Exa fallback
+DEFAULT_SEARCH_MAX_RESULTS = 5

@@ -18,7 +18,8 @@ from crewai.events.types.tool_usage_events import ToolUsageStartedEvent, ToolUsa
 from crewai.events.types.task_events import TaskStartedEvent, TaskCompletedEvent
 from crewai.events.types.llm_events import LLMCallCompletedEvent
 from crewai.events import event_types
-from backend.globals import _progress_callback, _media_tool_results, _thread_local, _search_model, user_prompt_ctx, DEFAULT_MAX_SEARCH_CALLS
+from backend.globals import _progress_callback, _media_tool_results, _thread_local, user_prompt_ctx, DEFAULT_MAX_SEARCH_CALLS
+import backend.globals as _globals
 from backend.utils import _sanitize_error, _debug
 from backend.llm.manager import LLMManager, _is_rate_limit_error
 from backend.llm.selector import ModelSelector
@@ -381,7 +382,7 @@ class ExecutionOrchestrator:
         task_title: str | None = None,
         messenger: StateMessenger | None = None,
     ) -> dict:
-        global _progress_callback, _media_gen_manager, _search_model
+        global _progress_callback, _media_gen_manager
         _progress_callback = self._progress_callback
         _media_gen_manager = self._media_gen_manager
         _media_tool_results.clear()  # Reset for this run (in-place so all modules see empty list)
@@ -402,7 +403,7 @@ class ExecutionOrchestrator:
             image_model=ai_image_model, video_model=ai_video_model,
             tts_model=ai_tts_model, stt_model=ai_stt_model, vision_model=ai_vision_model,
         )
-        _search_model = ai_search_model
+        _globals._search_model = ai_search_model
 
         # Use pre-assigned models from unified call, or fall back to LLM assignment
         _selected_model = cl.user_session.get("selected_model") or ""
@@ -516,6 +517,9 @@ class ExecutionOrchestrator:
                 _thread_local.max_search_calls = spec_max if spec_max > 0 else (DEFAULT_MAX_SEARCH_CALLS if has_search else 0)
                 if _thread_local.max_search_calls > 0:
                     print(f"[DEBUG-SEARCH-LIMIT] Agent '{spec.get('name', '')}' max_search_calls={_thread_local.max_search_calls}", flush=True)
+                # Per-agent web search server-tool config (engine, max_results, etc.)
+                # Passed through to OpenRouter `openrouter:web_search` tool (No Hardcode)
+                _thread_local.search_config = spec.get("search_config") or {}
                 set_llm_call_context(f"agent:{spec.get('name', f'Agent {idx+1}')}")
                 import time as _time
                 print(f"[DEBUG-PARALLEL-START] Agent {idx} '{spec.get('name', '')}' starting at {_time.time():.3f}", flush=True)
@@ -1513,7 +1517,7 @@ class ExecutionOrchestrator:
             _log_hist("Manager", "ทีมทำงานเสร็จทั้งหมด ✅")
             _progress_callback = None
             _media_gen_manager = None
-            _search_model = ""
+            _globals._search_model = ""
             self._unregister_event_listeners()
 
 

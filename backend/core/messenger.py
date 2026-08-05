@@ -104,6 +104,7 @@ class StateMessenger:
                 "max_iter": a.get("max_iter"),
                 "max_retry_limit": a.get("max_retry_limit"),
                 "max_search_calls": a.get("max_search_calls", 0),
+                "search_config": a.get("search_config", {}),
                 "allow_delegation": a.get("allow_delegation", False),
             }
             for a in agents

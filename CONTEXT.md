@@ -109,6 +109,10 @@ Selects the best model for a task based on capability requirements (reasoning, c
 
 A catalog of supported LLM models with their capabilities, pricing, and context lengths. Used by ModelSelector to find the best model for a given task.
 
+### SearchAdapter
+
+The single decision point for web search request format. Checks a model's `supported_parameters` (via ModelDiscoveryService) and selects the correct OpenRouter format: `tools` (server tool) for tools-capable models like Claude/GPT/Gemini, or `web_search_options` (built-in search) for Perplexity models. Hides capability detection, format selection, and HTTP execution behind a small interface. Created to fix the perplexity 404 bug where sending `tools` to a built-in-search model returned "No endpoints found that support tool use".
+
 ### Scheduler
 
 Runs recurring tasks on a schedule (daily, weekly, monthly). Uses ScheduledTaskStore for persistence. Runs as a background process alongside the Chainlit server.

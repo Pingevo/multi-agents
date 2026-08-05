@@ -1,4 +1,10 @@
-"""Tests for FreeModelRotator — verifies hardcoded ranking, rotation, and fallback behavior."""
+"""Tests for FreeModelRotator — verifies dynamic ranking, rotation, and fallback behavior.
+
+Updated 2026-08-05 (issue #125): ranking is now fetched dynamically from the
+OpenRouter catalog (No Hardcode) instead of a hardcoded list. Tests inject a
+fake catalog so they don't hit the network and don't break when OpenRouter
+retires free slugs.
+"""
 
 import unittest
 from unittest.mock import patch, MagicMock
@@ -8,22 +14,58 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
-class TestFreeModelRotatorRanking(unittest.TestCase):
-    """Seam: get_ranking() returns hardcoded free model list in order."""
+class _FakeCatalog:
+    """Fake OpenRouter /models response for testing (no HTTP)."""
+    def __init__(self, models):
+        self._models = models
 
-    def test_returns_hardcoded_ranking(self):
+    def get_models(self):
+        return self._models
+
+
+# Realistic free models that currently exist in OpenRouter (verified 2026-08-05)
+_FAKE_FREE_CATALOG = [
+    {"id": "google/gemini-2.0-flash-exp:free", "context_length": 1048576, "architecture": {"input_modalities": ["text", "image"]}},
+    {"id": "meta-llama/llama-3.3-70b-instruct:free", "context_length": 131072, "architecture": {"input_modalities": ["text"]}},
+    {"id": "meta-llama/llama-3.2-3b-instruct:free", "context_length": 131072, "architecture": {"input_modalities": ["text"]}},
+]
+
+
+class TestFreeModelRotatorRanking(unittest.TestCase):
+    """Seam: get_ranking() returns dynamic free model list, smartest first."""
+
+    def test_returns_dynamic_ranking_from_catalog(self):
         from app import FreeModelRotator
-        rotator = FreeModelRotator(api_key="fake", base_url="https://openrouter.ai/api/v1")
+        rotator = FreeModelRotator(
+            api_key="fake", base_url="https://openrouter.ai/api/v1",
+            catalog=_FakeCatalog(_FAKE_FREE_CATALOG),
+        )
         ranking = rotator.get_ranking()
 
-        self.assertIn("deepseek/deepseek-r1:free", ranking)
+        # All returned slugs must be free models from the catalog
+        self.assertIn("google/gemini-2.0-flash-exp:free", ranking)
         self.assertIn("meta-llama/llama-3.3-70b-instruct:free", ranking)
-        self.assertEqual(ranking[0], "deepseek/deepseek-r1:free")
-        self.assertEqual(ranking[-1], "meta-llama/llama-3.2-3b-instruct:free")
+        # Smartest (largest context) first
+        self.assertEqual(ranking[0], "google/gemini-2.0-flash-exp:free")
+
+    def test_ranking_excludes_stale_slugs(self):
+        """Stale slugs that OpenRouter retired (deepseek-r1:free, gpt-oss-120b:free)
+        must NOT appear — they would 404 (issue #125)."""
+        from app import FreeModelRotator
+        rotator = FreeModelRotator(
+            api_key="fake", base_url="https://openrouter.ai/api/v1",
+            catalog=_FakeCatalog(_FAKE_FREE_CATALOG),
+        )
+        ranking = rotator.get_ranking()
+        self.assertNotIn("deepseek/deepseek-r1:free", ranking)
+        self.assertNotIn("openai/gpt-oss-120b:free", ranking)
 
     def test_ranking_is_a_copy(self):
         from app import FreeModelRotator
-        rotator = FreeModelRotator(api_key="fake", base_url="https://openrouter.ai/api/v1")
+        rotator = FreeModelRotator(
+            api_key="fake", base_url="https://openrouter.ai/api/v1",
+            catalog=_FakeCatalog(_FAKE_FREE_CATALOG),
+        )
         r1 = rotator.get_ranking()
         r1.append("fake/model:free")
         r2 = rotator.get_ranking()
@@ -35,7 +77,10 @@ class TestFreeModelRotatorCall(unittest.TestCase):
 
     def test_returns_first_success(self):
         from app import FreeModelRotator
-        rotator = FreeModelRotator(api_key="fake", base_url="https://openrouter.ai/api/v1")
+        rotator = FreeModelRotator(
+            api_key="fake", base_url="https://openrouter.ai/api/v1",
+            catalog=_FakeCatalog(_FAKE_FREE_CATALOG),
+        )
 
         mock_response = MagicMock()
         mock_response.choices = [MagicMock(message=MagicMock(content="Hello"))]
@@ -52,7 +97,10 @@ class TestFreeModelRotatorCall(unittest.TestCase):
 
     def test_rotates_on_failure(self):
         from app import FreeModelRotator
-        rotator = FreeModelRotator(api_key="fake", base_url="https://openrouter.ai/api/v1")
+        rotator = FreeModelRotator(
+            api_key="fake", base_url="https://openrouter.ai/api/v1",
+            catalog=_FakeCatalog(_FAKE_FREE_CATALOG),
+        )
 
         call_count = [0]
         def mock_create(**kwargs):
@@ -76,7 +124,10 @@ class TestFreeModelRotatorCall(unittest.TestCase):
 
     def test_raises_after_all_attempts_fail(self):
         from app import FreeModelRotator
-        rotator = FreeModelRotator(api_key="fake", base_url="https://openrouter.ai/api/v1")
+        rotator = FreeModelRotator(
+            api_key="fake", base_url="https://openrouter.ai/api/v1",
+            catalog=_FakeCatalog(_FAKE_FREE_CATALOG),
+        )
 
         mock_client = MagicMock()
         mock_client.chat.completions.create.side_effect = Exception("502 Bad Gateway")

@@ -54,6 +54,7 @@ Single-context — one `CONTEXT.md` at repo root, one `docs/adr/` at repo root. 
 
 This project follows `SYSTEM_PROTOCOL.md` as its constitution. Key rules:
 
+- **Market Parity Baseline (NON-NEGOTIABLE)**: อะไรที่ AI chat ในตลาด (Claude, ChatGPT, Gemini) ทำได้เป็นพื้นฐาน ระบบเราต้องทำได้ — ไม่ต้องถาม user ก่อนทำ parity feature. ดู checklist ใน `SYSTEM_PROTOCOL.md` section 14
 - User is the Manager — all features need approval
 - Agent Factory & Registry is single source of truth
 - Dashboard-first UI
