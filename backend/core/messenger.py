@@ -16,6 +16,7 @@ from backend.agents.registry import AgentRegistry
 from backend.agents.tool_registry import ToolRegistry
 from backend.agents.team_registry import TeamRegistry
 from backend.llm.manager import LLMManager
+from backend.utils import _sanitize_error
 from schemas import (
     PlanAgentItem, ResultAgentItem, AgentProgressEntry,
     ChatReplyText, ChatReplyPlanValidationError, ChatReplyPlan, ChatReplyProgress,

@@ -4,11 +4,11 @@
 
 ### Issue tracker
 
-Local markdown — issues live as files under `.scratch/<feature>/`. See `docs/agents/issue-tracker.md`.
+GitHub Issues — issues live at https://github.com/Pingevo/multi-agents/issues. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
-Five canonical roles: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. Recorded as `status:` in issue front matter. See `docs/agents/triage-labels.md`.
+Five canonical roles: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. Recorded as GitHub labels. See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 

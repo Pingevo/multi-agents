@@ -13,14 +13,14 @@
 | **B. Date injection** | #10 | เล็ก | ✅ DONE (commit `41756f6`) |
 | **A. Migration plugin → server tool** | #1, #2, #3, #7, #8, #9 | กลาง/เสี่ยง | ✅ CODE DONE (commit `5846918`) + bug fixes uncommitted — แก้ search_model propagation แล้ว, เหลือ perplexity 404 (ย้ายไป P0.2 ใน Architecture Debt) |
 | **C. Prompt: read full pages** | #5 | เล็ก | ✅ DONE (commits `a89fd2b`, `bc65238`) |
-| **D. Frontend: source chips + tool execution visibility** | #6 | กลาง | ⏳ TODO |
+| **D. Frontend: source chips + tool execution visibility** | #6 | กลาง | ✅ DONE (2026-08-05) |
 
 ## ลำดับที่แนะนำ
 
 1. ~~Task B — date injection~~ ✅ เสร็จ
 2. **Task A — migration** (เร่งด่วน เพราะ OpenRouter ถอด plugin เก่า)
 3. **Task C — prompt** (เล็ก ทำหลัง A)
-4. **Task D — frontend** (แยก ทำทีหลังได้)
+4. ~~Task D — frontend~~ ✅ เสร็จ (2026-08-05)
 
 ## รายละเอียดแต่ละ Task
 

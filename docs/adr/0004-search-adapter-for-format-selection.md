@@ -26,3 +26,14 @@ Create a `SearchAdapter` module as the single decision point. It queries `ModelD
 - New built-in-search model families need only a catalog entry (or prefix heuristic update), not edits across 4 files.
 - The 4 original decision points still exist (deferred removal per "ทำทีละตัว" rule); P0.1 will consolidate them into the adapter.
 - `_resolve_search_model` and `_check_search_call_limit` remain in search.py reading module-level globals — P0.1 replaces them with dependency injection through the adapter.
+
+## Amendment 2026-08-05 — `web_search` → `web_search_options` + model resolution consolidation
+
+### Bug fix
+OpenRouter renamed the built-in search parameter from `web_search` to `web_search_options`. The adapter's `supports_server_tool` was checking only the old name, so every Perplexity model fell through to `return True` (wrong) — sending `tools` to Perplexity and reproducing the original 404 bug this ADR was meant to fix. Fixed by checking `"web_search_options" in params` instead of `"web_search" in params`. Same fix applied to `ModelDiscoveryService.discover_all` (search category classification).
+
+### Model resolution consolidation (P0.2 partial → done)
+`SearchAdapter.resolve_search_model(ai_search_model, selected_model, default_model)` is now the single resolution point. `search.py:_resolve_search_model` is a thin wrapper that reads `_globals._search_model` and delegates to the adapter — preserves the legacy test seam while concentrating the resolution logic in the deep module. The 4 scattered decision points are now 1 (adapter) + 1 wrapper (search.py) instead of 4 independent implementations.
+
+### Test data correction
+`test_search_adapter.py` and `test_web_search_migration.py` were using `"web_search"` in their fake catalogs — which is why the adapter bug passed tests. Both updated to use `"web_search_options"` to mirror the real OpenRouter catalog.

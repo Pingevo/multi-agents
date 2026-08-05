@@ -154,5 +154,61 @@ class TestOrchestratorRunAsync(unittest.TestCase):
             self.assertIsInstance(result, dict)
 
 
+class TestToolDescription(unittest.TestCase):
+    """_tool_description must surface tool args so the frontend can show
+    parity-style real-time status like '🔍 Searching: <query>' / '📖 Reading: <url>'.
+
+    Backend already sends current_tool + tool_description in agent_progress;
+    the description just needs to carry the meaningful arg, not a generic fallback.
+    """
+
+    def _orch(self):
+        from app import ExecutionOrchestrator, LLMManager, ToolRegistry
+        mgr = MagicMock(spec=LLMManager)
+        mgr._is_openrouter.return_value = False
+        mgr.api_key = "fake"
+        mgr.base_url = "https://openrouter.ai/api/v1"
+        mgr.temperature = 0.7
+        mgr._default_model = "openrouter/free"
+        return ExecutionOrchestrator(mgr, ToolRegistry())
+
+    def test_search_web_surfaces_query(self):
+        o = self._orch()
+        desc = o._tool_description("search_web", {"query": "latest AI news 2026"})
+        self.assertEqual(desc, "🔍 Searching: latest AI news 2026")
+
+    def test_search_web_truncates_long_query(self):
+        o = self._orch()
+        long_q = "x" * 200
+        desc = o._tool_description("search_web", {"query": long_q})
+        self.assertEqual(desc, f"🔍 Searching: {long_q[:60]}")
+
+    def test_browse_web_surfaces_url(self):
+        o = self._orch()
+        desc = o._tool_description("browse_web", {"url": "https://example.com/article"})
+        self.assertEqual(desc, "📖 Reading: https://example.com/article")
+
+    def test_scrape_web_surfaces_url(self):
+        o = self._orch()
+        desc = o._tool_description("scrape_web", {"url": "https://example.com/page"})
+        self.assertEqual(desc, "📖 Reading: https://example.com/page")
+
+    def test_generate_image_still_surfaces_prompt(self):
+        o = self._orch()
+        desc = o._tool_description("generate_image", {"prompt": "a red cat"})
+        self.assertEqual(desc, "🎨 Image prompt: a red cat")
+
+    def test_unknown_tool_keeps_fallback(self):
+        o = self._orch()
+        desc = o._tool_description("some_other_tool", {})
+        self.assertEqual(desc, "⚙️ Using some_other_tool...")
+
+    def test_search_web_missing_query_arg_falls_back(self):
+        o = self._orch()
+        desc = o._tool_description("search_web", {})
+        # No query → don't claim a search is happening with empty text
+        self.assertEqual(desc, "🔍 Searching the web...")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
