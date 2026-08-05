@@ -42,18 +42,50 @@ class SearchAdapter:
         self._llm_manager = llm_manager
         self._discovery = discovery
 
+    def resolve_search_model(self, ai_search_model: str = "",
+                             selected_model: str = "",
+                             default_model: str = "") -> str:
+        """Resolve which model search_web should use (single decision point).
+
+        Consolidates the 4 scattered decision points (P0.2 per ADR-0004):
+        - Secretary sets search_model in plan JSON (becomes ai_search_model)
+        - chat.py stores in cl.user_session("ai_search_model")
+        - orchestrator.py propagates to search call
+        - search.py reads it
+
+        Resolution order (per SYSTEM_PROTOCOL.md "ใช้ paid LLM (ไม่ใช่ free tier)"):
+        1. ai_search_model (user-selected search model from plan approval)
+        2. selected_model (user's top-bar model selection)
+        3. default_model (LLMManager._default_model)
+        4. "openrouter/free" (last resort, only when nothing else available)
+
+        Pure function — no globals, no HTTP. Replaces _resolve_search_model
+        in search.py which read from _globals._search_model (P0.1 partial).
+        """
+        if ai_search_model:
+            return ai_search_model
+        if selected_model:
+            return selected_model
+        if default_model:
+            return default_model
+        return "openrouter/free"
+
     def supports_server_tool(self, model: str) -> bool:
         """Check whether a model accepts the openrouter:web_search server tool.
 
         Decision logic:
         1. Query ModelDiscoveryService catalog for supported_parameters
         2. "tools" in params        → True  (server tool format)
-        3. "web_search" in params
+        3. "web_search_options" in params
            (without "tools")        → False (built-in search, e.g. perplexity)
         4. Not in catalog           → prefix heuristic fallback:
            - "perplexity/" prefix   → False (known built-in search family)
            - empty / openrouter/    → True  (router or unknown, let API decide)
            - other unknown          → True  (default to server tool)
+
+        Note: OpenRouter renamed the built-in search parameter from `web_search`
+        to `web_search_options`. Checking only the old name misses all Perplexity
+        models (regression introduced by commit de04b54 — see ADR-0004 amendment).
         """
         if not model:
             return True  # empty = unknown, let API decide
@@ -63,9 +95,9 @@ class SearchAdapter:
             # Catalog hit — authoritative decision
             if "tools" in params:
                 return True
-            if "web_search" in params:
+            if "web_search_options" in params:
                 return False  # built-in search, no server tool
-            # Has params but neither tools nor web_search — default to True
+            # Has params but neither tools nor web_search_options — default to True
             return True
 
         # Catalog miss — prefix heuristic fallback

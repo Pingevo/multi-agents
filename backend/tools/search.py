@@ -73,24 +73,29 @@ def _check_search_call_limit() -> str | None:
 def _resolve_search_model(selected_model: str = "", default_model: str = "") -> str:
     """Resolve which model search_web should use.
 
+    Delegates to SearchAdapter.resolve_search_model — the single decision point
+    (P0.2 consolidation per ADR-0004). The ai_search_model is read from
+    _globals._search_model (set by orchestrator from cl.user_session).
+
     Resolution order (per SYSTEM_PROTOCOL.md "ใช้ paid LLM (ไม่ใช่ free tier)"):
     1. ai_search_model (user-selected search model from plan approval)
     2. selected_model (user's top-bar model selection)
     3. default_model (LLMManager._default_model)
     4. "openrouter/free" (last resort, only when nothing else available)
 
-    Extracted so tests can verify the fallback logic without making HTTP calls.
+    Thin wrapper — keeps the legacy test seam (test_search_model_fallback.py,
+    test_search_model_propagation.py) while concentrating the resolution
+    logic in the adapter.
     """
     # Read dynamically from globals module — `from X import Y` would copy the
     # binding at import time, so reassignment in orchestrator (global _search_model)
     # wouldn't be visible here. This is the Python module-rebinding gotcha.
-    if _globals._search_model:
-        return _globals._search_model
-    if selected_model:
-        return selected_model
-    if default_model:
-        return default_model
-    return "openrouter/free"
+    ai_search_model = _globals._search_model or ""
+    return SearchAdapter().resolve_search_model(
+        ai_search_model=ai_search_model,
+        selected_model=selected_model,
+        default_model=default_model,
+    )
 
 
 @tool
