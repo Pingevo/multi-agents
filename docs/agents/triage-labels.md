@@ -10,19 +10,11 @@
 | Needs human | `ready-for-human` | Needs human implementation |
 | Won't fix | `wontfix` | Will not be actioned |
 
-## GitHub Issues mapping
+## GitHub Issues mapping (active — migrated 2026-08-05)
 
-Since we use GitHub Issues (see `issue-tracker.md`), triage status is recorded via GitHub labels. The canonical role maps to a GitHub label of the same name:
+Issues live on GitHub (`Pingevo/multi-agents`). Apply triage labels directly via `github-mcp-server` `issue_write` with `method: "update"` and the `labels` array.
 
-| Canonical role | GitHub label |
-|----------------|--------------|
-| `needs-triage` | `needs-triage` |
-| `needs-info` | `needs-info` |
-| `ready-for-agent` | `ready-for-agent` |
-| `ready-for-human` | `ready-for-human` |
-| `wontfix` | `wontfix` |
-
-If a label does not yet exist in the repo, create it before applying.
+Triage labels are applied IN ADDITION to the type/priority labels documented in `docs/agents/issue-tracker.md` (e.g. an issue can have `bug`, `P1`, AND `ready-for-agent`).
 
 ## Defaults
 
