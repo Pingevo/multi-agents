@@ -8,6 +8,7 @@ import re
 import threading
 import uuid
 import traceback
+from datetime import datetime
 import chainlit as cl
 import litellm
 from litellm.integrations.custom_logger import CustomLogger
@@ -48,6 +49,85 @@ def set_llm_call_context(caller: str):
 
 def clear_llm_call_context():
     _llm_call_context.pop(threading.get_ident(), None)
+
+
+def _build_manager_review_prompt(
+    manager_persona: str,
+    manager_goal: str,
+    user_input: str,
+    agents_data: list[dict],
+    retry_count: int,
+    template_contracts: str = "",
+    quality_criteria: str = "",
+) -> str:
+    """Build the Manager reviewer prompt with current date injected.
+
+    Extracted from _batch_manager_review so the prompt can be tested without
+    making real LLM calls. The date is injected at the top (after persona,
+    before agent outputs) so the Manager reads it before judging whether
+    data is "current" or "future" — parity with agent backstory date injection
+    (Task B). Without this, Manager rejects valid 2026 data as hallucination.
+    """
+    today = datetime.now().strftime("%A, %B %d, %Y")
+
+    agents_section = ""
+    for a in agents_data:
+        agents_section += (
+            f"\n--- Agent: {a['name']} (role: {a['role']}) ---\n"
+            f"Task: {a['goal']}\n"
+            f"Output:\n{a['output']}\n"
+        )
+        qc = a.get("quality_criteria", "")
+        if qc:
+            agents_section += f"QUALITY CRITERIA for {a['name']} (MUST check all):\n{qc}\n"
+        of = a.get("output_format", "")
+        if of:
+            agents_section += f"EXPECTED OUTPUT FORMAT for {a['name']}:\n{of}\n"
+
+    prompt = (
+        f"{manager_persona}\n"
+        f"Your goal: {manager_goal}\n\n"
+        f"Today's date: {today}\n\n"
+        f"You are reviewing the outputs of {len(agents_data)} agent(s) in this wave.\n"
+        f"User's original request: {user_input}\n\n"
+        f"Review attempt #{retry_count + 1} for this wave.\n\n"
+        f"{agents_section}\n\n"
+    )
+    if template_contracts:
+        prompt += (
+            f"{template_contracts}\n\n"
+            f"CRITICAL — TEMPLATE COMPLIANCE:\n"
+            f"- Check each required heading/section from the template one by one.\n"
+            f"- REJECT if ANY required section is missing or empty.\n"
+            f"- REJECT if the output does not follow the required format/template structure.\n"
+            f"- In feedback, list exactly which sections are missing or incomplete.\n\n"
+        )
+    prompt += (
+        f"Evaluate each agent's output against their task and the user's request.\n"
+        f"Respond in JSON ONLY — a JSON array with one entry per agent:\n"
+        f'[{{"name": "agent name", "approved": true/false, "feedback": "specific feedback if not approved, empty if approved", "summary": "1-2 sentence summary in Thai"}}]\n\n'
+        f"Rules:\n"
+    )
+    if quality_criteria:
+        prompt += (
+            f"- Apply your quality criteria strictly:\n{quality_criteria}\n"
+            f"- REJECT if the output does not meet ANY of your quality criteria above\n"
+        )
+    else:
+        prompt += (
+            f"- REJECT if the output is vague, generic, or lacks specific details (names, numbers, dates, sources) that the task requires\n"
+            f"- REJECT if the output is too brief or doesn't address the agent's own task/goal\n"
+            f"- APPROVE only if the output contains concrete, specific information that fully addresses the user's request and follows the required format\n"
+        )
+    prompt += (
+        f"- REJECT if the agent's OWN task/goal is not fully addressed — evaluate against the agent's specific task, NOT the overall user request\n"
+        f"- If an agent has QUALITY CRITERIA listed above, check EACH criterion one by one and REJECT if any is not met\n"
+        f"- If an agent has an EXPECTED OUTPUT FORMAT listed above, REJECT if the output does not follow that format\n"
+        f"- If an agent wrote a detailed prompt for creating media (image/video/document) but didn't produce the actual file, APPROVE — the system will generate the media automatically after review. Only REJECT if the output has NO usable prompt AND no actual content.\n"
+        f"- feedback must be specific: tell the agent exactly what details to add or fix, including which sections are missing\n"
+        f"- summary should be concise: e.g. 'รอบ 1: งานยังไม่ครบ ขาดสรุป — สั่งแก้' or 'รอบ 2: ครบ ตรงโจทย์ — ผ่าน'\n"
+    )
+    return prompt
 
 
 # --- LiteLLM global success callback (captures ALL LLM calls including CrewAI internals) ---
@@ -793,80 +873,27 @@ class ExecutionOrchestrator:
 
             async def _batch_manager_review(agents_data, retry_count):
                 """Manager LLM reviews multiple agent outputs in one call.
-                
+
                 agents_data: list of {idx, name, role, goal, output}
                 Returns: dict {idx: {approved, feedback, summary}}
                 """
-                # Build combined review prompt
-                agents_section = ""
+                # Build template contracts section (agent-specific)
                 template_contracts = ""
                 for a in agents_data:
-                    agents_section += (
-                        f"\n--- Agent: {a['name']} (role: {a['role']}) ---\n"
-                        f"Task: {a['goal']}\n"
-                        f"Output:\n{a['output']}\n"
-                    )
-                    # Include agent-specific quality criteria if set
-                    # Note: Tool-related checks are handled by tool_validator post-review,
-                    # so Manager prompt does NOT mention tools — this prevents Manager from
-                    # rejecting agents for missing media when it's not their responsibility.
-                    qc = a.get("quality_criteria", "")
-                    if qc:
-                        agents_section += f"QUALITY CRITERIA for {a['name']} (MUST check all):\n{qc}\n"
-                    of = a.get("output_format", "")
-                    if of:
-                        agents_section += f"EXPECTED OUTPUT FORMAT for {a['name']}:\n{of}\n"
-                    # Detect template contract for this agent
                     a_tmpl_id = detect_template_id(a.get("role", ""), a.get("name", ""))
                     if a_tmpl_id:
                         contract = get_template_contract(a_tmpl_id)
                         if contract:
                             template_contracts += f"\n=== REQUIRED OUTPUT FORMAT for {a['name']} ===\n{contract}\n"
 
-                review_prompt = (
-                    f"{_manager_persona}\n"
-                    f"Your goal: {_manager_goal}\n\n"
-                    f"You are reviewing the outputs of {len(agents_data)} agent(s) in this wave.\n"
-                    f"User's original request: {user_input}\n\n"
-                    f"Review attempt #{retry_count + 1} for this wave.\n\n"
-                    f"{agents_section}\n\n"
-                )
-                if template_contracts:
-                    review_prompt += (
-                        f"{template_contracts}\n\n"
-                        f"CRITICAL — TEMPLATE COMPLIANCE:\n"
-                        f"- Check each required heading/section from the template one by one.\n"
-                        f"- REJECT if ANY required section is missing or empty.\n"
-                        f"- REJECT if the output does not follow the required format/template structure.\n"
-                        f"- In feedback, list exactly which sections are missing or incomplete.\n\n"
-                    )
-                review_prompt += (
-                    f"Evaluate each agent's output against their task and the user's request.\n"
-                    f"Respond in JSON ONLY — a JSON array with one entry per agent:\n"
-                    f'[{{"name": "agent name", "approved": true/false, "feedback": "specific feedback if not approved, empty if approved", "summary": "1-2 sentence summary in Thai"}}]\n\n'
-                    f"Rules:\n"
-                )
-                # Quality judgment rules: use Manager's quality_criteria if configured,
-                # otherwise fall back to system defaults. This lets users control how
-                # strict the Manager is via the Manager agent's quality_criteria field.
-                if _manager_quality_criteria:
-                    review_prompt += (
-                        f"- Apply your quality criteria strictly:\n{_manager_quality_criteria}\n"
-                        f"- REJECT if the output does not meet ANY of your quality criteria above\n"
-                    )
-                else:
-                    review_prompt += (
-                        f"- REJECT if the output is vague, generic, or lacks specific details (names, numbers, dates, sources) that the task requires\n"
-                        f"- REJECT if the output is too brief or doesn't address the agent's own task/goal\n"
-                        f"- APPROVE only if the output contains concrete, specific information that fully addresses the user's request and follows the required format\n"
-                    )
-                review_prompt += (
-                    f"- REJECT if the agent's OWN task/goal is not fully addressed — evaluate against the agent's specific task, NOT the overall user request\n"
-                    f"- If an agent has QUALITY CRITERIA listed above, check EACH criterion one by one and REJECT if any is not met\n"
-                    f"- If an agent has an EXPECTED OUTPUT FORMAT listed above, REJECT if the output does not follow that format\n"
-                    f"- If an agent wrote a detailed prompt for creating media (image/video/document) but didn't produce the actual file, APPROVE — the system will generate the media automatically after review. Only REJECT if the output has NO usable prompt AND no actual content.\n"
-                    f"- feedback must be specific: tell the agent exactly what details to add or fix, including which sections are missing\n"
-                    f"- summary should be concise: e.g. 'รอบ 1: งานยังไม่ครบ ขาดสรุป — สั่งแก้' or 'รอบ 2: ครบ ตรงโจทย์ — ผ่าน'\n"
+                review_prompt = _build_manager_review_prompt(
+                    manager_persona=_manager_persona,
+                    manager_goal=_manager_goal,
+                    user_input=user_input,
+                    agents_data=agents_data,
+                    retry_count=retry_count,
+                    template_contracts=template_contracts,
+                    quality_criteria=_manager_quality_criteria,
                 )
 
                 if _manager_model:
