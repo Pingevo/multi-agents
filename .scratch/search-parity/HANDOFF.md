@@ -12,8 +12,8 @@
 |------|---------------|------|------|
 | **B. Date injection** | #10 | เล็ก | ✅ DONE (commit `41756f6`) |
 | **A. Migration plugin → server tool** | #1, #2, #3, #7, #8, #9 | กลาง/เสี่ยง | ✅ CODE DONE (commit `5846918`) + bug fixes uncommitted — แก้ search_model propagation แล้ว, เหลือ perplexity 404 (ย้ายไป P0.2 ใน Architecture Debt) |
-| **C. Prompt: read full pages** | #5 | เล็ก | ✅ DONE (session 13, uncommitted) |
-| **D. Frontend: source chips** | #6 | กลาง | ⏳ TODO |
+| **C. Prompt: read full pages** | #5 | เล็ก | ✅ DONE (commits `a89fd2b`, `bc65238`) |
+| **D. Frontend: source chips + tool execution visibility** | #6 | กลาง | ⏳ TODO |
 
 ## ลำดับที่แนะนำ
 
@@ -62,20 +62,25 @@
 
 ---
 
-### Task D: Frontend — source chips
+### Task D: Frontend — source chips + tool execution visibility
 
-**ทำไม**: ตลาดแสดง source chips คลิกได้ เราฝัง URL ใน text → UX ต่างกว่า
+**ทำไม**: ตลาด (Claude, ChatGPT, Perplexity) แสดง 2 อย่างที่เรายังไม่มี:
+1. **Source chips** — แสดง source URLs เป็น chips คลิกได้ (เราฝัง URL ใน text)
+2. **Tool execution visibility** — แสดงแบบ real-time ว่า agent กำลัง "Searching...", "Reading page..." (เราแสดงแค่ progress bar เปล่าๆ กับ "ยังไม่มี output")
+
+หลังบ้านเห็นทั้งหมด (search_web query, browse_web page title) แต่หน้าบ้านเห็นแค่ progress % — เป็น parity gap จริง
 
 **ไฟล์หลัก**:
 - `frontend/src/components/retro/ChatWindow.tsx`
+- `frontend/src/components/retro/TasksWindow.tsx` (tool execution display)
 - `frontend/src/schemas/messages.ts`
 
 **สิ่งที่ต้องเปลี่ยน**:
-- แยก source URLs จาก search result
-- แสดงเป็น chips คลิกได้ (เปิดใน tab ใหม่)
-- อาจต้องเพิ่ม field ใน message schema
+- แยก source URLs จาก search result → chips คลิกได้ (เปิดใน tab ใหม่)
+- แสดง tool execution แบบ real-time: "🔍 Searching: <query>", "📖 Reading: <page title>"
+- อาจต้องเพิ่ม field ใน message schema (tool_execution events)
 
-**ความเสี่ยง**: กลาง — frontend change
+**ความเสี่ยง**: กลาง — frontend change + schema change
 
 ## กฏที่ต้องยึดในทุก task
 
