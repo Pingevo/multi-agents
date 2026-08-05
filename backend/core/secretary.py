@@ -57,9 +57,12 @@ def _build_search_behavior_section() -> str:
     """
     return (
         "CRITICAL — Search Behavior (read full pages before synthesizing):\n"
-        "- Any agent with `search_web` in its tools MUST call `browse_web` on the source URLs "
-        "returned by search to read the full page content BEFORE writing its final answer. "
-        "Search returns only a short summary — the full page has the detail needed for a deep answer.\n"
+        "- Any agent whose task involves `search_web` MUST also have `browse_web` AND `scrape_web` "
+        "in its `tools` array. Without these tools the agent cannot read full pages and the answer "
+        "will be shallow.\n"
+        "- After `search_web` returns source URLs, the agent MUST call `browse_web` on each URL to "
+        "read the full page content BEFORE writing its final answer. Search returns only a short "
+        "summary — the full page has the detail needed for a deep answer.\n"
         "- If `browse_web` fails on a URL (timeout, paywall, JS-required), fall back to `scrape_web` "
         "for that URL. If both fail, use the search summary and note that the full page was unavailable.\n"
         "- The agent's task_description MUST include this instruction explicitly so the agent knows "
@@ -380,7 +383,9 @@ class CentralManager:
             "{\n"
             '  "action": "plan",\n'
             '  "summary": "brief summary",\n'
-            '  "agents": [\n'
+            "  // TOP-LEVEL plan fields below — these belong on the PLAN object, NOT inside any agent:\n"
+            + _build_plan_schema_section()
+            + '  "agents": [\n'
             "    {\n"
             '      "name": "Role #N (e.g. Creative Writer #1)",\n'
             '      "role": "Agent Role",\n'
@@ -411,9 +416,8 @@ class CentralManager:
             '      "search_config": {},\n'
             '      "allow_delegation": false\n'
             "    }\n"
-            "  ],\n"
-            + _build_plan_schema_section()
-            + "}\n\n"
+            "  ]\n"
+            "}\n\n"
             "Design Rules for plan:\n"
             "- Do NOT include a Manager agent in your response — the system has a Manager already. Only include worker agents.\n"
             "- REUSE existing team agents when possible — if a team agent already has the right role/tools, include it by name instead of creating a new one\n"
@@ -944,7 +948,9 @@ class CentralManager:
             "{\n"
             '  "action": "plan",\n'
             '  "summary": "brief summary",\n'
-            '  "agents": [\n'
+            "  // TOP-LEVEL plan fields below — these belong on the PLAN object, NOT inside any agent:\n"
+            + _build_plan_schema_section()
+            + '  "agents": [\n'
             "    {\n"
             '      "name": "Role #N (e.g. Creative Writer #1)",\n'
             '      "role": "Agent Role",\n'
@@ -975,9 +981,8 @@ class CentralManager:
             '      "search_config": {},\n'
             '      "allow_delegation": false\n'
             "    }\n"
-            "  ],\n"
-            + _build_plan_schema_section()
-            + "}\n\n"
+            "  ]\n"
+            "}\n\n"
             "Design Rules for plan:\n"
             "- Do NOT include a Manager agent in your response — the system has a Manager already. Only include worker agents.\n"
             "- REUSE existing team agents when possible — if a team agent already has the right role/tools, include it by name instead of creating a new one\n"
