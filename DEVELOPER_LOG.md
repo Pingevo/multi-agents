@@ -774,3 +774,83 @@ False positives (audit was wrong): GET /models and /key calls don't need logging
 come from contextvars in _normalize_entry(), not call site dict.
 Lesson: self-written checker has same blind spots as code author. Independent
 audit catches what self-audit can't.
+
+## 2026-08-05 — Task D: Frontend parity (visible reasoning + source chips)
+
+### Context
+Search parity HANDOFF Task D — frontend did not show what the market (Claude,
+ChatGPT, Gemini, Perplexity) shows during agent execution:
+1. AI reasoning streaming token-by-token (TasksWindow only showed "ยังไม่มี output"
+   even though backend already streams `thinking` and StoryboardArea/ChatPanelRight
+   already render it)
+2. Source URLs as clickable chips (we embedded them in output text)
+
+### Changes
+
+**Slice 1 — Backend tool descriptions carry real args**
+- `backend/core/orchestrator.py` `_tool_description()` — surface `query` for
+  `search_web` ("🔍 Searching: <query>") and `url` for `browse_web`/`scrape_web`
+  ("📖 Reading: <url>"). Previously only `generate_image` had arg-aware text;
+  other tools fell back to generic "⚙️ Using <tool>...".
+- `test_orchestrator.py` — added `TestToolDescription` (7 tests, all green).
+  Covers search/browse/scrape/generate_image/unknown/missing-arg cases.
+
+**Slice 2 — Visible reasoning in TasksWindow (parity gap fix)**
+- `frontend/src/components/retro/TasksWindow.tsx`:
+  - `ResultPanel` Output tab: when agent is `running` and has no output yet,
+    render the streaming `thinking` field (italic, scrollable, max 160px)
+    instead of "ยังไม่มี output". Falls back to animated "กำลังคิด..." dots
+    when thinking hasn't started. `tool_description` shows as a single context
+    line above the reasoning.
+  - `FlowNode`: live reasoning preview (last 140 chars) under the agent card
+    while running, falling back to tool_description then dots.
+- `frontend/retro-mockup.css` — `.tw-node-thinking`, `.tw-rp-thinking` styles.
+- Reuses the existing `animate-thinking` Tailwind keyframe (no new animation).
+
+**Slice 3 — Source chips under output**
+- `frontend/src/utils/sources.ts` (new) — `extractSourceUrls(text)` pulls
+  http(s) URLs out of agent output, dedupes, returns `{url, label(host)}`.
+  Catches both `Source: <url>` format (search prompt) and bare URLs.
+- `frontend/src/components/retro/TasksWindow.tsx` — under Output in ResultPanel,
+  render chips (mono font, retro chip style) opening in a new tab.
+- `frontend/retro-mockup.css` — `.tw-rp-sources`, `.tw-rp-chips`, `.tw-rp-chip`.
+
+### Verification
+- `npm run build` — passes (no TS errors, vite build clean)
+- `tsc --noEmit` — passes
+- `pytest test_orchestrator.py` — 15 passed (7 new + 8 existing)
+- Browser preview opened for user to verify visually
+
+### Files changed
+- backend/core/orchestrator.py
+- test_orchestrator.py
+- frontend/src/components/retro/TasksWindow.tsx
+- frontend/src/utils/sources.ts (new)
+- frontend/retro-mockup.css
+
+### Code review fixes (2026-08-05)
+Two hard issues from code-review skill:
+1. **Schema mismatch** — `frontend/src/schemas/messages.ts` `AgentProgressEntry`
+   was missing `thinking` field (and stale status union). Backend already sends
+   it, frontend already consumes it via `chatTypes.ts`. Added `thinking?: string`
+   and aligned status union with backend (`waiting_approval`, `awaiting_review`).
+2. **Inline styles** — `TasksWindow.tsx` thinking block used inline styles
+   (violates CLAUDE.md Surgical Changes — styling belongs in CSS). Extracted to
+   `.tw-rp-thinking`, `.tw-rp-tool-desc`, `.tw-rp-thinking-waiting`,
+   `.tw-rp-thinking-dots`, `.tw-rp-empty` in `retro-mockup.css`. Also collapsed
+   the 3 duplicated dot spans into a `[0, 0.2, 0.4].map(...)` (Duplicated Code
+   smell from the review).
+
+TDD violation fix:
+- Installed `vitest` as devDependency (minimal — no config file needed, vitest
+  reads vite config). Added `test`/`test:watch` scripts to `package.json`.
+- Wrote `frontend/src/utils/sources.test.ts` — 8 tests covering empty input,
+  `Source:` prefix format, bare URLs, dedup, trailing punctuation, host label,
+  long-host truncation, non-http scheme rejection. All green.
+
+### Files changed (review fixes)
+- frontend/src/schemas/messages.ts
+- frontend/src/components/retro/TasksWindow.tsx
+- frontend/retro-mockup.css
+- frontend/src/utils/sources.test.ts (new)
+- frontend/package.json (test scripts + vitest devDep)

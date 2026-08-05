@@ -4,6 +4,7 @@ import type { ChatMessage, AgentProgressEntry, PlanAgent, ResultAgent, PlanStatu
 import type { Agent, PendingApproval, ImageResult } from '../../types/platform';
 import MarkdownRenderer from '../MarkdownRenderer';
 import { withMediaToken } from '../../utils/media';
+import { extractSourceUrls } from '../../utils/sources';
 
 // ============================================================
 // Types
@@ -207,6 +208,23 @@ const FlowNode: React.FC<{
         <div className="tw-node-waiting">รอผู้ใช้กด Generate</div>
       )}
 
+      {/* Live reasoning preview — parity with Claude/ChatGPT visible thinking */}
+      {isRunning && !isWaitingApproval && !isAwaitingReview && (
+        <div className="tw-node-thinking">
+          {progress?.thinking ? (
+            <span className="tw-node-thinking-text">{progress.thinking.slice(-140)}</span>
+          ) : progress?.tool_description ? (
+            <span>{progress.tool_description}</span>
+          ) : (
+            <span className="tw-node-thinking-dots">
+              <span className="animate-thinking" />
+              <span className="animate-thinking" />
+              <span className="animate-thinking" />
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Awaiting review */}
       {isAwaitingReview && (
         <div className="tw-node-review">
@@ -337,11 +355,54 @@ const ResultPanel: React.FC<{
               <div className="tw-rp-output">
                 <MarkdownRenderer content={progress!.output!} />
               </div>
+              {(() => {
+                const chips = extractSourceUrls(progress!.output);
+                if (chips.length === 0) return null;
+                return (
+                  <div className="tw-rp-sources">
+                    <span className="tw-rp-sources-lbl">แหล่งข้อมูล</span>
+                    <div className="tw-rp-chips">
+                      {chips.map((c, i) => (
+                        <a
+                          key={i}
+                          className="tw-rp-chip"
+                          href={c.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title={c.url}
+                        >
+                          {c.label}
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          ) : isRunning ? (
+            <div className="tw-rp-section">
+              <div className="tw-rp-lbl">Thinking</div>
+              {/* Tool context — single line above the streaming reasoning */}
+              {progress?.tool_description && (
+                <div className="tw-rp-tool-desc">{progress.tool_description}</div>
+              )}
+              {progress?.thinking ? (
+                <div className="tw-rp-thinking">{progress.thinking}</div>
+              ) : (
+                <div className="tw-rp-thinking-waiting">
+                  <span className="tw-rp-thinking-dots">
+                    {[0, 0.2, 0.4].map((d, i) => (
+                      <span key={i} className="animate-thinking" style={{ animationDelay: `${d}s` }} />
+                    ))}
+                  </span>
+                  กำลังคิด...
+                </div>
+              )}
             </div>
           ) : (
             <div className="tw-rp-section">
               <div className="tw-rp-lbl">Output</div>
-              <div style={{ fontSize: '10px', color: 'var(--ink3)', fontStyle: 'italic' }}>ยังไม่มี output</div>
+              <div className="tw-rp-empty">ยังไม่มี output</div>
             </div>
           )}
         </>

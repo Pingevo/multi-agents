@@ -315,10 +315,21 @@ class ExecutionOrchestrator:
 
     def _tool_description(self, tool_name: str, tool_args: dict | str) -> str:
         desc = self._TOOL_DESCRIPTIONS.get(tool_name, f"⚙️ Using {tool_name}...")
-        if tool_name == "generate_image" and isinstance(tool_args, dict):
+        if not isinstance(tool_args, dict):
+            return desc
+        if tool_name == "generate_image":
             prompt = tool_args.get("prompt", "")
             if prompt:
                 return f"🎨 Image prompt: {prompt[:60]}"
+        elif tool_name == "search_web":
+            query = tool_args.get("query", "")
+            if query:
+                return f"🔍 Searching: {str(query)[:60]}"
+            return "🔍 Searching the web..."
+        elif tool_name in ("browse_web", "scrape_web"):
+            url = tool_args.get("url", "")
+            if url:
+                return f"📖 Reading: {url}"
         return desc
 
     def _match_agent_index(self, agent_role: str | None) -> int:

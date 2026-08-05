@@ -21,12 +21,13 @@ export interface ResultAgentItem {
 export interface AgentProgressEntry {
   name: string;
   role: string;
-  status: 'pending' | 'running' | 'complete' | 'error';
+  status: 'pending' | 'running' | 'complete' | 'error' | 'waiting_approval' | 'awaiting_review';
   progress: number;
   output: string;
   current_task: string;
   current_tool: string;
   tool_description: string;
+  thinking?: string;
 }
 
 export interface TaskItem {
