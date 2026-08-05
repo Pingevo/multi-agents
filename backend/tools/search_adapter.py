@@ -12,7 +12,9 @@ via ModelDiscoveryService catalog (supported_parameters field) and picks
 the correct request format per model.
 """
 
+import time
 import requests
+from backend.ai_usage_hub import log_ai_usage
 from backend.globals import DEFAULT_SEARCH_ENGINE, DEFAULT_SEARCH_MAX_RESULTS
 
 
@@ -187,17 +189,48 @@ class SearchAdapter:
         if self._llm_manager is None:
             raise RuntimeError("SearchAdapter.search requires llm_manager")
         body = self._build_request_body(query, model, search_config)
-        resp = requests.post(
-            f"{self._llm_manager.base_url}/chat/completions",
-            headers={
-                "Authorization": f"Bearer {self._llm_manager.api_key}",
-                "Content-Type": "application/json",
-            },
-            json=body,
-            timeout=60,
-        )
-        resp.raise_for_status()
+        started_at = time.time()
+        try:
+            resp = requests.post(
+                f"{self._llm_manager.base_url}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self._llm_manager.api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=body,
+                timeout=60,
+            )
+            resp.raise_for_status()
+        except Exception as e:
+            http_status = getattr(resp, "status_code", None) if 'resp' in dir() else None
+            log_ai_usage({
+                "provider": "openrouter",
+                "model": model,
+                "operation": "chat.completions",
+                "source": "search_web",
+                "status": "error",
+                "http_status": http_status,
+                "error_message": str(e),
+                "duration_ms": int((time.time() - started_at) * 1000),
+                "metadata": {"analysis_type": "search"},
+            })
+            raise
         data = resp.json()
+        usage = data.get("usage", {})
+        log_ai_usage({
+            "provider": "openrouter",
+            "model": model,
+            "operation": "chat.completions",
+            "source": "search_web",
+            "status": "success",
+            "prompt_tokens": usage.get("prompt_tokens"),
+            "completion_tokens": usage.get("completion_tokens"),
+            "cost_usd": usage.get("cost"),
+            "duration_ms": int((time.time() - started_at) * 1000),
+            "raw_usage": usage,
+            "request_id": data.get("id"),
+            "metadata": {"analysis_type": "search"},
+        })
         content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
         return content
 

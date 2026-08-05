@@ -4,7 +4,6 @@ import re
 import requests
 from crewai import LLM
 from backend.utils import _sanitize_error
-from backend.credit_logger import log_llm_call
 
 class ModelSelector:
     """LLM-driven model assignment: analyzes live model metadata and assigns best model per agent."""

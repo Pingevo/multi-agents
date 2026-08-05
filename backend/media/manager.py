@@ -6,7 +6,7 @@ import time
 import uuid
 import requests
 from backend.utils import _sanitize_error
-from backend.credit_logger import log_llm_call
+from backend.ai_usage_hub import log_ai_usage
 from backend.globals import DATA_DIR
 
 class MediaGenerationManager:
@@ -168,6 +168,7 @@ class MediaGenerationManager:
         if self.image_model:
             payload["model"] = self.image_model
         print(f"[MediaGen] POST {self.openrouter_base}/images model={self.image_model} resolution={resolution}", flush=True)
+        started_at = time.time()
         resp = requests.post(
             f"{self.openrouter_base}/images",
             headers={
@@ -181,6 +182,18 @@ class MediaGenerationManager:
         if resp.status_code != 200:
             print(f"[MediaGen] ERROR body: {resp.text[:500]}", flush=True)
             print(f"[MediaGen] Model used: {self.image_model!r}", flush=True)
+            err_text = resp.text[:200]
+            log_ai_usage({
+                "provider": "openrouter",
+                "model": self.image_model or "unknown",
+                "operation": "image.generate",
+                "source": "generate_image",
+                "status": "error",
+                "http_status": resp.status_code,
+                "error_message": err_text,
+                "duration_ms": int((time.time() - started_at) * 1000),
+                "metadata": {"analysis_type": "media"},
+            })
             if resp.status_code == 402:
                 # 402 = account credits insufficient (NOT spending limit) —
                 # limit_remaining from /key endpoint shows spending limit remaining,
@@ -189,13 +202,23 @@ class MediaGenerationManager:
                     "เครดิตในบัญชี OpenRouter ไม่เพียงพอ (ไม่ใช่ spending limit) — "
                     "กรุณาเติมเครดิตที่ https://openrouter.ai/settings/credits"
                 )
-            raise RuntimeError(f"OpenRouter image API returned {resp.status_code}: {resp.text[:200]}")
+            raise RuntimeError(f"OpenRouter image API returned {resp.status_code}: {err_text}")
         data = resp.json()
         # Log image generation cost
         _cost = data.get("cost", 0)
-        _usage = {"cost": _cost} if _cost else None
-        if _usage:
-            log_llm_call(self.image_model or "unknown", _usage, caller="generate_image", prompt_preview=prompt)
+        log_ai_usage({
+            "provider": "openrouter",
+            "model": self.image_model or "unknown",
+            "operation": "image.generate",
+            "source": "generate_image",
+            "status": "success",
+            "cost_usd": _cost,
+            "duration_ms": int((time.time() - started_at) * 1000),
+            "units": {"images_processed": 1},
+            "request_id": data.get("id"),
+            "raw_usage": data,
+            "metadata": {"analysis_type": "media"},
+        })
         items = data.get("data", [])
         if not items:
             raise RuntimeError("OpenRouter image API returned empty data")
@@ -227,6 +250,7 @@ class MediaGenerationManager:
         }
         if self.video_model:
             payload["model"] = self.video_model
+        started_at = time.time()
         resp = requests.post(
             f"{self.openrouter_base}/videos",
             headers={
@@ -237,13 +261,35 @@ class MediaGenerationManager:
             timeout=120,
         )
         if resp.status_code not in (200, 201, 202):
-            raise RuntimeError(f"OpenRouter video API returned {resp.status_code}: {resp.text[:200]}")
+            err_text = resp.text[:200]
+            log_ai_usage({
+                "provider": "openrouter",
+                "model": self.video_model or "unknown",
+                "operation": "video.generate",
+                "source": "generate_video",
+                "status": "error",
+                "http_status": resp.status_code,
+                "error_message": err_text,
+                "duration_ms": int((time.time() - started_at) * 1000),
+                "metadata": {"analysis_type": "media"},
+            })
+            raise RuntimeError(f"OpenRouter video API returned {resp.status_code}: {err_text}")
         data = resp.json()
         # Log video generation cost
         _cost = data.get("cost", 0)
-        _usage = {"cost": _cost} if _cost else None
-        if _usage:
-            log_llm_call(self.video_model or "unknown", _usage, caller="generate_video", prompt_preview=prompt)
+        log_ai_usage({
+            "provider": "openrouter",
+            "model": self.video_model or "unknown",
+            "operation": "video.generate",
+            "source": "generate_video",
+            "status": "success",
+            "cost_usd": _cost,
+            "duration_ms": int((time.time() - started_at) * 1000),
+            "units": {"videos_generated": 1},
+            "request_id": data.get("id"),
+            "raw_usage": data,
+            "metadata": {"analysis_type": "media"},
+        })
         job_id = data.get("id", "")
         polling_url = data.get("polling_url", f"{self.openrouter_base}/videos/{job_id}")
         if not job_id:
@@ -274,7 +320,28 @@ class MediaGenerationManager:
                     raise RuntimeError(f"Failed to download video: {vid_resp.status_code}")
                 return self._save_binary(vid_resp.content, "mp4", "vid")
             if status in ("failed", "error"):
-                raise RuntimeError(f"OpenRouter video generation failed: {poll_data.get('error', 'unknown')}")
+                err = poll_data.get('error', 'unknown')
+                log_ai_usage({
+                    "provider": "openrouter",
+                    "model": self.video_model or "unknown",
+                    "operation": "video.generate",
+                    "source": "generate_video",
+                    "status": "error",
+                    "error_message": f"video polling failed: {err}",
+                    "duration_ms": int((time.time() - started_at) * 1000),
+                    "metadata": {"analysis_type": "media"},
+                })
+                raise RuntimeError(f"OpenRouter video generation failed: {err}")
+        log_ai_usage({
+            "provider": "openrouter",
+            "model": self.video_model or "unknown",
+            "operation": "video.generate",
+            "source": "generate_video",
+            "status": "timeout",
+            "error_message": "video polling timed out after 5 minutes",
+            "duration_ms": int((time.time() - started_at) * 1000),
+            "metadata": {"analysis_type": "media"},
+        })
         raise RuntimeError("OpenRouter video generation timed out after 5 minutes")
 
     # ==================== TTS ====================
@@ -300,6 +367,7 @@ class MediaGenerationManager:
             "response_format": "mp3",
         }
         print(f"[MediaGen] POST {self.openrouter_base}/audio/speech model={self.tts_model}", flush=True)
+        started_at = time.time()
         resp = requests.post(
             f"{self.openrouter_base}/audio/speech",
             headers={
@@ -310,7 +378,34 @@ class MediaGenerationManager:
             timeout=120,
         )
         if resp.status_code != 200:
-            raise RuntimeError(f"TTS API returned {resp.status_code}: {resp.text[:200]}")
+            err_text = resp.text[:200]
+            log_ai_usage({
+                "provider": "openrouter",
+                "model": self.tts_model,
+                "operation": "audio.speech",
+                "source": "generate_tts",
+                "status": "error",
+                "http_status": resp.status_code,
+                "error_message": err_text,
+                "duration_ms": int((time.time() - started_at) * 1000),
+                "metadata": {"analysis_type": "media"},
+            })
+            raise RuntimeError(f"TTS API returned {resp.status_code}: {err_text}")
+        # TTS returns raw audio bytes (not JSON) — cost comes from X-OR-Cost-USD header
+        _cost = resp.headers.get("X-OR-Cost-USD")
+        _cost = float(_cost) if _cost else None
+        log_ai_usage({
+            "provider": "openrouter",
+            "model": self.tts_model,
+            "operation": "audio.speech",
+            "source": "generate_tts",
+            "status": "success",
+            "cost_usd": _cost,
+            "duration_ms": int((time.time() - started_at) * 1000),
+            "units": {"audio_generated": 1},
+            "request_id": resp.headers.get("X-OR-Generation-ID"),
+            "metadata": {"analysis_type": "media"},
+        })
         # Response is raw audio bytes (Content-Type: audio/mpeg), NOT JSON
         audio_bytes = resp.content
         return self._save_binary(audio_bytes, "mp3", "tts")
@@ -342,6 +437,7 @@ class MediaGenerationManager:
                 audio_format = fmt
                 break
         print(f"[MediaGen] POST {self.openrouter_base}/audio/transcriptions model={self.stt_model}", flush=True)
+        started_at = time.time()
         resp = requests.post(
             f"{self.openrouter_base}/audio/transcriptions",
             headers={
@@ -352,8 +448,38 @@ class MediaGenerationManager:
             timeout=60,
         )
         if resp.status_code != 200:
-            raise RuntimeError(f"STT API returned {resp.status_code}: {resp.text[:200]}")
+            err_text = resp.text[:200]
+            log_ai_usage({
+                "provider": "openrouter",
+                "model": self.stt_model,
+                "operation": "audio.transcriptions",
+                "source": "generate_stt",
+                "status": "error",
+                "http_status": resp.status_code,
+                "error_message": err_text,
+                "duration_ms": int((time.time() - started_at) * 1000),
+                "metadata": {"analysis_type": "media"},
+            })
+            raise RuntimeError(f"STT API returned {resp.status_code}: {err_text}")
         result = resp.json()
+        # STT response JSON may include cost in body or X-OR-Cost-USD header
+        _cost = result.get("cost")
+        if _cost is None:
+            _hdr = resp.headers.get("X-OR-Cost-USD")
+            _cost = float(_hdr) if _hdr else None
+        log_ai_usage({
+            "provider": "openrouter",
+            "model": self.stt_model,
+            "operation": "audio.transcriptions",
+            "source": "generate_stt",
+            "status": "success",
+            "cost_usd": _cost,
+            "duration_ms": int((time.time() - started_at) * 1000),
+            "units": {"audio_transcribed": 1},
+            "request_id": result.get("id"),
+            "raw_usage": result,
+            "metadata": {"analysis_type": "media"},
+        })
         return result.get("text", "")
 
     # ==================== Vision ====================
@@ -387,6 +513,7 @@ class MediaGenerationManager:
                     break
             resolved_url = f"data:{mime};base64,{b64}"
         print(f"[MediaGen] POST {self.openrouter_base}/chat/completions model={self.vision_model}", flush=True)
+        started_at = time.time()
         resp = requests.post(
             f"{self.openrouter_base}/chat/completions",
             headers={
@@ -403,6 +530,33 @@ class MediaGenerationManager:
             timeout=60,
         )
         if resp.status_code != 200:
-            raise RuntimeError(f"Vision API returned {resp.status_code}: {resp.text[:200]}")
+            err_text = resp.text[:200]
+            log_ai_usage({
+                "provider": "openrouter",
+                "model": self.vision_model,
+                "operation": "chat.completions",
+                "source": "generate_vision",
+                "status": "error",
+                "http_status": resp.status_code,
+                "error_message": err_text,
+                "duration_ms": int((time.time() - started_at) * 1000),
+                "metadata": {"analysis_type": "media"},
+            })
+            raise RuntimeError(f"Vision API returned {resp.status_code}: {err_text}")
         data = resp.json()
+        usage = data.get("usage", {})
+        log_ai_usage({
+            "provider": "openrouter",
+            "model": self.vision_model,
+            "operation": "chat.completions",
+            "source": "generate_vision",
+            "status": "success",
+            "prompt_tokens": usage.get("prompt_tokens"),
+            "completion_tokens": usage.get("completion_tokens"),
+            "cost_usd": usage.get("cost"),
+            "duration_ms": int((time.time() - started_at) * 1000),
+            "raw_usage": usage,
+            "request_id": data.get("id"),
+            "metadata": {"analysis_type": "media"},
+        })
         return data["choices"][0]["message"]["content"]

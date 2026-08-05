@@ -242,3 +242,38 @@ class SAMLProvider(AuthProvider):      # SAML SSO
 - **Bug-driven parity**: เมื่อเจอ bug หรือ user อยาก feature → ค้นหาว่าตลาดทำยังไง → ทำให้เหมือน
 - **หากตลาดทำได้ เราต้องทำได้** — ใช้ OpenRouter API เหมือนกัน ถ้าเขาทำได้ เราทำได้
 - **ข้อจำกัดที่แท้จริง** = API rate limit, model capability, browser security sandbox — ไม่ใช่ "ไม่รู้ทำยังไง"
+
+## 15. AI Usage Hub Logging (NON-NEGOTIABLE)
+
+**หลักการ:** ทุกครั้งที่ระบบเรียก AI/scraping provider จริง (OpenRouter, Apify, 9arm, ฯลฯ) ต้องยิง log ไป AI Usage Hub ที่ `https://digital.in.th` — ไม่มี exception
+
+### ทำไมต้องทำ
+- ดูค่าใช้จ่าย/โทเคน/error rate แยกตาม user/model/provider แบบรวมศูนย์
+- หัวหน้าดู dashboard ที่ `https://digital.in.th/ai-usage`
+- OpenRouter เก็บ transaction log แค่ 31 วัน — log สดแม่นกว่าดึงย้อนหลัง
+
+### กฎ
+- **ทุก call site ต้อง log** — รวม error path ไม่ใช่แค่ success
+- **`provider` บังคับ** — ส่งชัดทุกครั้ง ถ้าลืมจะกลายเป็น `"unknown"` ใน dashboard
+- **`cost_usd` ต้องเป็นราคาจริง** — จาก `usage.cost` ของ OpenRouter ห้ามประมาณ
+- **`metadata.analysis_type`** — แยกประเภทงาน (`chat`, `media`, `search`, `agent`) เพื่อ filter ใน dashboard
+- **`user`/`reference`** — ตั้งใน contextvar ที่ entry point (`chat.py`) ไม่ใช่ส่งในแต่ละ call site
+- **fire-and-forget** — log ต้องไม่ block หรือ throw error ถ้า Hub ล่ม
+- **env var**: `AI_USAGE_HUB_URL`, `AI_USAGE_HUB_TOKEN`, `AI_USAGE_HUB_TIMEOUT` (ดู `.env.example`)
+
+### ฟังก์ชันหลัก
+- `backend/ai_usage_hub.py` → `log_ai_usage(entry: dict) -> None`
+- ใช้ daemon thread, ไม่ throw, ไม่ block
+
+### ถ้าเพิ่ม call site ใหม่
+1. หลังได้ response จาก provider → เรียก `log_ai_usage({...})` ทันที
+2. ใน `except` block → เรียก `log_ai_usage({...})` ด้วย `status="error"`
+3. ส่ง `provider`, `model`, `operation`, `source`, `status`, `duration_ms`, `metadata` ครบ
+4. ส่ง `cost_usd` จาก `usage.cost` ถ้ามี response
+5. ส่ง `request_id` จาก `response.id` ถ้ามี
+6. ส่ง `units` ถ้าไม่ใช่ token (เช่น `{"images_processed": 1}`)
+
+### อย่าทำ
+- ห้ามเขียน log ลงไฟล์ในเครื่อง (ลบ `credit_logger.py` ไปแล้ว)
+- ห้ามประมาณราคาเอง
+- ห้าม log แค่ success path

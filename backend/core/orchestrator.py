@@ -30,7 +30,7 @@ from backend.agents.registry import AgentRegistry
 from backend.agents.templates import validate_template_output, detect_template_id, get_template_contract
 from backend.core.messenger import StateMessenger
 from backend.core.media_awaiter import MediaAwaiter, should_auto_approve_on_retry
-from backend.credit_logger import log_llm_call
+from backend.ai_usage_hub import log_ai_usage
 
 MAX_REVIEW_RETRIES = int(os.environ.get("MAX_REVIEW_RETRIES", "3"))
 
@@ -58,18 +58,66 @@ class LiteLLMCallLogger(CustomLogger):
             usage = getattr(response_obj, "usage", None)
             if not usage:
                 usage = kwargs.get("usage", {})
+            if hasattr(usage, "model_dump"):
+                usage_dict = usage.model_dump()
+            elif isinstance(usage, dict):
+                usage_dict = usage
+            else:
+                usage_dict = {
+                    "prompt_tokens": getattr(usage, "prompt_tokens", 0),
+                    "completion_tokens": getattr(usage, "completion_tokens", 0),
+                    "total_tokens": getattr(usage, "total_tokens", 0),
+                    "cost": getattr(usage, "cost", 0),
+                }
             ctx = _llm_call_context.get(threading.get_ident(), "")
             caller = ctx or "litellm"
-            user_prompt = user_prompt_ctx.get("") or getattr(_thread_local, "user_prompt", "")
+            duration_ms = int((end_time - start_time) * 1000) if start_time and end_time else None
             if usage:
                 print(f"[LITELLM-EVENT] model={model}, caller={caller}, usage={usage}", flush=True)
-            log_llm_call(model, usage, caller=caller, prompt_preview="", user_prompt=user_prompt)
+            log_ai_usage({
+                "provider": "openrouter",
+                "model": model,
+                "operation": "chat.completions",
+                "source": caller,
+                "status": "success",
+                "prompt_tokens": usage_dict.get("prompt_tokens"),
+                "completion_tokens": usage_dict.get("completion_tokens"),
+                "cost_usd": usage_dict.get("cost"),
+                "duration_ms": duration_ms,
+                "raw_usage": usage_dict,
+                "request_id": getattr(response_obj, "id", None),
+                "metadata": {"analysis_type": "agent"},
+            })
         except Exception as e:
             print(f"[LITELLM-EVENT] Callback error: {e}", flush=True)
+
+    def log_failure_event(self, kwargs, response_obj, start_time, end_time):
+        """Spec: ALL call sites including error paths MUST be logged."""
+        try:
+            model = getattr(response_obj, "model", "") or kwargs.get("model", "unknown")
+            ctx = _llm_call_context.get(threading.get_ident(), "")
+            caller = ctx or "litellm"
+            duration_ms = int((end_time - start_time) * 1000) if start_time and end_time else None
+            err = getattr(response_obj, "error", None) or kwargs.get("exception", "unknown error")
+            print(f"[LITELLM-EVENT] FAILURE model={model}, caller={caller}, error={err}", flush=True)
+            log_ai_usage({
+                "provider": "openrouter",
+                "model": model,
+                "operation": "chat.completions",
+                "source": caller,
+                "status": "error",
+                "error_message": str(err),
+                "duration_ms": duration_ms,
+                "metadata": {"analysis_type": "agent"},
+            })
+        except Exception as e:
+            print(f"[LITELLM-EVENT] Failure callback error: {e}", flush=True)
 
 _litellm_logger = LiteLLMCallLogger()
 if _litellm_logger not in litellm.success_callback:
     litellm.success_callback.append(_litellm_logger)
+if _litellm_logger not in litellm.failure_callback:
+    litellm.failure_callback.append(_litellm_logger)
 
 
 # --- CrewAI event bus logging (kept as backup) ---
@@ -83,12 +131,35 @@ def _on_llm_call_completed(event: LLMCallCompletedEvent):
     caller = ctx or (f"agent:{agent_role}" if agent_role else "crewai")
     if task_name:
         caller += f":{task_name[:50]}"
-    user_prompt = user_prompt_ctx.get("") or getattr(_thread_local, "user_prompt", "")
+    if hasattr(usage, "model_dump"):
+        usage_dict = usage.model_dump()
+    elif isinstance(usage, dict):
+        usage_dict = usage
+    else:
+        usage_dict = {
+            "prompt_tokens": getattr(usage, "prompt_tokens", 0),
+            "completion_tokens": getattr(usage, "completion_tokens", 0),
+            "total_tokens": getattr(usage, "total_tokens", 0),
+            "cost": getattr(usage, "cost", 0),
+        }
     if not usage:
         print(f"[LLM-EVENT] No usage data for model={model}, caller={caller}", flush=True)
     else:
         print(f"[LLM-EVENT] model={model}, caller={caller}, usage={usage}", flush=True)
-    log_llm_call(model, usage, caller=caller, prompt_preview="", user_prompt=user_prompt)
+    log_ai_usage({
+        "provider": "openrouter",
+        "model": model,
+        "operation": "chat.completions",
+        "source": caller,
+        "status": "success",
+        "prompt_tokens": usage_dict.get("prompt_tokens"),
+        "completion_tokens": usage_dict.get("completion_tokens"),
+        "cost_usd": usage_dict.get("cost"),
+        "duration_ms": None,  # CrewAI event bus doesn't expose start/end time
+        "raw_usage": usage_dict,
+        "request_id": getattr(event, "id", None) or usage_dict.get("id"),
+        "metadata": {"analysis_type": "agent"},
+    })
 
 crewai_event_bus.on(LLMCallCompletedEvent)(_on_llm_call_completed)
 

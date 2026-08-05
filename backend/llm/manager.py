@@ -3,10 +3,11 @@
 import asyncio
 import os
 import re
+import time
 import requests
 from crewai import LLM
 from backend.utils import _sanitize_error
-from backend.credit_logger import log_llm_call
+from backend.ai_usage_hub import log_ai_usage
 from backend.llm.rotator import FreeModelRotator
 
 class LLMManager:
@@ -122,6 +123,7 @@ class LLMManager:
         if not model_id:
             raise RuntimeError("No model available for vision call")
         client = OpenAI(base_url=self.base_url, api_key=self.api_key, max_retries=0, timeout=120)
+        started_at = time.time()
         try:
             response = client.chat.completions.create(
                 model=model_id,
@@ -134,13 +136,38 @@ class LLMManager:
                 }],
                 temperature=self.temperature,
             )
-            log_llm_call(model_id, response.usage, caller=caller, prompt_preview=prompt)
+            usage = response.usage.model_dump() if response.usage and hasattr(response.usage, "model_dump") else (response.usage or {})
+            log_ai_usage({
+                "provider": "openrouter",
+                "model": model_id,
+                "operation": "chat.completions",
+                "source": caller,
+                "status": "success",
+                "prompt_tokens": usage.get("prompt_tokens"),
+                "completion_tokens": usage.get("completion_tokens"),
+                "cost_usd": usage.get("cost"),
+                "duration_ms": int((time.time() - started_at) * 1000),
+                "raw_usage": usage,
+                "request_id": getattr(response, "id", None),
+                "metadata": {"analysis_type": "chat"},
+            })
             content = response.choices[0].message.content or ""
             if content.strip():
                 return content
             print(f"[LLMManager] Vision call returned empty with {model_id} — trying rotator", flush=True)
         except Exception as e:
-            print(f"[LLMManager] Vision call failed with {model_id}: {_sanitize_error(e)} — trying rotator", flush=True)
+            err_msg = _sanitize_error(e)
+            log_ai_usage({
+                "provider": "openrouter",
+                "model": model_id,
+                "operation": "chat.completions",
+                "source": caller,
+                "status": "error",
+                "error_message": err_msg,
+                "duration_ms": int((time.time() - started_at) * 1000),
+                "metadata": {"analysis_type": "chat"},
+            })
+            print(f"[LLMManager] Vision call failed with {model_id}: {err_msg} — trying rotator", flush=True)
         # Fallback to rotator's vision-capable free models
         if self._is_free_routing():
             return self._get_rotator().call_with_image(prompt, image_data_url, caller=caller)
@@ -164,15 +191,41 @@ class LLMManager:
         kwargs = {"model": model_id, "messages": messages, "temperature": self.temperature}
         if plugins:
             kwargs["extra_body"] = {"plugins": plugins}
+        started_at = time.time()
         try:
             response = client.chat.completions.create(**kwargs)
-            log_llm_call(model_id, response.usage, caller=caller, prompt_preview=prompt)
+            usage = response.usage.model_dump() if response.usage and hasattr(response.usage, "model_dump") else (response.usage or {})
+            log_ai_usage({
+                "provider": "openrouter",
+                "model": model_id,
+                "operation": "chat.completions",
+                "source": caller,
+                "status": "success",
+                "prompt_tokens": usage.get("prompt_tokens"),
+                "completion_tokens": usage.get("completion_tokens"),
+                "cost_usd": usage.get("cost"),
+                "duration_ms": int((time.time() - started_at) * 1000),
+                "raw_usage": usage,
+                "request_id": getattr(response, "id", None),
+                "metadata": {"analysis_type": "chat"},
+            })
             content = response.choices[0].message.content or ""
             if content.strip():
                 return content
             print(f"[LLMManager] Multimodal call returned empty with {model_id} — trying rotator", flush=True)
         except Exception as e:
-            print(f"[LLMManager] Multimodal call failed with {model_id}: {_sanitize_error(e)} — trying rotator", flush=True)
+            err_msg = _sanitize_error(e)
+            log_ai_usage({
+                "provider": "openrouter",
+                "model": model_id,
+                "operation": "chat.completions",
+                "source": caller,
+                "status": "error",
+                "error_message": err_msg,
+                "duration_ms": int((time.time() - started_at) * 1000),
+                "metadata": {"analysis_type": "chat"},
+            })
+            print(f"[LLMManager] Multimodal call failed with {model_id}: {err_msg} — trying rotator", flush=True)
         # Fallback to rotator's vision-capable free models
         if self._is_free_routing():
             return self._get_rotator().call_with_multimodal(prompt, content_blocks, plugins, caller=caller)
@@ -191,23 +244,52 @@ class LLMManager:
         kwargs = {"model": model_id, "messages": messages, "temperature": self.temperature, "stream": True, "stream_options": {"include_usage": True}}
         if plugins:
             kwargs["extra_body"] = {"plugins": plugins}
+        started_at = time.time()
         try:
             stream = client.chat.completions.create(**kwargs)
             usage_data = None
             has_content = False
+            _stream_id = None
             for chunk in stream:
                 if chunk.usage:
                     usage_data = chunk.usage
+                if hasattr(chunk, "id") and chunk.id:
+                    _stream_id = chunk.id
                 if chunk.choices and chunk.choices[0].delta.content:
                     has_content = True
                     yield chunk.choices[0].delta.content
             if usage_data:
-                log_llm_call(model_id, usage_data, caller=caller, prompt_preview=prompt)
+                usage = usage_data.model_dump() if hasattr(usage_data, "model_dump") else (usage_data or {})
+                log_ai_usage({
+                    "provider": "openrouter",
+                    "model": model_id,
+                    "operation": "chat.completions",
+                    "source": caller,
+                    "status": "success",
+                    "prompt_tokens": usage.get("prompt_tokens"),
+                    "completion_tokens": usage.get("completion_tokens"),
+                    "cost_usd": usage.get("cost"),
+                    "duration_ms": int((time.time() - started_at) * 1000),
+                    "raw_usage": usage,
+                    "request_id": _stream_id if "_stream_id" in locals() else None,
+                    "metadata": {"analysis_type": "chat"},
+                })
             if has_content:
                 return
             print(f"[LLMManager] Multimodal stream returned empty with {model_id} — trying rotator", flush=True)
         except Exception as e:
-            print(f"[LLMManager] Multimodal stream failed with {model_id}: {_sanitize_error(e)} — trying rotator", flush=True)
+            err_msg = _sanitize_error(e)
+            log_ai_usage({
+                "provider": "openrouter",
+                "model": model_id,
+                "operation": "chat.completions",
+                "source": caller,
+                "status": "error",
+                "error_message": err_msg,
+                "duration_ms": int((time.time() - started_at) * 1000),
+                "metadata": {"analysis_type": "chat"},
+            })
+            print(f"[LLMManager] Multimodal stream failed with {model_id}: {err_msg} — trying rotator", flush=True)
         # Fallback to rotator's vision-capable free models (non-streaming)
         if self._is_free_routing():
             result = self._get_rotator().call_with_multimodal(prompt, content_blocks, plugins, caller=caller)
@@ -225,6 +307,7 @@ class LLMManager:
                 if not is_free:
                     print(f"[LLMManager] WARNING: call_streaming using PAID model: {model_id!r}", flush=True)
                 # Try the selected/default model first
+                started_at = time.time()
                 try:
                     from openai import OpenAI
                     client = OpenAI(base_url=self.base_url, api_key=self.api_key, max_retries=0, timeout=120)
@@ -237,14 +320,31 @@ class LLMManager:
                     )
                     got_content = False
                     usage_data = None
+                    _stream_id = None
                     for chunk in stream:
                         if chunk.usage:
                             usage_data = chunk.usage
+                        if hasattr(chunk, "id") and chunk.id:
+                            _stream_id = chunk.id
                         if chunk.choices and chunk.choices[0].delta.content:
                             got_content = True
                             yield chunk.choices[0].delta.content
                     if usage_data:
-                        log_llm_call(model_id, usage_data, caller=caller, prompt_preview=prompt)
+                        usage = usage_data.model_dump() if hasattr(usage_data, "model_dump") else (usage_data or {})
+                        log_ai_usage({
+                            "provider": "openrouter",
+                            "model": model_id,
+                            "operation": "chat.completions",
+                            "source": caller,
+                            "status": "success",
+                            "prompt_tokens": usage.get("prompt_tokens"),
+                            "completion_tokens": usage.get("completion_tokens"),
+                            "cost_usd": usage.get("cost"),
+                            "duration_ms": int((time.time() - started_at) * 1000),
+                            "raw_usage": usage,
+                            "request_id": _stream_id if "_stream_id" in locals() else None,
+                            "metadata": {"analysis_type": "chat"},
+                        })
                     if got_content:
                         return
                     # Empty stream — return error, don't retry with rotator (saves credits)
@@ -252,6 +352,16 @@ class LLMManager:
                     raise RuntimeError(f"Model '{model_id}' returned empty response")
                 except Exception as e:
                     err_msg = _sanitize_error(e)
+                    log_ai_usage({
+                        "provider": "openrouter",
+                        "model": model_id,
+                        "operation": "chat.completions",
+                        "source": caller,
+                        "status": "error",
+                        "error_message": err_msg,
+                        "duration_ms": int((time.time() - started_at) * 1000),
+                        "metadata": {"analysis_type": "chat"},
+                    })
                     print(f"[LLMManager] Primary LLM streaming error: {err_msg}")
                     # Only try free model rotator if using openrouter/free
                     if self._is_free_routing():
@@ -269,15 +379,39 @@ class LLMManager:
         print(f"[LLMManager] Using local fallback streaming: {self.fallback_provider}/{self.fallback_model}")
         from openai import OpenAI
         client = OpenAI(base_url=self.fallback_base_url, api_key=self.fallback_api_key, max_retries=0)
-        stream = client.chat.completions.create(
-            model=self.fallback_model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=self.temperature,
-            stream=True,
-        )
-        for chunk in stream:
-            if chunk.choices and chunk.choices[0].delta.content:
-                yield chunk.choices[0].delta.content
+        started_at = time.time()
+        try:
+            stream = client.chat.completions.create(
+                model=self.fallback_model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=self.temperature,
+                stream=True,
+            )
+            for chunk in stream:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    yield chunk.choices[0].delta.content
+            log_ai_usage({
+                "provider": "other",  # local fallback — spec normalizes unknown to "other"
+                "model": self.fallback_model,
+                "operation": "chat.completions",
+                "source": caller,
+                "status": "success",
+                "cost_usd": 0,  # local fallback (Ollama) is free
+                "duration_ms": int((time.time() - started_at) * 1000),
+                "metadata": {"analysis_type": "chat"},
+            })
+        except Exception as e:
+            log_ai_usage({
+                "provider": "other",  # local fallback — spec normalizes unknown to "other"
+                "model": self.fallback_model,
+                "operation": "chat.completions",
+                "source": caller,
+                "status": "error",
+                "error_message": _sanitize_error(e),
+                "duration_ms": int((time.time() - started_at) * 1000),
+                "metadata": {"analysis_type": "chat"},
+            })
+            raise
 
     def _build_llm(self, provider: str, model: str, base_url: str, api_key: str) -> LLM:
         # Check if there are attachment plugins (e.g. PDF file-parser) to pass to OpenRouter
@@ -403,6 +537,7 @@ class LLMManager:
         """Call LLM with automatic fallback: routing model → free rotator → local → error."""
         if not self._is_in_cooldown():
             if self._is_openrouter():
+                started_at = time.time()
                 try:
                     model_id = self._selected_model or self._default_model
                     from openai import OpenAI
@@ -412,10 +547,35 @@ class LLMManager:
                         messages=[{"role": "user", "content": prompt}],
                         temperature=self.temperature,
                     )
-                    log_llm_call(model_id, response.usage, caller=caller, prompt_preview=prompt)
+                    usage = response.usage.model_dump() if response.usage and hasattr(response.usage, "model_dump") else (response.usage or {})
+                    log_ai_usage({
+                        "provider": "openrouter",
+                        "model": model_id,
+                        "operation": "chat.completions",
+                        "source": caller,
+                        "status": "success",
+                        "prompt_tokens": usage.get("prompt_tokens"),
+                        "completion_tokens": usage.get("completion_tokens"),
+                        "cost_usd": usage.get("cost"),
+                        "duration_ms": int((time.time() - started_at) * 1000),
+                        "raw_usage": usage,
+                        "request_id": getattr(response, "id", None),
+                        "metadata": {"analysis_type": "chat"},
+                    })
                     return response.choices[0].message.content or ""
                 except Exception as e:
                     err_msg = _sanitize_error(e)
+                    model_id = self._selected_model or self._default_model
+                    log_ai_usage({
+                        "provider": "openrouter",
+                        "model": model_id,
+                        "operation": "chat.completions",
+                        "source": caller,
+                        "status": "error",
+                        "error_message": err_msg,
+                        "duration_ms": int((time.time() - started_at) * 1000),
+                        "metadata": {"analysis_type": "chat"},
+                    })
                     print(f"[LLMManager] Primary LLM error: {err_msg}")
                     # Only try free model rotator if using openrouter/free
                     if self._is_free_routing():
@@ -438,9 +598,31 @@ class LLMManager:
             self.fallback_base_url,
             self.fallback_api_key,
         )
+        started_at = time.time()
         try:
-            return llm.call(prompt)
+            result = llm.call(prompt)
+            log_ai_usage({
+                "provider": "other",  # local fallback — spec normalizes unknown to "other"
+                "model": self.fallback_model,
+                "operation": "chat.completions",
+                "source": caller,
+                "status": "success",
+                "cost_usd": 0,  # local fallback (Ollama) is free
+                "duration_ms": int((time.time() - started_at) * 1000),
+                "metadata": {"analysis_type": "chat"},
+            })
+            return result
         except Exception as e:
+            log_ai_usage({
+                "provider": "other",  # local fallback — spec normalizes unknown to "other"
+                "model": self.fallback_model,
+                "operation": "chat.completions",
+                "source": caller,
+                "status": "error",
+                "error_message": _sanitize_error(e),
+                "duration_ms": int((time.time() - started_at) * 1000),
+                "metadata": {"analysis_type": "chat"},
+            })
             raise RuntimeError(f"All LLM tiers failed. Last error: {e}")
 
     def report_rate_limit(self):

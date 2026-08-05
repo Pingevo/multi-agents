@@ -44,5 +44,4 @@ Thumbs.db
 .vscode/
 .idea/
 data/
-llm-call-log.jsonl
 test-results/

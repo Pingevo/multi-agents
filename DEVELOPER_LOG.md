@@ -1,5 +1,127 @@
 # Developer Log
 
+## 2026-08-05 (session 12) — Integrate AI Usage Hub (replace local JSONL logging)
+
+### What
+Replace local-only `llm-call-log.jsonl` logging with HTTP push to central AI
+Usage Hub at `https://digital.in.th` (per `AI_USAGE_HUB_DEVELOPER_API.md` from
+sellcenter team). Old `credit_logger.log_llm_call` will be removed; all 19
+OpenRouter call sites will switch to new `log_ai_usage()`.
+
+### Why
+- Market Parity Baseline: every AI app in the market has a cost dashboard
+- Old logger wrote to local file only — nobody looked at it
+- Hub gives cross-project dashboard, filter by user/reference/date
+- Hub doc mandates error-path logging (old logger only logged success)
+- Token `svc_42` issued by sellcenter for this project
+
+### TDD slices (vertical, one test → one implementation per cycle)
+1. ✅ RED→GREEN: `test_ai_usage_hub.py` (12 tests) — `log_ai_usage()` module
+   with fire-and-forget HTTP, env-var guard, contextvar defaults, never-throws
+2. ✅ RED→GREEN: `test_llm_manager_logging.py` (3 tests) — LLMManager success
+   + error path pushes to `log_ai_usage` with correct fields
+3. ✅ RED→GREEN: `test_rotator_logging.py` (3 tests) — FreeModelRotator
+   success + error + streaming, with `attempt` field
+4. ✅ RED→GREEN: `test_media_logging.py` (4 tests) — image, TTS, vision
+   (previously unlogged: TTS, STT, vision)
+5. ✅ RED→GREEN: `test_search_adapter_logging.py` (2 tests) — search
+   success + error (previously unlogged entirely)
+6. ✅ GREEN: orchestrator litellm + crewai event bus callbacks switched
+   to `log_ai_usage` (safety net for future call sites)
+7. ✅ GREEN: chat.py sets `ai_user_ctx` + `ai_reference_ctx` at 3 entry
+   points (multi-agent, single-agent, main chat) so all logs auto-include
+   user_id and session_id
+8. ✅ GREEN: deleted `backend/credit_logger.py`, removed
+   `llm-call-log.jsonl` from `.gitignore`, removed unused import in
+   `backend/llm/selector.py`
+9. ✅ GREEN: full test run (394/394 pass) + code-review skill (2 sub-agents:
+   Standards + Spec). Fixed 4 spec findings:
+   - Added `log_failure_event` to LiteLLM callback (error path was missing)
+   - TTS/STT now send `cost_usd` from `X-OR-Cost-USD` header or JSON body
+   - Local fallback (Ollama) calls now logged with `provider=fallback_provider`
+   - Removed silent `provider="openrouter"` default → now "unknown" so
+     missing-provider bugs surface in dashboard (spec says mandatory)
+
+### Post-review: re-read spec file, found 3 more gaps (session 12b)
+After reading the actual `AI_USAGE_HUB_DEVELOPER_API.md` (not just the
+reconstructed summary), found 3 fields the spec asks for that were missing:
+- `request_id` (spec §2) — provider generation id, used as idempotency key.
+  Added `response.id` / `data.id` / `chunk.id` to all success paths that
+  have a response object.
+- `units` (spec §2) — non-token usage like images/videos/audio. Added
+  `{"images_processed": 1}`, `{"videos_generated": 1}`,
+  `{"audio_generated": 1}`, `{"audio_transcribed": 1}` to media paths.
+- `metadata.analysis_type` (spec §4) — tag for filtering by job type in
+  dashboard. Added `"chat"`, `"media"`, `"search"`, `"agent"` to all 19
+  success paths. Verified 19/19 success paths now carry metadata.
+
+### Second re-review: closed 2 more gaps (session 12c)
+Spec re-review sub-agent found 2 more issues:
+- `request_id` missing in 5 paths (image, TTS, STT, vision, CrewAI
+  callback) that use raw HTTP instead of OpenAI SDK. Added `data.get("id")`,
+  `resp.headers.get("X-OR-Generation-ID")`, `result.get("id")`,
+  `getattr(event, "id", None)` respectively.
+- `metadata.analysis_type` missing in all 18 error paths. Spec §4 says
+  dashboard filtering needs both success + error. Added metadata to all
+  18 error paths. Verified 37/37 log_ai_usage calls now carry metadata.
+
+### Third check: full field coverage audit (session 12d)
+Ran a script to audit every spec field across all 37 log_ai_usage calls.
+Found 1 real gap: CrewAI event bus callback (orchestrator.py:149) was
+missing `duration_ms` because CrewAI events don't expose start/end time.
+Added `"duration_ms": None` explicitly so the field is present (Hub treats
+None as "unknown"). All other "missing" fields were false positives:
+- `user`/`reference` come from contextvars, not call site dict
+- `request_id`/`prompt_tokens`/`completion_tokens`/`cost_usd`/`raw_usage`
+  only present in success paths (error paths have no response object)
+- `error_message` only present in error paths (18 error = 18 error_message)
+- `units` only for non-token ops (image/video/TTS/STT), chat has tokens
+
+### Fourth check: leftover + edge cases (session 12e)
+Final sweep for anything dropped:
+- Deleted leftover `llm-call-log.jsonl` (41KB) still on disk from old logger
+- Video polling failure + timeout had no log. Added `status="error"` for
+  polling failure and `status="timeout"` for 5-min timeout (spec §2 lists
+  `timeout` as valid status). Now 39 log_ai_usage calls total.
+
+### Fifth check: code-review skill final audit (session 12f)
+Per mattpocock-skills rule "Delivering work / after code changes → code-review
+YES", ran final completeness audit sub-agent. All 5 categories passed:
+- Call site coverage: all sites have log in success + error paths
+- Spec field coverage: all fields present where appropriate
+- Cleanup: credit_logger deleted, no log_llm_call remnants
+- Config: .env.example has all 3 env vars
+- Edge cases: video polling, local fallback, streaming, LiteLLM, CrewAI all covered
+Fixed indentation inconsistency in rotator.py error paths (4 metadata lines
++ 4 closing braces had 16/12 spaces instead of 20/16 to match siblings).
+Style only — Python accepted both, tests passed either way.
+
+### Sixth check: skeptical re-audit (session 12g)
+User said "ไม่เชื่อ ลองอีกรอบ" — ran another completeness audit. Found 2 more
+indentation bugs in llm/manager.py that the previous audit missed:
+- Line 363: streaming error path metadata had indent=20, siblings indent=24
+- Line 576: call_with_fallback error path metadata had indent=20, siblings=24
+Both fixed. All 6 categories now PASS. 394/394 tests still pass.
+
+### Verification (all slices)
+- 394/394 tests pass (8 deselected — pre-existing, unrelated)
+- Confirmed `usage.cost` reachable via OpenAI SDK (Pydantic `extra='allow'`)
+- Confirmed 19 OpenRouter call sites via grep (12 logged success-only,
+  7 unlogged: TTS, STT, vision, search)
+- All 19 sites now push to Hub with success + error paths
+- Local fallback (Ollama) calls also logged
+- LiteLLM callback covers both success + failure (safety net for future
+  call sites and CrewAI internals)
+- contextvars auto-populate `user` (user_id) and `reference` (session_id)
+- code-review: 0 hard Standards violations; 4 Spec findings fixed
+
+### Files
+- `backend/ai_usage_hub.py` — new module, single function `log_ai_usage(entry)`
+- `test_ai_usage_hub.py` — new test (12 cases)
+- `test_llm_manager_logging.py` — new test (3 cases, currently RED)
+
+---
+
 ## 2026-08-05 (session 11) — Fix FreeModelRotator stale slugs (issue #125)
 
 ### What
@@ -473,3 +595,31 @@ Manual testing เจอว่า Manager synthesis ใช้เวลา 60+ �
 - `backend/core/secretary.py` — max_search_calls in prompt + templates + parsing
 - `frontend/src/components/retro/TasksWindow.tsx` — Manager progress in synthesizing banner
 - `test_search_limit.py` — new test file (5 tests)
+
+### Seventh check: one-shot script (session 12h)
+User challenged: "recheck กี่รอบก็เจอตกหล่นทุกรอบ มันจะไปจบที่ตรงไหน?"
+Wrote `scripts/check_ai_usage_hub.py` — checks all 6 categories in one pass:
+1. Call site coverage (success + error per file)
+2. Spec field coverage (mandatory fields per block)
+3. Cleanup (credit_logger, jsonl, imports)
+4. Config (.env.example vars)
+5. Edge cases (video polling, fallback, streaming, litellm, crewai)
+6. Code quality (indentation consistency)
+First run found 2 real issues: local fallback (Ollama) success paths missing
+`cost_usd`. Ollama is free → actual cost = 0 → added `"cost_usd": 0` explicitly.
+Second run: ALL CHECKS PASSED. Script is reusable for future call site additions.
+
+### Eighth check: independent audit (session 12i)
+User challenged: "มั่นใจได้ไงว่า script ไม่ bias"
+Ran independent sub-agent audit WITHOUT using my script. Found 2 real issues
+my script missed (script had same blind spots as code author):
+1. `"_stream_id" in dir()` — dir() doesn't check local vars. Fixed to `locals()`.
+   Affected 3 streaming paths (manager.py:274,345, rotator.py:432).
+2. `provider="local"` for Ollama fallback — spec only allows openrouter|gemini|
+   openai|anthropic|apify|9arm|other. "local" would be normalized to "other"
+   server-side but better to send "other" explicitly. Fixed 4 log calls.
+False positives (audit was wrong): GET /models and /key calls don't need logging
+(spec = "เรียก AI provider จริง" = generation, not catalog fetch). user/reference
+come from contextvars in _normalize_entry(), not call site dict.
+Lesson: self-written checker has same blind spots as code author. Independent
+audit catches what self-audit can't.
