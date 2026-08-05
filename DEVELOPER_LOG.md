@@ -1,5 +1,46 @@
 # Developer Log
 
+## 2026-08-05 (session 13) — Task C: Secretary prompt instructs agents to read full pages
+
+### What
+Added `_build_search_behavior_section()` to `backend/core/secretary.py` — a new
+extracted prompt section that tells the Secretary to instruct any agent with
+`search_web` to call `browse_web` on source URLs (falling back to `scrape_web`)
+to read the full page BEFORE writing its final answer. Wired into both the plan
+prompt and the retry prompt at the existing `_build_design_rules_section()` call
+sites.
+
+### Why (Market Parity — Task C / HANDOFF search-parity)
+Market leaders (Claude, ChatGPT, Gemini) read the actual page content before
+synthesizing answers. Our `search_web` returns only the search-engine summary
+with source URLs — agents never opened the full page, so synthesized answers
+were shallower than the market. `browse_web` (Playwright) and `scrape_web`
+(urllib) already exist in `tool_registry.py` but the Secretary prompt never
+told agents to use them after search.
+
+### TDD slices
+1. RED: `test_secretary_read_full_pages.py` — 5 tests for the new section
+   (exists, mentions browse_web, mentions scrape_web fallback, links to
+   search_web, says "before synthesizing"). ImportError on first run.
+2. GREEN: Added `_build_search_behavior_section()` + wired into 2 prompt
+   sites. 5/5 pass.
+3. No refactor needed — followed existing extracted-helper pattern.
+
+### Verification
+- New test: 5/5 pass
+- Full suite: 392 passed, 8 deselected, 0 regressions
+- code-review: 1 hard violation (this DEVELOPER_LOG entry — now fixed),
+  2 judgement calls suppressed (duplicated wiring = repo convention;
+  multi-assertion test = single function under test, not horizontal slicing)
+
+### Files
+- `backend/core/secretary.py` — new `_build_search_behavior_section()` + 2 wiring lines
+- `test_secretary_read_full_pages.py` — new test file (5 tests)
+
+### Spec
+- HANDOFF.md Task C: "เพิ่มใน secretary prompt: ถ้า search_web ส่ง URL กลับมา
+  ให้ agent เรียก browse_web อ่านหน้าจริงก่อน synthesize"
+
 ## 2026-08-05 (session 12) — Integrate AI Usage Hub (replace local JSONL logging)
 
 ### What

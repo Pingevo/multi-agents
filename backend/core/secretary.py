@@ -42,6 +42,31 @@ def _build_design_rules_section() -> str:
     )
 
 
+def _build_search_behavior_section() -> str:
+    """Build the Search Behavior section of the Secretary prompt.
+
+    Tells the Secretary to instruct any agent with `search_web` to read the
+    full page behind each source URL before synthesizing its final answer —
+    matching market behavior (Claude/ChatGPT/Gemini read full pages, not just
+    search-engine summaries). Uses `browse_web` (Playwright) first, falling
+    back to `scrape_web` (urllib) if browse fails.
+
+    Extracted so tests can verify the read-full-pages instruction is present
+    without making LLM calls (same pattern as `_build_plan_schema_section`
+    and `_build_design_rules_section`).
+    """
+    return (
+        "CRITICAL — Search Behavior (read full pages before synthesizing):\n"
+        "- Any agent with `search_web` in its tools MUST call `browse_web` on the source URLs "
+        "returned by search to read the full page content BEFORE writing its final answer. "
+        "Search returns only a short summary — the full page has the detail needed for a deep answer.\n"
+        "- If `browse_web` fails on a URL (timeout, paywall, JS-required), fall back to `scrape_web` "
+        "for that URL. If both fail, use the search summary and note that the full page was unavailable.\n"
+        "- The agent's task_description MUST include this instruction explicitly so the agent knows "
+        "to call browse_web / scrape_web after search_web returns.\n"
+    )
+
+
 class CentralManager:
     """AI Manager: ประเมินความต้องการ, ถาม requirement, วิเคราะห์และวางแผน multi-agent"""
 
@@ -405,6 +430,7 @@ class CentralManager:
             "- Capabilities of type 'model_trait' (reasoning, creative_writing, write_code, long_context) guide model selection\n"
             "- Assign each agent the most suitable model from: 'google/gemini-3.5-flash', 'anthropic/claude-sonnet-5', 'openai/gpt-5.6-luna'. Consider the agent's role and tasks when choosing.\n"
             + _build_design_rules_section()
+            + _build_search_behavior_section()
             + "- Write all content in the SAME language as the user's request\n"
             "- Name agents as 'Role #N' (e.g. Creative Writer #1, Graphic Designer #2)\n"
             "- Give each agent a personality (tone, communication_style, language) that fits their role\n"
@@ -966,6 +992,7 @@ class CentralManager:
             "- Assign capabilities based on the descriptions below\n"
             "- Assign each agent the most suitable model from: 'google/gemini-3.5-flash', 'anthropic/claude-sonnet-5', 'openai/gpt-5.6-luna'. Consider the agent's role and tasks when choosing.\n"
             + _build_design_rules_section()
+            + _build_search_behavior_section()
             + "- Write all content in the SAME language as the user's request\n"
             "- Name agents as 'Role #N' (e.g. Creative Writer #1)\n"
             "- Give each agent personality, expertise, and brand_context fields\n"
