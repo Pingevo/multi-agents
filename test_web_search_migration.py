@@ -41,7 +41,7 @@ class _FakeDiscovery:
 
 _CATALOG = {
     "openai/gpt-4o-mini": ["tools", "temperature"],
-    "perplexity/sonar-pro": ["web_search", "temperature"],
+    "perplexity/sonar-pro": ["web_search_options", "temperature"],
 }
 
 

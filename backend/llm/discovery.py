@@ -96,8 +96,14 @@ class ModelDiscoveryService:
                 "supported_parameters": params,
             }
 
-            # Search models: text output + web_search parameter
-            if "web_search" in params and "text" in output_modalities:
+            # Search models: text output + web_search parameter.
+            # OpenRouter exposes search via two parameter names:
+            #   - `web_search` (legacy/routing models)
+            #   - `web_search_options` (Perplexity native, see ADR-0004)
+            # Checking only `web_search` misses all Perplexity models, leaving
+            # the Secretary prompt with no "Web search models:" line — so the
+            # LLM cannot fill `search_model` and plan approval blocks.
+            if ("web_search" in params or "web_search_options" in params) and "text" in output_modalities:
                 groups["search"].append(entry)
             elif "image" in output_modalities:
                 groups["image"].append(entry)

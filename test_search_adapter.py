@@ -35,20 +35,22 @@ class _FakeDiscovery:
         return self._catalog.get(model_id, [])
 
 
-# Catalog mimicking real OpenRouter model metadata
+# Catalog mimicking real OpenRouter model metadata (verified 2026-08-05)
 # - tools-capable models: have "tools" in supported_parameters
-# - perplexity models: have "web_search" but NOT "tools" (built-in search)
+# - perplexity models: have "web_search_options" (NOT "web_search") — built-in search
+#   Per OpenRouter API, the parameter was renamed; older tests used "web_search"
+#   which no longer appears in any real model's supported_parameters.
 # - openrouter/free: not in catalog (router, skipped by discover_all)
 _FAKE_CATALOG = {
     "anthropic/claude-sonnet-5": ["tools", "temperature", "max_tokens"],
     "openai/gpt-5.6-luna": ["tools", "temperature", "max_tokens"],
     "google/gemini-3.5-flash": ["tools", "temperature", "max_tokens"],
     "x-ai/grok-4.5": ["tools", "temperature", "max_tokens"],
-    "perplexity/sonar-pro": ["web_search", "temperature", "max_tokens"],
-    "perplexity/sonar": ["web_search", "temperature"],
-    "perplexity/sonar-reasoning-pro": ["web_search", "reasoning", "temperature"],
-    "perplexity/sonar-deep-research": ["web_search", "reasoning", "temperature"],
-    "perplexity/sonar-pro-search": ["web_search", "temperature"],
+    "perplexity/sonar-pro": ["web_search_options", "temperature", "max_tokens"],
+    "perplexity/sonar": ["web_search_options", "temperature"],
+    "perplexity/sonar-reasoning-pro": ["web_search_options", "reasoning", "temperature"],
+    "perplexity/sonar-deep-research": ["web_search_options", "reasoning", "temperature"],
+    "perplexity/sonar-pro-search": ["web_search_options", "temperature"],
 }
 
 
