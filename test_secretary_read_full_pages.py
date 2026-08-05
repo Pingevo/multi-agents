@@ -34,6 +34,30 @@ class TestSecretaryPromptReadFullPages:
             f"Section should instruct agents to call browse_web. Got: {section}"
         )
 
+    def test_section_requires_browse_web_in_tools_array(self):
+        """Must tell Secretary to ADD browse_web to the agent's tools array.
+
+        Bug: prompt said "agent with search_web MUST call browse_web" but
+        never told the Secretary to put browse_web in the tools array —
+        so the agent never received browse_web and could not call it.
+        The word "call" means "use", not "declare in tools". Must explicitly
+        say "add ... to tools" or "must also have ... in tools array".
+        """
+        from backend.core.secretary import _build_search_behavior_section
+        section = _build_search_behavior_section().lower()
+        # Must explicitly say browse_web goes IN the tools array.
+        # "call browse_web" = use it (not declare it)
+        # "add browse_web to tools" / "must also have browse_web in tools" = declare it
+        has_tools_array_instruction = (
+            ("add" in section and "browse_web" in section and "tools" in section)
+            or ("must also have" in section and "browse_web" in section)
+            or ("tools array" in section and "browse_web" in section)
+        )
+        assert has_tools_array_instruction, (
+            f"Section should instruct Secretary to ADD browse_web to the agent's "
+            f"tools array (not just 'call' it). Got: {section}"
+        )
+
     def test_section_mentions_scrape_web_as_fallback(self):
         """Must offer scrape_web as a fallback when browse_web fails."""
         from backend.core.secretary import _build_search_behavior_section
