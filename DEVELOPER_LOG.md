@@ -1,5 +1,61 @@
 # Developer Log
 
+## 2026-08-05 (session 15) — Fix: Manager review prompt missing date injection (Task B bug follow-up)
+
+### Context
+Bug discovered via @conversation: Task C — Manager reviewer rejected valid
+2026 data as "future/hallucination" even though the agent confirmed the date
+via browse_web. Root cause: Task B (commit 41756f6) injected "Today's date"
+into agent backstory (factory.py) but NOT into the Manager review prompt.
+Manager reviewer is a direct LLM call (manager_llm.call(review_prompt)) that
+bypasses AgentFactory, so it never received the date.
+
+### Diagnosis (diagnosing-bugs skill, 6 phases)
+- Phase 1 (feedback loop): wrote `test_manager_review_date.py` — failing test
+  asserting `_build_manager_review_prompt()` contains "Today's date"
+- Phase 2 (reproduce): confirmed red — function didn't exist (prompt was
+  built inline in `_batch_manager_review` closure, no testable seam)
+- Phase 3 (hypothesise): H1 = Manager prompt missing date injection (verified
+  by reading orchestrator.py lines 826-870 — no date anywhere)
+- Phase 4 (instrument): not needed — root cause clear from code inspection
+- Phase 5 (fix + regression): extracted `_build_manager_review_prompt` to
+  module level (created testable seam) + injected date at top of prompt
+- Phase 6 (cleanup): no debug instrumentation; regression test in place
+
+### Changes (TDD: red → green)
+
+#### 1. `backend/core/orchestrator.py` — extract + date injection
+- Added `from datetime import datetime` import
+- Extracted `_build_manager_review_prompt(...)` as module-level function
+  (was inline closure in `_batch_manager_review`, untestable)
+- Injected `Today's date: <weekday>, <month> <day>, <year>` at top of prompt
+  (after persona, before agent outputs) — parity with agent backstory format
+- `_batch_manager_review` now calls `_build_manager_review_prompt(...)` —
+  same behavior, but testable
+
+#### 2. `test_manager_review_date.py` (new) — 4 tests, all passing
+- `test_prompt_contains_today_date_label` — prompt has "Today's date" label
+- `test_prompt_contains_current_year` — prompt has current year
+- `test_date_appears_before_agent_outputs` — date comes before outputs
+- `test_date_present_with_multiple_agents` — works with multiple agents
+
+### Verification
+- `pytest test_manager_review_date.py`: 4 passed
+- `pytest` (7 test files): 59 passed (no regressions)
+
+### Files Changed
+- `backend/core/orchestrator.py` — extract `_build_manager_review_prompt`, date injection
+- `test_manager_review_date.py` (new)
+
+### Post-mortem
+What would have prevented this bug: Task B injected date into agent
+backstory but the Manager reviewer uses a separate LLM call path that
+bypasses AgentFactory. The fix closes that gap. Architectural note: any
+future LLM call path that judges "current vs future" data must receive
+the date — consider centralizing date injection if more call paths appear.
+
+---
+
 ## 2026-08-05 (session 14) — Fix perplexity 404 regression + restore resolve_search_model
 
 ### What
