@@ -143,7 +143,13 @@
 
 ---
 
-#### P0.2 Decision logic กระจาย — ไม่มีจุดเดียวที่ตัดสินใจ
+#### P0.2 Decision logic กระจาย — ไม่มีจุดเดียวที่ตัดสินใจ — ✅ DONE (session 7)
+
+**สถานะ**: SearchAdapter สร้างแล้วใน `backend/tools/search_adapter.py` — แก้บัค perplexity 404
+โดยเลือก `tools` (server tool) หรือ `web_search_options` (perplexity built-in) อัตโนมัติ
+ผ่าน `ModelDiscoveryService.get_supported_parameters()`. 368 tests pass, 0 regressions.
+4 จุดตัดสินใจเดิมยังไม่ลบ (ตามกฏ "ทำทีละตัว") — P0.1 จะรวมเข้า adapter.
+Manual test perplexity จริง pending (ชดเชย Seam 2 ที่ user ไม่อนุมัติ test ใหม่).
 
 **ไฟล์**: `backend/tools/search.py:47-85`, `backend/llm/selector.py:39`, `backend/llm/discovery.py:72`, `backend/core/secretary.py:610-620`, `backend/handlers/chat.py:2753-2760`, `backend/core/orchestrator.py:398-431`
 

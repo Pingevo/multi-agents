@@ -42,6 +42,20 @@ class ModelDiscoveryService:
             self._all_models = []
         return self._all_models
 
+    def get_supported_parameters(self, model_id: str) -> list[str]:
+        """Return supported_parameters for a specific model from the catalog.
+
+        Returns empty list if model not found. Unlike discover_all(), this does
+        NOT skip openrouter/ routing models — callers needing raw capability
+        data (e.g. SearchAdapter checking tool vs web_search_options support)
+        must see every model.
+        """
+        all_models = self._fetch_all_models()
+        for m in all_models:
+            if m.get("id") == model_id:
+                return m.get("supported_parameters", [])
+        return []
+
     def discover_all(self) -> dict[str, list[dict]]:
         """Group models by output modality + search capability.
 

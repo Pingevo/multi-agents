@@ -1,5 +1,62 @@
 # Developer Log
 
+## 2026-08-05 (session 7) — P0.2 SearchAdapter: fix perplexity 404 + consolidate search format decision
+
+### Context
+Manual test หลัง Task A เจอ bug: perplexity/sonar-pro + `tools:[openrouter:web_search]` →
+404 "No endpoints found that support tool use". Perplexity models มี built-in search
+(`web_search_options`) ไม่รองรับ `tools` array — แต่ `_call_openrouter_web_search` ส่ง
+`tools` ให้ทุกโมเดล ทำให้ perplexity ค้นเว็บไม่ได้
+
+### Root cause (HANDOFF.md P0.2)
+Decision logic กระจาย 4 จุด ไม่มีจุดเดียวที่ตรวจ model capability:
+1. Secretary (plan phase) — เลือก search_model
+2. chat.py — เก็บใน `cl.user_session("ai_search_model")`
+3. orchestrator.py — อ่านจาก session → เขียนลง `_globals._search_model`
+4. search.py — `_call_openrouter_web_search` ส่ง `tools` เสมอ (ไม่ตรวจ capability)
+
+### Fix — SearchAdapter (deep module, codebase-design vocabulary)
+สร้าง `backend/tools/search_adapter.py` — interface เดียวที่ตัดสินใจ format:
+- `supports_server_tool(model) -> bool`: ตรวจ `supported_parameters` จาก `ModelDiscoveryService`
+  - `"tools" in params` → True (server tool format)
+  - `"web_search" in params` (ไม่มี tools) → False (perplexity built-in)
+  - ไม่พบใน catalog → prefix heuristic fallback (`perplexity/` → False)
+- `_build_request_body(query, model, search_config)`: เลือก `tools` หรือ `web_search_options`
+- `search(query, model, search_config)`: HTTP execution + format selection
+
+`backend/tools/search.py` `_call_openrouter_web_search` ตอนนี้ delegate ไป adapter
+`backend/llm/discovery.py` เพิ่ม `get_supported_parameters(model_id)` (surgical addition)
+
+### TDD (red → green, seams confirmed with user first)
+- **Seam 1 (approved): `supports_server_tool`** — `test_search_adapter.py` 13 tests
+  (perplexity 5 รุ่น → False, claude/gpt/gemini/grok → True, edge cases)
+- **Seam 2 (not approved)**: ไม่เขียน test ใหม่ที่ `search()` — อัปเดต `test_web_search_migration.py`
+  เดิมให้ตรวจทั้ง 2 รูปแบบ (tools + web_search_options) แทน
+- `test_server_tool_compat.py` ถูกลบระหว่าง code-review (Duplicated Code smell — `test_search_adapter.py` ครอบคลุมแล้ว)
+
+### code-review results
+- **Standards**: 0 hard violations, 1 judgement call (duplicate test — fixed by deletion)
+- **Spec**: 0 missing (deletion test deferred per spec line 249 "อย่าลบ globals ทิ้งก่อนสร้าง adapter"),
+  0 scope creep, 0 wrong implementations
+
+### Verification
+- `pytest test_search_adapter.py`: 13 passed
+- `pytest test_web_search_migration.py`: 13 passed (ทั้ง tools + web_search_options formats)
+- `pytest` ทั้งหมด: 368 passed, 0 failed (no regressions)
+- **Manual test pending**: สั่งค้นด้วย perplexity จริง เพื่อยืนยันไม่เจอ 404 (ชดเชยการไม่มี test ที่ Seam 2)
+
+### Files changed
+- `backend/tools/search_adapter.py` (NEW) — SearchAdapter class
+- `backend/llm/discovery.py` — added `get_supported_parameters()`
+- `backend/tools/search.py` — `_call_openrouter_web_search` delegates to adapter, ลบ `_build_web_search_tool` (ย้ายไป adapter)
+- `test_search_adapter.py` (NEW) — 13 tests for supports_server_tool
+- `test_web_search_migration.py` — อัปเดตตรวจทั้ง 2 รูปแบบ (13 tests)
+- `test_server_tool_compat.py` — ลบ (duplicate of test_search_adapter.py)
+
+### Notes
+- `_resolve_search_model` และ `_check_search_call_limit` ยังอยู่ใน search.py (อ่าน globals — P0.1 จะแก้)
+- 4 จุดตัดสินใจเดิมยังไม่ลบ (ตาม spec "ทำทีละตัว, ทดสอบ, แล้วค่อยลบ") — P0.1 จะรวมเข้า adapter
+
 ## 2026-08-05 (session 6) — Fix search_model propagation (Python module-rebinding gotcha)
 
 ### Context
