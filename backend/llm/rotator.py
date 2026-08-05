@@ -11,40 +11,98 @@ from backend.credit_logger import log_llm_call
 class FreeModelRotator:
     """Rotates through free model ranking when openrouter/free fails.
 
-    Ranking is from best (smartest/largest) to worst (smallest/least capable).
-    Only used when the selected model is 'openrouter/free'.
+    Ranking is fetched dynamically from the OpenRouter catalog (No Hardcode)
+    — only models with ':free' suffix that currently exist are included,
+    sorted by context_length descending so the smartest model is tried first.
+
+    Falls back to a small static list only if the catalog fetch fails (e.g.
+    network error). This prevents 404s when OpenRouter retires free slugs
+    (issue #125: deepseek-r1:free, llama-3.3-70b:free, etc. were retired).
     """
 
-    # Hardcoded ranking — best to worst, tried in order
-    _FREE_MODEL_RANKING = [
-        "deepseek/deepseek-r1:free",
-        "meta-llama/llama-3.3-70b-instruct:free",
-        "qwen/qwen3-coder:free",
-        "openai/gpt-oss-120b:free",
-        "nousresearch/hermes-3-llama-3.1-405b:free",
+    # Fallback only — used when catalog fetch fails. Kept short on purpose:
+    # if these also 404, the rotator reports failure and the caller surfaces
+    # the error rather than silently retrying with stale slugs.
+    _FALLBACK_RANKING = [
         "google/gemini-2.0-flash-exp:free",
-        "mistralai/mistral-nemo:free",
         "meta-llama/llama-3.2-3b-instruct:free",
     ]
 
-    def __init__(self, api_key: str, base_url: str, temperature: float = 0.7):
+    def __init__(self, api_key: str, base_url: str, temperature: float = 0.7,
+                 catalog=None):
+        # catalog: injectable for tests — an object with get_models() -> list[dict]
+        # mimicking OpenRouter /models response. None = fetch from API at runtime.
         self.api_key = api_key
         self.base_url = base_url
         self.temperature = temperature
+        self._catalog = catalog
+        self._ranking_cache: list[str] | None = None
+
+    def _fetch_catalog_models(self) -> list[dict]:
+        """Fetch models from injected catalog or OpenRouter /models endpoint."""
+        if self._catalog is not None:
+            return self._catalog.get_models()
+        try:
+            resp = requests.get(
+                f"{self.base_url.rstrip('/')}/models",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                timeout=15,
+            )
+            if resp.status_code == 200:
+                return resp.json().get("data", [])
+        except Exception as e:
+            print(f"[FreeModelRotator] Failed to fetch catalog: {_sanitize_error(e)}", flush=True)
+        return []
 
     def get_ranking(self) -> list[str]:
-        """Return the hardcoded free model ranking."""
-        return list(self._FREE_MODEL_RANKING)
+        """Return free model slugs that currently exist in the catalog.
+
+        Filters for ':free' suffix, excludes openrouter/ routing models,
+        sorts by context_length descending (smartest first).
+
+        Empty catalog (no models returned) → empty list (caller handles).
+        Fetch failure (network error) → falls back to _FALLBACK_RANKING.
+        """
+        if self._ranking_cache is not None:
+            return list(self._ranking_cache)
+
+        all_models = self._fetch_catalog_models()
+        # Distinguish "fetch failed" (None) from "catalog empty" ([])
+        # _fetch_catalog_models returns [] for both — use a sentinel for fetch failure
+        # Simpler: if catalog is injected and returns [], that's a real empty catalog.
+        # If fetch from API fails, _fetch_catalog_models already printed and returns [].
+        # In that case, fall back so we don't silently break free-model retry.
+        if not all_models and self._catalog is None:
+            # API fetch failed (or returned empty) — use fallback as safety net
+            self._ranking_cache = list(self._FALLBACK_RANKING)
+            return list(self._ranking_cache)
+
+        free_models = []
+        for m in all_models:
+            mid = m.get("id", "")
+            if ":free" not in mid:
+                continue
+            if mid.startswith("openrouter/"):
+                continue
+            free_models.append({
+                "id": mid,
+                "context_length": m.get("context_length", 0) or 0,
+            })
+
+        # Sort by context_length descending — smartest (largest context) first
+        free_models.sort(key=lambda m: m["context_length"], reverse=True)
+        self._ranking_cache = [m["id"] for m in free_models]
+        return list(self._ranking_cache)
 
     def get_models(self) -> list[str]:
         """Alias for get_ranking — used by ModelSelector."""
         return self.get_ranking()
 
     def get_model_details(self) -> list[dict]:
-        """Return model details for ModelSelector. Uses hardcoded ranking with minimal info."""
+        """Return model details for ModelSelector. Uses dynamic ranking with minimal info."""
         return [
             {"id": mid, "context_length": 131072, "pricing": {"prompt": "0", "completion": "0"}, "description": mid}
-            for mid in self._FREE_MODEL_RANKING
+            for mid in self.get_ranking()
         ]
 
     def pick_smartest_model(self) -> str:

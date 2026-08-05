@@ -128,19 +128,50 @@ class TestFreeModelRotatorIntegration(unittest.TestCase):
     """FreeModelRotator fetches and filters free models from OpenRouter."""
 
     def test_fetch_free_models_filters_small_and_non_chat(self):
+        """Dynamic ranking returns only free models from the catalog (issue #125).
+
+        No longer asserts specific slugs — OpenRouter retires free models
+        over time. The contract is: all returned slugs have ':free' suffix
+        and actually exist in the catalog.
+        """
         from app import FreeModelRotator
-        rotator = FreeModelRotator(api_key="fake", base_url="https://openrouter.ai/api/v1")
+
+        # Inject a realistic catalog so the test is deterministic (no HTTP)
+        fake_catalog = type("FakeCatalog", (), {
+            "get_models": lambda self: [
+                {"id": "google/gemini-2.0-flash-exp:free", "context_length": 1048576, "architecture": {"input_modalities": ["text", "image"]}},
+                {"id": "meta-llama/llama-3.3-70b-instruct:free", "context_length": 131072, "architecture": {"input_modalities": ["text"]}},
+                {"id": "anthropic/claude-sonnet-5", "context_length": 200000, "architecture": {"input_modalities": ["text", "image"]}},
+            ]
+        })()
+        rotator = FreeModelRotator(
+            api_key="fake", base_url="https://openrouter.ai/api/v1",
+            catalog=fake_catalog,
+        )
         models = rotator.get_ranking()
         self.assertGreater(len(models), 0)
         self.assertTrue(all(":free" in m for m in models))
-        # Hardcoded ranking should include known good models
-        self.assertIn("meta-llama/llama-3.3-70b-instruct:free", models)
-        self.assertIn("openai/gpt-oss-120b:free", models)
+        # Paid models must NOT appear
+        self.assertNotIn("anthropic/claude-sonnet-5", models)
+        # Stale slugs (retired by OpenRouter) must NOT appear
+        self.assertNotIn("deepseek/deepseek-r1:free", models)
+        self.assertNotIn("openai/gpt-oss-120b:free", models)
 
     def test_call_rotates_on_failure(self):
         """FreeModelRotator.call should rotate to next model on failure."""
         from app import FreeModelRotator
-        rotator = FreeModelRotator(api_key="fake", base_url="https://openrouter.ai/api/v1")
+
+        # Inject catalog so get_ranking() doesn't hit the network
+        fake_catalog = type("FakeCatalog", (), {
+            "get_models": lambda self: [
+                {"id": "google/gemini-2.0-flash-exp:free", "context_length": 1048576, "architecture": {"input_modalities": ["text", "image"]}},
+                {"id": "meta-llama/llama-3.3-70b-instruct:free", "context_length": 131072, "architecture": {"input_modalities": ["text"]}},
+            ]
+        })()
+        rotator = FreeModelRotator(
+            api_key="fake", base_url="https://openrouter.ai/api/v1",
+            catalog=fake_catalog,
+        )
 
         # Mock the OpenAI client to fail first, succeed second
         call_count = [0]
@@ -367,8 +398,18 @@ class TestEndToEndPipeline(unittest.TestCase):
         mgr = LLMManager()
         self.assertEqual(mgr._default_model, "openrouter/free")
 
-        # 2. FreeModelRotator returns hardcoded ranking
-        rotator = FreeModelRotator(api_key="fake", base_url="https://openrouter.ai/api/v1")
+        # 2. FreeModelRotator returns dynamic ranking (injected catalog — no HTTP)
+        fake_catalog = type("FakeCatalog", (), {
+            "get_models": lambda self: [
+                {"id": "google/gemini-2.0-flash-exp:free", "context_length": 1048576, "architecture": {"input_modalities": ["text", "image"]}},
+                {"id": "meta-llama/llama-3.3-70b-instruct:free", "context_length": 131072, "architecture": {"input_modalities": ["text"]}},
+                {"id": "openai/gpt-oss-120b:free", "context_length": 131072, "architecture": {"input_modalities": ["text"]}},
+            ]
+        })()
+        rotator = FreeModelRotator(
+            api_key="fake", base_url="https://openrouter.ai/api/v1",
+            catalog=fake_catalog,
+        )
         free_models = rotator.get_ranking()
         self.assertGreater(len(free_models), 0)
         self.assertTrue(all(":free" in m for m in free_models))
