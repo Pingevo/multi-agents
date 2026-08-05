@@ -10,15 +10,11 @@
 | Needs human | `ready-for-human` | Needs human implementation |
 | Won't fix | `wontfix` | Will not be actioned |
 
-## Local markdown mapping
+## GitHub Issues mapping (active — migrated 2026-08-05)
 
-Since we use local markdown (no label system), labels are recorded as a `status:` field in the front matter of each issue file:
+Issues live on GitHub (`Pingevo/multi-agents`). Apply triage labels directly via `github-mcp-server` `issue_write` with `method: "update"` and the `labels` array.
 
-```markdown
----
-status: needs-triage
----
-```
+Triage labels are applied IN ADDITION to the type/priority labels documented in `docs/agents/issue-tracker.md` (e.g. an issue can have `bug`, `P1`, AND `ready-for-agent`).
 
 ## Defaults
 
