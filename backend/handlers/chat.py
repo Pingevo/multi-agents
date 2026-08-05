@@ -93,8 +93,11 @@ async def execute_multi_agent_task(
     if messenger:
         messenger.task_session_id = _task_session_id
     from backend.globals import _thread_local, user_prompt_ctx
+    from backend.ai_usage_hub import ai_user_ctx, ai_reference_ctx
     _thread_local.user_prompt = user_input[:200]
     user_prompt_ctx.set(user_input[:200])
+    ai_user_ctx.set(cl.user_session.get("user_id", ""))
+    ai_reference_ctx.set(_task_session_id or "")
 
     if messenger:
         agent_names = ", ".join(s.get("name", "Agent") for s in agent_specs)
@@ -510,8 +513,11 @@ async def execute_task_with_agent(
     if messenger:
         messenger.task_session_id = _task_session_id
     from backend.globals import _thread_local, user_prompt_ctx
+    from backend.ai_usage_hub import ai_user_ctx, ai_reference_ctx
     _thread_local.user_prompt = user_input[:200]
     user_prompt_ctx.set(user_input[:200])
+    ai_user_ctx.set(cl.user_session.get("user_id", ""))
+    ai_reference_ctx.set(_task_session_id or "")
 
     if messenger:
         await messenger.add_task(task_id, user_input, agent_name, team_id=cl.user_session.get("current_team_id"))
@@ -1319,8 +1325,12 @@ async def on_message(message: cl.Message):
 
     # Set user_prompt for LLM call logging (covers all entry paths: chat, plan, feedback)
     from backend.globals import _thread_local, user_prompt_ctx
+    from backend.ai_usage_hub import ai_user_ctx, ai_reference_ctx
     _thread_local.user_prompt = user_input[:200]
     user_prompt_ctx.set(user_input[:200])
+    _messenger = get_messenger()
+    ai_user_ctx.set(cl.user_session.get("user_id", ""))
+    ai_reference_ctx.set(_messenger.current_session_id if _messenger else "")
 
     # Handle JSON action commands from custom frontend
     command = _parse_json_command(user_input)

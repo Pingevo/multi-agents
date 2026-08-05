@@ -1,5 +1,252 @@
 # Developer Log
 
+## 2026-08-05 (session 12) — Integrate AI Usage Hub (replace local JSONL logging)
+
+### What
+Replace local-only `llm-call-log.jsonl` logging with HTTP push to central AI
+Usage Hub at `https://digital.in.th` (per `AI_USAGE_HUB_DEVELOPER_API.md` from
+sellcenter team). Old `credit_logger.log_llm_call` will be removed; all 19
+OpenRouter call sites will switch to new `log_ai_usage()`.
+
+### Why
+- Market Parity Baseline: every AI app in the market has a cost dashboard
+- Old logger wrote to local file only — nobody looked at it
+- Hub gives cross-project dashboard, filter by user/reference/date
+- Hub doc mandates error-path logging (old logger only logged success)
+- Token `svc_42` issued by sellcenter for this project
+
+### TDD slices (vertical, one test → one implementation per cycle)
+1. ✅ RED→GREEN: `test_ai_usage_hub.py` (12 tests) — `log_ai_usage()` module
+   with fire-and-forget HTTP, env-var guard, contextvar defaults, never-throws
+2. ✅ RED→GREEN: `test_llm_manager_logging.py` (3 tests) — LLMManager success
+   + error path pushes to `log_ai_usage` with correct fields
+3. ✅ RED→GREEN: `test_rotator_logging.py` (3 tests) — FreeModelRotator
+   success + error + streaming, with `attempt` field
+4. ✅ RED→GREEN: `test_media_logging.py` (4 tests) — image, TTS, vision
+   (previously unlogged: TTS, STT, vision)
+5. ✅ RED→GREEN: `test_search_adapter_logging.py` (2 tests) — search
+   success + error (previously unlogged entirely)
+6. ✅ GREEN: orchestrator litellm + crewai event bus callbacks switched
+   to `log_ai_usage` (safety net for future call sites)
+7. ✅ GREEN: chat.py sets `ai_user_ctx` + `ai_reference_ctx` at 3 entry
+   points (multi-agent, single-agent, main chat) so all logs auto-include
+   user_id and session_id
+8. ✅ GREEN: deleted `backend/credit_logger.py`, removed
+   `llm-call-log.jsonl` from `.gitignore`, removed unused import in
+   `backend/llm/selector.py`
+9. ✅ GREEN: full test run (394/394 pass) + code-review skill (2 sub-agents:
+   Standards + Spec). Fixed 4 spec findings:
+   - Added `log_failure_event` to LiteLLM callback (error path was missing)
+   - TTS/STT now send `cost_usd` from `X-OR-Cost-USD` header or JSON body
+   - Local fallback (Ollama) calls now logged with `provider=fallback_provider`
+   - Removed silent `provider="openrouter"` default → now "unknown" so
+     missing-provider bugs surface in dashboard (spec says mandatory)
+
+### Post-review: re-read spec file, found 3 more gaps (session 12b)
+After reading the actual `AI_USAGE_HUB_DEVELOPER_API.md` (not just the
+reconstructed summary), found 3 fields the spec asks for that were missing:
+- `request_id` (spec §2) — provider generation id, used as idempotency key.
+  Added `response.id` / `data.id` / `chunk.id` to all success paths that
+  have a response object.
+- `units` (spec §2) — non-token usage like images/videos/audio. Added
+  `{"images_processed": 1}`, `{"videos_generated": 1}`,
+  `{"audio_generated": 1}`, `{"audio_transcribed": 1}` to media paths.
+- `metadata.analysis_type` (spec §4) — tag for filtering by job type in
+  dashboard. Added `"chat"`, `"media"`, `"search"`, `"agent"` to all 19
+  success paths. Verified 19/19 success paths now carry metadata.
+
+### Second re-review: closed 2 more gaps (session 12c)
+Spec re-review sub-agent found 2 more issues:
+- `request_id` missing in 5 paths (image, TTS, STT, vision, CrewAI
+  callback) that use raw HTTP instead of OpenAI SDK. Added `data.get("id")`,
+  `resp.headers.get("X-OR-Generation-ID")`, `result.get("id")`,
+  `getattr(event, "id", None)` respectively.
+- `metadata.analysis_type` missing in all 18 error paths. Spec §4 says
+  dashboard filtering needs both success + error. Added metadata to all
+  18 error paths. Verified 37/37 log_ai_usage calls now carry metadata.
+
+### Third check: full field coverage audit (session 12d)
+Ran a script to audit every spec field across all 37 log_ai_usage calls.
+Found 1 real gap: CrewAI event bus callback (orchestrator.py:149) was
+missing `duration_ms` because CrewAI events don't expose start/end time.
+Added `"duration_ms": None` explicitly so the field is present (Hub treats
+None as "unknown"). All other "missing" fields were false positives:
+- `user`/`reference` come from contextvars, not call site dict
+- `request_id`/`prompt_tokens`/`completion_tokens`/`cost_usd`/`raw_usage`
+  only present in success paths (error paths have no response object)
+- `error_message` only present in error paths (18 error = 18 error_message)
+- `units` only for non-token ops (image/video/TTS/STT), chat has tokens
+
+### Fourth check: leftover + edge cases (session 12e)
+Final sweep for anything dropped:
+- Deleted leftover `llm-call-log.jsonl` (41KB) still on disk from old logger
+- Video polling failure + timeout had no log. Added `status="error"` for
+  polling failure and `status="timeout"` for 5-min timeout (spec §2 lists
+  `timeout` as valid status). Now 39 log_ai_usage calls total.
+
+### Fifth check: code-review skill final audit (session 12f)
+Per mattpocock-skills rule "Delivering work / after code changes → code-review
+YES", ran final completeness audit sub-agent. All 5 categories passed:
+- Call site coverage: all sites have log in success + error paths
+- Spec field coverage: all fields present where appropriate
+- Cleanup: credit_logger deleted, no log_llm_call remnants
+- Config: .env.example has all 3 env vars
+- Edge cases: video polling, local fallback, streaming, LiteLLM, CrewAI all covered
+Fixed indentation inconsistency in rotator.py error paths (4 metadata lines
++ 4 closing braces had 16/12 spaces instead of 20/16 to match siblings).
+Style only — Python accepted both, tests passed either way.
+
+### Sixth check: skeptical re-audit (session 12g)
+User said "ไม่เชื่อ ลองอีกรอบ" — ran another completeness audit. Found 2 more
+indentation bugs in llm/manager.py that the previous audit missed:
+- Line 363: streaming error path metadata had indent=20, siblings indent=24
+- Line 576: call_with_fallback error path metadata had indent=20, siblings=24
+Both fixed. All 6 categories now PASS. 394/394 tests still pass.
+
+### Verification (all slices)
+- 394/394 tests pass (8 deselected — pre-existing, unrelated)
+- Confirmed `usage.cost` reachable via OpenAI SDK (Pydantic `extra='allow'`)
+- Confirmed 19 OpenRouter call sites via grep (12 logged success-only,
+  7 unlogged: TTS, STT, vision, search)
+- All 19 sites now push to Hub with success + error paths
+- Local fallback (Ollama) calls also logged
+- LiteLLM callback covers both success + failure (safety net for future
+  call sites and CrewAI internals)
+- contextvars auto-populate `user` (user_id) and `reference` (session_id)
+- code-review: 0 hard Standards violations; 4 Spec findings fixed
+
+### Files
+- `backend/ai_usage_hub.py` — new module, single function `log_ai_usage(entry)`
+- `test_ai_usage_hub.py` — new test (12 cases)
+- `test_llm_manager_logging.py` — new test (3 cases, currently RED)
+
+---
+
+## 2026-08-05 (session 11) — Fix FreeModelRotator stale slugs (issue #125)
+
+### What
+Replaced hardcoded `_FREE_MODEL_RANKING` (8 stale slugs that all 404) with
+dynamic catalog fetch — `get_ranking()` now filters OpenRouter catalog for
+models with `:free` suffix that currently exist, sorted by context_length
+descending (smartest first).
+
+### Why (No Hardcode rule + issue #125)
+OpenRouter retired free tier for `deepseek-r1:free`, `llama-3.3-70b:free`,
+`qwen3-coder:free`, `gpt-oss-120b:free`, etc. — all 4 rotator attempts 404'd,
+leaving the user with "⚠️ โมเดล 'openrouter/free' ไม่สามารถสร้างแผนงานได้".
+Hardcoding slugs that drift over time violates No Hardcode.
+
+### TDD slices
+1. RED: `test_rotator_dynamic_ranking.py` — 5 tests for dynamic ranking (catalog injection, excludes paid/stale, sorts by context_length, empty when catalog empty)
+2. GREEN: Added `catalog` parameter to `FreeModelRotator.__init__`, `_fetch_catalog_models()`, rewrote `get_ranking()` to filter + sort dynamically. Kept `_FALLBACK_RANKING` (2 slugs) as safety net for API fetch failure only.
+3. REFACTOR: Updated `get_model_details()` to use `get_ranking()` instead of deleted `_FREE_MODEL_RANKING`
+4. Fix existing tests: `test_free_model_rotator.py` + `test_integration_pipeline.py` — inject fake catalog instead of hitting API, assert dynamic behavior instead of specific stale slugs
+
+### Verification
+- 370/370 tests pass, 0 regressions
+- New test `test_rotator_dynamic_ranking.py` locks in: only free models, no paid, no stale slugs, sorted by context_length, empty catalog → empty ranking
+- Fallback only triggers on API fetch failure (not on empty catalog)
+
+### Files
+- `backend/llm/rotator.py` — added `catalog` param, `_fetch_catalog_models()`, rewrote `get_ranking()`, kept `_FALLBACK_RANKING` for fetch failure only
+- `test_rotator_dynamic_ranking.py` — new test for dynamic ranking seam
+- `test_free_model_rotator.py` — updated to inject catalog, assert dynamic behavior
+- `test_integration_pipeline.py` — updated 3 tests to inject catalog
+
+### Issue
+Closes #125 — https://github.com/Pingevo/multi-agents/issues/125
+
+## 2026-08-05 (session 10) — SearchAdapter architecture completed (P0.2 done)
+
+### What
+Completed the SearchAdapter deepening per ADR-0004 + HANDOFF P0.2:
+1. **Bug fix**: `supports_server_tool` checked `"web_search"` (old name) instead of `"web_search_options"` (current OpenRouter param) — Perplexity models all returned True (wrong), reproducing the 404 bug ADR-0004 was meant to fix
+2. **Consolidation**: Added `SearchAdapter.resolve_search_model(ai_search_model, selected_model, default_model)` as the single resolution point. `search.py:_resolve_search_model` is now a thin wrapper delegating to the adapter — 4 scattered decision points → 1 deep module + 1 wrapper
+3. **Test data fix**: `test_search_adapter.py` + `test_web_search_migration.py` used `"web_search"` in fake catalogs (which is why the adapter bug passed tests). Updated to `"web_search_options"` to mirror real OpenRouter metadata
+
+### Why (architectural)
+- ADR-0004 created the adapter as the "single decision point" but the parameter-name check was wrong — the adapter was making the wrong decision, defeating its purpose
+- HANDOFF P0.2 marked "DONE" but manual test of Perplexity was pending — the bug would have surfaced immediately on first real Perplexity use
+- The 4 scattered decision points (secretary, chat.py, orchestrator, search.py) for model resolution are now 1 adapter + 1 thin wrapper — locality: bugs concentrate in the adapter
+
+### TDD slices (red → green → refactor)
+1. RED: Updated `test_search_adapter.py` fake catalog to use `web_search_options` → 5 Perplexity tests fail
+2. GREEN: Fixed `supports_server_tool` to check `web_search_options` → 13/13 pass
+3. RED: New `test_adapter_resolve_model.py` for `resolve_search_model` → AttributeError
+4. GREEN: Added `resolve_search_model` to adapter → 5/5 pass
+5. REFACTOR: `search.py:_resolve_search_model` delegates to adapter → 29/29 pass (behavior preserved)
+6. Fix test data in `test_web_search_migration.py` → 42/42 pass
+
+### Verification
+- Full suite: 364 passed, 0 regressions
+- ADR-0004 amended with the parameter-name fix + consolidation
+- HANDOFF P0.2 now genuinely complete (not just "code done")
+
+### Files
+- `backend/tools/search_adapter.py` — added `resolve_search_model`, fixed `supports_server_tool` param check
+- `backend/tools/search.py` — `_resolve_search_model` now delegates to adapter
+- `test_search_adapter.py` — fake catalog uses `web_search_options`
+- `test_web_search_migration.py` — fake catalog uses `web_search_options`
+- `test_adapter_resolve_model.py` — new test for `resolve_search_model` seam
+- `test_search_uses_adapter.py` — new test locking in delegation
+- `docs/adr/0004-search-adapter-for-format-selection.md` — amendment
+
+### Remaining (out of scope this session)
+- P0.1: Replace `_globals._search_model` with dependency injection (the wrapper still reads the global — that's the next slice)
+- P1.1: `cl.user_session` hidden coupling (100+ points)
+- P2: Catalog duplication (`discovery.get_catalog_summary` vs `selector._build_media_catalog`)
+
+## 2026-08-05 (session 9) — Fix search_model never selected: discovery missed web_search_options param
+
+### Bug
+User ขอข่าว "spider-man brand new day" → Secretary สร้าง plan ได้ แต่ `search_model: ""`
+ทำให้ปุ่ม "อนุมัติแผน" disabled และแสดง "กรุณาเลือกโมเดล: Search"
+
+### Root cause (diagnosing-bugs skill, 6 phases)
+`backend/llm/discovery.py:100` ตรวจ `"web_search" in supported_parameters`
+แต่ OpenRouter เปลี่ยนชื่อ parameter เป็น `web_search_options` สำหรับ Perplexity
+และ routing models ที่รองรับ search — ไม่มีโมเดลไหนในปัจจุบันที่ใช้ `web_search`
+อีกแล้ว ทำให้ `output_groups["search"]` ว่าง และ `get_catalog_summary()`
+ไม่ส่งบรรทัด "Web search models:" ให้ Secretary LLM เลย → LLM ไม่มี search model ID
+จะใส่ใน `search_model` field
+
+นี่คือ root cause เดียวกับ ADR-0004 (SearchAdapter) และ issue #124:
+OpenRouter มี 2 ชื่อ parameter สำหรับ search (`tools:[openrouter:web_search]`
+vs `web_search_options`) ระบบเราตรวจแค่ชื่อเดิม
+
+### Fix
+`backend/llm/discovery.py:99-107` — เพิ่ม `"web_search_options" in params` เข้าไปใน
+เงื่อนไข: `if ("web_search" in params or "web_search_options" in params) and "text" in output_modalities`
+
+### Verification
+- `/tmp/test_search_catalog.py` (regression test, red → green): assert "Web search" in summary
+- ก่อน fix: AssertionError (RED)
+- หลัง fix: "Web search models: sakana/fugu-ultra, perplexity/sonar-pro-search, ..." (GREEN)
+- Server restart แล้ว พร้อมทดสอบในเบราว์เซอร์
+
+### Note
+หลัง fix มีโมเดลทั่วไป (gpt-4o, sakana/fugu-ultra) ติดเข้ามาใน search list
+เพราะ OpenRouter อนุญาตให้ใช้ `web_search_options` เป็น routing feature
+โมเดลเหล่านี้ทำ search ได้จริง (ผ่าน routing) แต่ไม่ใช่ search-specialized
+แยกปัญหานี้ไว้ใน issue #124 (capability metadata) — ไม่ขยาย scope ในครั้งนี้
+
+## 2026-08-05 (session 8) — Fix NameError: _sanitize_error undefined in messenger.py
+
+### Bug
+User ขอข่าว "spider-man brand new day" → Manager ตอบ `❌ เกิดข้อผิดพลาด: name '_sanitize_error' is not defined`
+
+### Root cause
+`backend/core/messenger.py:70` เรียก `_sanitize_error(e)` ใน `_fetch_credits()` exception handler
+แต่ไม่ได้ import จาก `backend.utils` — เมื่อ credits fetch ไปเจอ exception ก็เกิด NameError ซ้อนทับ
+ส่งไปถึง user
+
+### Fix
+เพิ่ม `from backend.utils import _sanitize_error` ใน messenger.py (1 บรรทัด)
+
+### Verification
+- `python -c "from backend.core.messenger import StateMessenger"` → OK
+- `_sanitize_error(ValueError('test'))` → "test error"
+
 ## 2026-08-05 (session 7) — P0.2 SearchAdapter: fix perplexity 404 + consolidate search format decision
 
 ### Context
@@ -348,3 +595,31 @@ Manual testing เจอว่า Manager synthesis ใช้เวลา 60+ �
 - `backend/core/secretary.py` — max_search_calls in prompt + templates + parsing
 - `frontend/src/components/retro/TasksWindow.tsx` — Manager progress in synthesizing banner
 - `test_search_limit.py` — new test file (5 tests)
+
+### Seventh check: one-shot script (session 12h)
+User challenged: "recheck กี่รอบก็เจอตกหล่นทุกรอบ มันจะไปจบที่ตรงไหน?"
+Wrote `scripts/check_ai_usage_hub.py` — checks all 6 categories in one pass:
+1. Call site coverage (success + error per file)
+2. Spec field coverage (mandatory fields per block)
+3. Cleanup (credit_logger, jsonl, imports)
+4. Config (.env.example vars)
+5. Edge cases (video polling, fallback, streaming, litellm, crewai)
+6. Code quality (indentation consistency)
+First run found 2 real issues: local fallback (Ollama) success paths missing
+`cost_usd`. Ollama is free → actual cost = 0 → added `"cost_usd": 0` explicitly.
+Second run: ALL CHECKS PASSED. Script is reusable for future call site additions.
+
+### Eighth check: independent audit (session 12i)
+User challenged: "มั่นใจได้ไงว่า script ไม่ bias"
+Ran independent sub-agent audit WITHOUT using my script. Found 2 real issues
+my script missed (script had same blind spots as code author):
+1. `"_stream_id" in dir()` — dir() doesn't check local vars. Fixed to `locals()`.
+   Affected 3 streaming paths (manager.py:274,345, rotator.py:432).
+2. `provider="local"` for Ollama fallback — spec only allows openrouter|gemini|
+   openai|anthropic|apify|9arm|other. "local" would be normalized to "other"
+   server-side but better to send "other" explicitly. Fixed 4 log calls.
+False positives (audit was wrong): GET /models and /key calls don't need logging
+(spec = "เรียก AI provider จริง" = generation, not catalog fetch). user/reference
+come from contextvars in _normalize_entry(), not call site dict.
+Lesson: self-written checker has same blind spots as code author. Independent
+audit catches what self-audit can't.

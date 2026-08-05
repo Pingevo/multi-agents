@@ -204,3 +204,17 @@ CrewAI's native file passing mechanism (`input_files` parameter on Task). When `
 - **image_result** — generated image display with URL and prompt
 - **chat_history** — full message history for a session (sent on session switch)
 - **chat_sessions** — list of all sessions with active session ID
+
+### AI Usage Hub
+
+Central logging service at `https://digital.in.th` สำหรับ tracking การใช้ AI/scraping provider แบบรวมศูนย์ — ทุกโปรเจกต์ยิง log ไปจุดเดียว หัวหน้าดู dashboard ที่ `https://digital.in.th/ai-usage`
+
+**คำศัพท์:**
+- **`log_ai_usage(entry)`** — ฟังก์ชันหลักใน `backend/ai_usage_hub.py` ยิง HTTP POST ไป Hub แบบ fire-and-forget (daemon thread, ไม่ throw)
+- **`provider`** — ชื่อ provider ที่เรียก (`openrouter`, `ollama`, `apify`, `9arm`) — บังคับส่งทุกครั้ง
+- **`analysis_type`** — ประเภทงาน (`chat`, `media`, `search`, `agent`) ส่งใน `metadata.analysis_type` เพื่อ filter ใน dashboard
+- **`user` vs `reference`** — `user` = ใครสั่ง (actor, เช่น user_id), `reference` = เรื่องอะไร (subject, เช่น session_id) — ตั้งใน contextvar ที่ `chat.py` ไม่ใช่ในแต่ละ call site
+- **`cost_usd`** — ราคาจริงจาก provider (`usage.cost` ของ OpenRouter) ห้ามประมาณ
+- **`request_id`** — id ที่ provider คืนมา (generation id) ใช้เป็น idempotency key ได้
+
+**กฎสำคัญ:** ทุก call site ที่เรียก AI provider ต้อง log ทั้ง success และ error path — ไม่มี exception (ดู `SYSTEM_PROTOCOL.md` section 15)

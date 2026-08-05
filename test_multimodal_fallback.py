@@ -38,7 +38,7 @@ class TestCallWithImageFallback(unittest.TestCase):
 
         with patch("openai.OpenAI") as mock_openai_class, \
              patch.object(self.mgr, "_get_rotator", return_value=rotator), \
-             patch("backend.llm.manager.log_llm_call"):
+             patch("backend.llm.manager.log_ai_usage"):
             mock_client = MagicMock()
             mock_client.chat.completions.create = MagicMock(return_value=mock_response)
             mock_openai_class.return_value = mock_client
@@ -55,7 +55,7 @@ class TestCallWithImageFallback(unittest.TestCase):
 
         with patch("openai.OpenAI") as mock_openai_class, \
              patch.object(self.mgr, "_get_rotator", return_value=rotator), \
-             patch("backend.llm.manager.log_llm_call"):
+             patch("backend.llm.manager.log_ai_usage"):
             mock_client = MagicMock()
             mock_client.chat.completions.create = MagicMock(side_effect=RuntimeError("model error"))
             mock_openai_class.return_value = mock_client
@@ -75,7 +75,7 @@ class TestCallWithImageFallback(unittest.TestCase):
 
         with patch("openai.OpenAI") as mock_openai_class, \
              patch.object(self.mgr, "_get_rotator", return_value=rotator), \
-             patch("backend.llm.manager.log_llm_call"):
+             patch("backend.llm.manager.log_ai_usage"):
             mock_client = MagicMock()
             mock_client.chat.completions.create = MagicMock(return_value=mock_response)
             mock_openai_class.return_value = mock_client
@@ -91,7 +91,7 @@ class TestCallWithImageFallback(unittest.TestCase):
         self.mgr._default_model = ""
 
         with patch("openai.OpenAI") as mock_openai_class, \
-             patch("backend.llm.manager.log_llm_call"):
+             patch("backend.llm.manager.log_ai_usage"):
             mock_client = MagicMock()
             mock_client.chat.completions.create = MagicMock(side_effect=RuntimeError("model error"))
             mock_openai_class.return_value = mock_client
@@ -127,7 +127,7 @@ class TestCallWithMultimodalFallback(unittest.TestCase):
 
         with patch("openai.OpenAI") as mock_openai_class, \
              patch.object(self.mgr, "_get_rotator", return_value=rotator), \
-             patch("backend.llm.manager.log_llm_call"):
+             patch("backend.llm.manager.log_ai_usage"):
             mock_client = MagicMock()
             mock_client.chat.completions.create = MagicMock(return_value=mock_response)
             mock_openai_class.return_value = mock_client
@@ -146,7 +146,7 @@ class TestCallWithMultimodalFallback(unittest.TestCase):
 
         with patch("openai.OpenAI") as mock_openai_class, \
              patch.object(self.mgr, "_get_rotator", return_value=rotator), \
-             patch("backend.llm.manager.log_llm_call"):
+             patch("backend.llm.manager.log_ai_usage"):
             mock_client = MagicMock()
             mock_client.chat.completions.create = MagicMock(side_effect=RuntimeError("model error"))
             mock_openai_class.return_value = mock_client
@@ -168,7 +168,7 @@ class TestCallWithMultimodalFallback(unittest.TestCase):
 
         with patch("openai.OpenAI") as mock_openai_class, \
              patch.object(self.mgr, "_get_rotator", return_value=rotator), \
-             patch("backend.llm.manager.log_llm_call"):
+             patch("backend.llm.manager.log_ai_usage"):
             mock_client = MagicMock()
             mock_client.chat.completions.create = MagicMock(return_value=mock_response)
             mock_openai_class.return_value = mock_client

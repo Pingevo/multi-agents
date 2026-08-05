@@ -5,7 +5,7 @@ import time
 import requests
 from crewai import LLM
 from backend.utils import _sanitize_error
-from backend.credit_logger import log_llm_call
+from backend.ai_usage_hub import log_ai_usage
 
 
 class FreeModelRotator:
@@ -140,17 +140,45 @@ class FreeModelRotator:
             try:
                 from openai import OpenAI
                 client = OpenAI(base_url=self.base_url, api_key=self.api_key, max_retries=0, timeout=120)
+                started_at = time.time()
                 response = client.chat.completions.create(
                     model=model_id,
                     messages=[{"role": "user", "content": prompt}],
                     temperature=self.temperature,
                     max_tokens=8192,
                 )
-                log_llm_call(model_id, response.usage, caller=f"{caller}:attempt{attempt}", prompt_preview=prompt)
+                usage = response.usage.model_dump() if response.usage and hasattr(response.usage, "model_dump") else (response.usage or {})
+                log_ai_usage({
+                    "provider": "openrouter",
+                    "model": model_id,
+                    "operation": "chat.completions",
+                    "source": caller,
+                    "status": "success",
+                    "prompt_tokens": usage.get("prompt_tokens"),
+                    "completion_tokens": usage.get("completion_tokens"),
+                    "cost_usd": usage.get("cost"),
+                    "duration_ms": int((time.time() - started_at) * 1000),
+                    "attempt": attempt,
+                    "raw_usage": usage,
+                    "request_id": getattr(response, "id", None),
+                    "metadata": {"analysis_type": "chat"},
+                })
                 print(f"[FreeModelRotator] Succeeded on attempt {attempt} with {model_id}", flush=True)
                 return response.choices[0].message.content or ""
             except Exception as e:
-                print(f"[FreeModelRotator] Attempt {attempt}/{max_attempts} with {model_id}: {_sanitize_error(e)}", flush=True)
+                err_msg = _sanitize_error(e)
+                log_ai_usage({
+                    "provider": "openrouter",
+                    "model": model_id,
+                    "operation": "chat.completions",
+                    "source": caller,
+                    "status": "error",
+                    "error_message": err_msg,
+                    "duration_ms": int((time.time() - started_at) * 1000),
+                    "attempt": attempt,
+                    "metadata": {"analysis_type": "chat"},
+                })
+                print(f"[FreeModelRotator] Attempt {attempt}/{max_attempts} with {model_id}: {err_msg}", flush=True)
                 if attempt < max_attempts:
                     time.sleep(backoff)
                     backoff *= 2
@@ -236,6 +264,7 @@ class FreeModelRotator:
 
             try:
                 client = OpenAI(base_url=self.base_url, api_key=self.api_key, max_retries=0, timeout=120)
+                started_at = time.time()
                 response = client.chat.completions.create(
                     model=model_id,
                     messages=[{
@@ -248,11 +277,38 @@ class FreeModelRotator:
                     temperature=self.temperature,
                     max_tokens=8192,
                 )
-                log_llm_call(model_id, response.usage, caller=f"{caller}:attempt{attempt}", prompt_preview=prompt)
+                usage = response.usage.model_dump() if response.usage and hasattr(response.usage, "model_dump") else (response.usage or {})
+                log_ai_usage({
+                    "provider": "openrouter",
+                    "model": model_id,
+                    "operation": "chat.completions",
+                    "source": caller,
+                    "status": "success",
+                    "prompt_tokens": usage.get("prompt_tokens"),
+                    "completion_tokens": usage.get("completion_tokens"),
+                    "cost_usd": usage.get("cost"),
+                    "duration_ms": int((time.time() - started_at) * 1000),
+                    "attempt": attempt,
+                    "raw_usage": usage,
+                    "request_id": getattr(response, "id", None),
+                    "metadata": {"analysis_type": "chat"},
+                })
                 print(f"[FreeModelRotator] Vision succeeded on attempt {attempt} with {model_id}", flush=True)
                 return response.choices[0].message.content or ""
             except Exception as e:
-                print(f"[FreeModelRotator] Vision attempt {attempt}/{max_attempts} with {model_id}: {_sanitize_error(e)}", flush=True)
+                err_msg = _sanitize_error(e)
+                log_ai_usage({
+                    "provider": "openrouter",
+                    "model": model_id,
+                    "operation": "chat.completions",
+                    "source": caller,
+                    "status": "error",
+                    "error_message": err_msg,
+                    "duration_ms": int((time.time() - started_at) * 1000),
+                    "attempt": attempt,
+                    "metadata": {"analysis_type": "chat"},
+                })
+                print(f"[FreeModelRotator] Vision attempt {attempt}/{max_attempts} with {model_id}: {err_msg}", flush=True)
                 if attempt < max_attempts:
                     time.sleep(backoff)
                     backoff *= 2
@@ -278,16 +334,44 @@ class FreeModelRotator:
 
             try:
                 client = OpenAI(base_url=self.base_url, api_key=self.api_key, max_retries=0, timeout=120)
+                started_at = time.time()
                 messages = [{"role": "user", "content": [{"type": "text", "text": prompt}] + content_blocks}]
                 kwargs = {"model": model_id, "messages": messages, "temperature": self.temperature, "max_tokens": 8192}
                 if plugins:
                     kwargs["extra_body"] = {"plugins": plugins}
                 response = client.chat.completions.create(**kwargs)
-                log_llm_call(model_id, response.usage, caller=f"{caller}:attempt{attempt}", prompt_preview=prompt)
+                usage = response.usage.model_dump() if response.usage and hasattr(response.usage, "model_dump") else (response.usage or {})
+                log_ai_usage({
+                    "provider": "openrouter",
+                    "model": model_id,
+                    "operation": "chat.completions",
+                    "source": caller,
+                    "status": "success",
+                    "prompt_tokens": usage.get("prompt_tokens"),
+                    "completion_tokens": usage.get("completion_tokens"),
+                    "cost_usd": usage.get("cost"),
+                    "duration_ms": int((time.time() - started_at) * 1000),
+                    "attempt": attempt,
+                    "raw_usage": usage,
+                    "request_id": getattr(response, "id", None),
+                    "metadata": {"analysis_type": "chat"},
+                })
                 print(f"[FreeModelRotator] Multimodal succeeded on attempt {attempt} with {model_id}", flush=True)
                 return response.choices[0].message.content or ""
             except Exception as e:
-                print(f"[FreeModelRotator] Multimodal attempt {attempt}/{max_attempts} with {model_id}: {_sanitize_error(e)}", flush=True)
+                err_msg = _sanitize_error(e)
+                log_ai_usage({
+                    "provider": "openrouter",
+                    "model": model_id,
+                    "operation": "chat.completions",
+                    "source": caller,
+                    "status": "error",
+                    "error_message": err_msg,
+                    "duration_ms": int((time.time() - started_at) * 1000),
+                    "attempt": attempt,
+                    "metadata": {"analysis_type": "chat"},
+                })
+                print(f"[FreeModelRotator] Multimodal attempt {attempt}/{max_attempts} with {model_id}: {err_msg}", flush=True)
                 if attempt < max_attempts:
                     time.sleep(backoff)
                     backoff *= 2
@@ -313,6 +397,7 @@ class FreeModelRotator:
 
             try:
                 client = OpenAI(base_url=self.base_url, api_key=self.api_key, max_retries=0, timeout=120)
+                started_at = time.time()
                 stream = client.chat.completions.create(
                     model=model_id,
                     messages=[{"role": "user", "content": prompt}],
@@ -322,17 +407,47 @@ class FreeModelRotator:
                     stream_options={"include_usage": True},
                 )
                 usage_data = None
+                _stream_id = None
                 for chunk in stream:
                     if chunk.usage:
                         usage_data = chunk.usage
+                    if hasattr(chunk, "id") and chunk.id:
+                        _stream_id = chunk.id
                     if chunk.choices and chunk.choices[0].delta.content:
                         yield chunk.choices[0].delta.content
                 if usage_data:
-                    log_llm_call(model_id, usage_data, caller=f"{caller}:stream:attempt{attempt}", prompt_preview=prompt)
+                    usage = usage_data.model_dump() if hasattr(usage_data, "model_dump") else (usage_data or {})
+                    log_ai_usage({
+                        "provider": "openrouter",
+                        "model": model_id,
+                        "operation": "chat.completions",
+                        "source": caller,
+                        "status": "success",
+                        "prompt_tokens": usage.get("prompt_tokens"),
+                        "completion_tokens": usage.get("completion_tokens"),
+                        "cost_usd": usage.get("cost"),
+                        "duration_ms": int((time.time() - started_at) * 1000),
+                        "attempt": attempt,
+                        "raw_usage": usage,
+                        "request_id": _stream_id if "_stream_id" in locals() else None,
+                        "metadata": {"analysis_type": "chat"},
+                    })
                 print(f"[FreeModelRotator] Stream succeeded on attempt {attempt} with {model_id}", flush=True)
                 return
             except Exception as e:
-                print(f"[FreeModelRotator] Stream attempt {attempt}/{max_attempts} with {model_id}: {_sanitize_error(e)}", flush=True)
+                err_msg = _sanitize_error(e)
+                log_ai_usage({
+                    "provider": "openrouter",
+                    "model": model_id,
+                    "operation": "chat.completions",
+                    "source": caller,
+                    "status": "error",
+                    "error_message": err_msg,
+                    "duration_ms": int((time.time() - started_at) * 1000),
+                    "attempt": attempt,
+                    "metadata": {"analysis_type": "chat"},
+                })
+                print(f"[FreeModelRotator] Stream attempt {attempt}/{max_attempts} with {model_id}: {err_msg}", flush=True)
                 continue
 
         raise RuntimeError(f"All {max_attempts} streaming attempts failed")
