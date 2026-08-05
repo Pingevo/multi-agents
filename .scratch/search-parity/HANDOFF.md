@@ -12,7 +12,7 @@
 |------|---------------|------|------|
 | **B. Date injection** | #10 | เล็ก | ✅ DONE (commit `41756f6`) |
 | **A. Migration plugin → server tool** | #1, #2, #3, #7, #8, #9 | กลาง/เสี่ยง | ✅ CODE DONE (commit `5846918`) + bug fixes uncommitted — แก้ search_model propagation แล้ว, เหลือ perplexity 404 (ย้ายไป P0.2 ใน Architecture Debt) |
-| **C. Prompt: read full pages** | #5 | เล็ก | ⏳ TODO |
+| **C. Prompt: read full pages** | #5 | เล็ก | ✅ DONE (session 13, uncommitted) |
 | **D. Frontend: source chips** | #6 | กลาง | ⏳ TODO |
 
 ## ลำดับที่แนะนำ
