@@ -774,3 +774,28 @@ False positives (audit was wrong): GET /models and /key calls don't need logging
 come from contextvars in _normalize_entry(), not call site dict.
 Lesson: self-written checker has same blind spots as code author. Independent
 audit catches what self-audit can't.
+
+### Diagnosing-bugs: log not appearing on dashboard (session 13)
+User reported: "ไม่เห็นบนเว็บเลย ทั้งๆที่ทำงานจนจบ plan แล้ว"
+
+Phase 1 (feedback loop): python script that loads .env and POSTs to Hub.
+Phase 2 (reproduce): 3/3 runs → HTTP 403 {"success":false,"error":"Insufficient scope"}
+Phase 3 (hypotheses):
+  H1: token lacks scope → predicts 403 on every request regardless of payload ✓
+  H2: token expired → predicts 401 ✗ (got 403)
+  H3: wrong endpoint → predicts 404 ✗ (got 403)
+  H4: token bound to wrong project → same as H1
+  H5: rate limit → predicts 429 ✗
+Phase 4 (instrument): tested all combinations:
+  - minimal payload (just provider) → 403
+  - batch endpoint → 403
+  - Bearer auth instead of x-service-token → 403
+  All 403. Root cause = token scope, not payload/auth/endpoint.
+Phase 5 (fix what we can):
+  - ai_usage_hub.py: added one-time console warning when env vars unset
+    (was silent no-op — user couldn't tell why logs weren't appearing)
+  - ai_usage_hub.py: _safe_post now prints HTTP errors instead of swallowing
+    (was silent on 4xx/5xx — user couldn't tell Hub was rejecting)
+  - Also fixed duplicated file content (242→122 lines, was accidentally doubled)
+Phase 6: root cause is token scope — user must ask sellcenter team to fix.
+  Code changes committed so future config issues are visible in console.

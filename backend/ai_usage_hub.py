@@ -8,7 +8,8 @@ Interface (one function, one dict):
 
 Invariants (what callers can rely on):
 1. Never raises — fire-and-forget. A failing Hub must not break the main flow.
-2. If AI_USAGE_HUB_URL or AI_USAGE_HUB_TOKEN is unset → silent no-op.
+2. If AI_USAGE_HUB_URL or AI_USAGE_HUB_TOKEN is unset → silent no-op (with
+   a one-time console warning so missing config is visible, not silent).
 3. If `provider` is missing → defaults to "unknown" (spec says mandatory;
    surfacing as "unknown" makes missing-provider bugs visible in the
    dashboard instead of silently masking them as "openrouter").
@@ -88,6 +89,9 @@ def log_ai_usage(entry: dict) -> None:
         url = os.environ.get("AI_USAGE_HUB_URL")
         token = os.environ.get("AI_USAGE_HUB_TOKEN")
         if not url or not token:
+            if not getattr(log_ai_usage, "_warned", False):
+                print("[ai-usage-hub] AI_USAGE_HUB_URL or AI_USAGE_HUB_TOKEN not set — logs will NOT be sent to Hub. Set them in .env to enable.", flush=True)
+                log_ai_usage._warned = True
             return  # not configured — silent no-op (per Hub doc example code)
 
         payload = _normalize_entry(entry)
@@ -110,10 +114,9 @@ def _safe_post(url: str, payload: dict, headers: dict) -> None:
     """Run the transport in a try/except so thread death stays silent."""
     try:
         timeout = float(os.environ.get("AI_USAGE_HUB_TIMEOUT", "5"))
-        _transport(url, json=payload, headers=headers, timeout=timeout)
-    except Exception:
-        # Fire-and-forget: Hub down, network error, etc. — swallow.
-        # The local llm-call-log.jsonl is no longer written (replaced by Hub),
-        # so a failed push means the event is lost. Acceptable per Hub doc:
-        # "ถ้ายิงไม่สำเร็จ แค่ log ไว้เฉยๆ แล้วปล่อยผ่าน"
-        pass
+        resp = _transport(url, json=payload, headers=headers, timeout=timeout)
+        if resp.status_code >= 400:
+            print(f"[ai-usage-hub] push failed: HTTP {resp.status_code} — {resp.text[:200]}", flush=True)
+    except Exception as e:
+        # Fire-and-forget: Hub down, network error, etc. — log and swallow.
+        print(f"[ai-usage-hub] push error: {e}", flush=True)

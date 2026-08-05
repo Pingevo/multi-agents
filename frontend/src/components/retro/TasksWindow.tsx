@@ -273,6 +273,11 @@ const ResultPanel: React.FC<{
   const hasOutput = !!progress?.output;
   const hasReview = !!(progress?.review_history && progress.review_history.length > 0);
   const hasMedia = imageResults.length > 0;
+  const isRunning = status === 'running';
+  // [DEBUG-t4a1] thinking field diagnostic
+  if (isRunning) {
+    console.log('[DEBUG-t4a1] ResultPanel', { name: progress?.name, status, thinking: progress?.thinking, thinkingLen: progress?.thinking?.length, toolDesc: progress?.tool_description });
+  }
 
   return (
     <>
