@@ -35,11 +35,10 @@ class _FakeDiscovery:
         return self._catalog.get(model_id, [])
 
 
-# Catalog mimicking real OpenRouter model metadata (verified 2026-08-05)
+# Catalog mimicking real OpenRouter model metadata
 # - tools-capable models: have "tools" in supported_parameters
-# - perplexity models: have "web_search_options" (NOT "web_search") — built-in search
-#   Per OpenRouter API, the parameter was renamed; older tests used "web_search"
-#   which no longer appears in any real model's supported_parameters.
+# - perplexity models: have "web_search_options" (current OpenRouter param name)
+#   but NOT "tools" (built-in search)
 # - openrouter/free: not in catalog (router, skipped by discover_all)
 _FAKE_CATALOG = {
     "anthropic/claude-sonnet-5": ["tools", "temperature", "max_tokens"],

@@ -1,5 +1,59 @@
 # Developer Log
 
+## 2026-08-05 (session 14) — Fix perplexity 404 regression + restore resolve_search_model
+
+### What
+Commit `de04b54` (AI Usage Hub integration) accidentally regressed two fixes
+from commit `7ce1ce0`:
+1. `supports_server_tool` reverted from checking `"web_search_options"` back to
+   `"web_search"` — all Perplexity models returned True (wrong), got `tools`
+   instead of `web_search_options`, and 404'd on every search call
+2. `SearchAdapter.resolve_search_model()` method was deleted — `search.py`
+   fell back to reading `_globals._search_model` directly (P0.1 regression)
+
+### Why (root cause — diagnosing-bugs Phase 3 hypothesis #1 confirmed)
+The AI Usage Hub commit rewrote `search_adapter.py` to add `log_ai_usage` calls
+and in the process dropped the `resolve_search_model` method and reverted the
+`web_search_options` parameter check. Tests did not catch the regression
+because `test_search_adapter.py` and `test_web_search_migration.py` used
+`"web_search"` in their fake catalogs — matching the (wrong) adapter code
+rather than the real OpenRouter catalog which uses `"web_search_options"`.
+
+### TDD slices (red → green)
+1. RED: Updated fake catalogs in `test_search_adapter.py` and
+   `test_web_search_migration.py` to use `"web_search_options"` (mirroring
+   real OpenRouter metadata) → 5 + 3 tests fail
+2. GREEN: Restored `"web_search_options"` check in `supports_server_tool` →
+   all 13 adapter tests pass
+3. GREEN: Restored `resolve_search_model()` method on SearchAdapter + restored
+   `search.py` delegation → 42 search-related tests pass
+4. Restored missing test files: `test_adapter_resolve_model.py`,
+   `test_search_uses_adapter.py` (deleted by `de04b54`)
+
+### Verification
+- Full suite: 399 passed, 8 deselected, 0 regressions
+- Manual test (browser): "ค้นหาข่าวล่าสุดเกี่ยวกับ youtuber Jedz"
+  - search_model = perplexity/sonar-pro-search (top-level, button filled)
+  - search executed with perplexity — NO 404
+  - browse_web validated + executed (read GamingDose + Pantip pages)
+  - agent synthesized answer from full page content
+
+### What would have prevented this bug
+Test data in `test_search_adapter.py` / `test_web_search_migration.py` should
+have mirrored the real OpenRouter catalog (`web_search_options`) from the
+start. Using the old parameter name (`web_search`) in fake catalogs made the
+tests tautological — they passed against the wrong code. With correct test
+data, commit `de04b54` would have failed CI immediately.
+
+### Files
+- `backend/tools/search_adapter.py` — restored `resolve_search_model`, fixed
+  `supports_server_tool` to check `web_search_options`
+- `backend/tools/search.py` — `_resolve_search_model` delegates to adapter again
+- `test_search_adapter.py` — fake catalog uses `web_search_options`
+- `test_web_search_migration.py` — fake catalog uses `web_search_options`
+- `test_adapter_resolve_model.py` — restored (was deleted by de04b54)
+- `test_search_uses_adapter.py` — restored (was deleted by de04b54)
+
 ## 2026-08-05 (session 13) — Task C: Secretary prompt instructs agents to read full pages
 
 ### What

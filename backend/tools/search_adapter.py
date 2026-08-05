@@ -85,7 +85,7 @@ class SearchAdapter:
 
         Note: OpenRouter renamed the built-in search parameter from `web_search`
         to `web_search_options`. Checking only the old name misses all Perplexity
-        models (see ADR-0004, regression test test_search_adapter.py).
+        models (regression introduced by commit de04b54 — see ADR-0004 amendment).
         """
         if not model:
             return True  # empty = unknown, let API decide
