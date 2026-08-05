@@ -11,16 +11,21 @@
 | Task | ข้อที่ครอบคลุม | ขนาด | สถานะ |
 |------|---------------|------|------|
 | **B. Date injection** | #10 | เล็ก | ✅ DONE (commit `41756f6`) |
-| **A. Migration plugin → server tool** | #1, #2, #3, #7, #8, #9 | กลาง/เสี่ยง | ✅ CODE DONE (commit `5846918`) + bug fixes uncommitted — แก้ search_model propagation แล้ว, เหลือ perplexity 404 (ย้ายไป P0.2 ใน Architecture Debt) |
-| **C. Prompt: read full pages** | #5 | เล็ก | ⏳ TODO |
-| **D. Frontend: source chips** | #6 | กลาง | ⏳ TODO |
+| **A. Migration plugin → server tool** | #1, #2, #3, #7, #8, #9 | กลาง/เสี่ยง | ✅ DONE — code + bug fixes (search_model propagation, web_search_options adapter) + manual test ผ่าน 2026-08-05 (Perplexity ไม่ 404, source URLs คลิกได้, review loop ทำงาน) |
+| **C. Prompt: read full pages** | #5 | เล็ก | ⏳ TODO — อาจไม่จำเป็น: Perplexity ส่ง passage ละเอียดพอแล้ว (manual test ได้ตัวเลข box office ละเอียด) |
+| **D. Frontend: source chips** | #6 | กลาง | ⏳ TODO — URL คลิกได้ใน result แล้ว แต่ยังไม่ใช่ chip แบบตลาด |
 
 ## ลำดับที่แนะนำ
 
 1. ~~Task B — date injection~~ ✅ เสร็จ
-2. **Task A — migration** (เร่งด่วน เพราะ OpenRouter ถอด plugin เก่า)
-3. **Task C — prompt** (เล็ก ทำหลัง A)
+2. ~~Task A — migration~~ ✅ เสร็จ
+3. **Task C — prompt** (เล็ก ทำหลัง A) — อาจ skip ถ้า Perplexity passage เพียงพอ
 4. **Task D — frontend** (แยก ทำทีหลังได้)
+
+## สถานะ issue บน GitHub
+
+- ✅ #125 — FreeModelRotator stale slugs — CLOSED 2026-08-05 (session 11) — dynamic catalog fetch
+- ⏳ #126 — Manager LLM flaky JSON parse — open (P1, ต้อง capture full response ก่อน)
 
 ## รายละเอียดแต่ละ Task
 
@@ -143,13 +148,19 @@
 
 ---
 
-#### P0.2 Decision logic กระจาย — ไม่มีจุดเดียวที่ตัดสินใจ — ✅ DONE (session 7)
+#### P0.2 Decision logic กระจาย — ไม่มีจุดเดียวที่ตัดสินใจ — ✅ DONE (session 10)
 
 **สถานะ**: SearchAdapter สร้างแล้วใน `backend/tools/search_adapter.py` — แก้บัค perplexity 404
 โดยเลือก `tools` (server tool) หรือ `web_search_options` (perplexity built-in) อัตโนมัติ
-ผ่าน `ModelDiscoveryService.get_supported_parameters()`. 368 tests pass, 0 regressions.
-4 จุดตัดสินใจเดิมยังไม่ลบ (ตามกฏ "ทำทีละตัว") — P0.1 จะรวมเข้า adapter.
-Manual test perplexity จริง pending (ชดเชย Seam 2 ที่ user ไม่อนุมัติ test ใหม่).
+ผ่าน `ModelDiscoveryService.get_supported_parameters()`. 364 tests pass, 0 regressions.
+
+**Session 10 amendment**: 
+- แก้ bug ใน `supports_server_tool` ที่เช็ค `"web_search"` (ชื่อเก่า) แทน `"web_search_options"` (ชื่อปัจจุบัน) — ทำให้ Perplexity ทุกตัว return True ผิด และเกิด 404 อีก (bug เดียวกับที่ ADR-0004 หมายจะแก้)
+- เพิ่ม `SearchAdapter.resolve_search_model()` เป็น single resolution point — รวม 4 จุดตัดสินใจเข้าเป็น 1 deep module + 1 thin wrapper ใน search.py
+- แก้ test data ใน `test_search_adapter.py` + `test_web_search_migration.py` ที่ใช้ `"web_search"` ใน fake catalog (เหตุที่ bug หลุดรอดมา)
+- ADR-0004 มี amendment section บันทึกการเปลี่ยนแปลง
+
+**คงเหลือ**: `_globals._search_model` ยังอยู่ (P0.1 จะแทนด้วย DI) — wrapper ใน search.py ยังอ่านจาก global แต่ logic อยู่ใน adapter หมดแล้ว
 
 **ไฟล์**: `backend/tools/search.py:47-85`, `backend/llm/selector.py:39`, `backend/llm/discovery.py:72`, `backend/core/secretary.py:610-620`, `backend/handlers/chat.py:2753-2760`, `backend/core/orchestrator.py:398-431`
 

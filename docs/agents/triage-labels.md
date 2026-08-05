@@ -10,15 +10,19 @@
 | Needs human | `ready-for-human` | Needs human implementation |
 | Won't fix | `wontfix` | Will not be actioned |
 
-## Local markdown mapping
+## GitHub Issues mapping
 
-Since we use local markdown (no label system), labels are recorded as a `status:` field in the front matter of each issue file:
+Since we use GitHub Issues (see `issue-tracker.md`), triage status is recorded via GitHub labels. The canonical role maps to a GitHub label of the same name:
 
-```markdown
----
-status: needs-triage
----
-```
+| Canonical role | GitHub label |
+|----------------|--------------|
+| `needs-triage` | `needs-triage` |
+| `needs-info` | `needs-info` |
+| `ready-for-agent` | `ready-for-agent` |
+| `ready-for-human` | `ready-for-human` |
+| `wontfix` | `wontfix` |
+
+If a label does not yet exist in the repo, create it before applying.
 
 ## Defaults
 

@@ -1,5 +1,130 @@
 # Developer Log
 
+## 2026-08-05 (session 11) — Fix FreeModelRotator stale slugs (issue #125)
+
+### What
+Replaced hardcoded `_FREE_MODEL_RANKING` (8 stale slugs that all 404) with
+dynamic catalog fetch — `get_ranking()` now filters OpenRouter catalog for
+models with `:free` suffix that currently exist, sorted by context_length
+descending (smartest first).
+
+### Why (No Hardcode rule + issue #125)
+OpenRouter retired free tier for `deepseek-r1:free`, `llama-3.3-70b:free`,
+`qwen3-coder:free`, `gpt-oss-120b:free`, etc. — all 4 rotator attempts 404'd,
+leaving the user with "⚠️ โมเดล 'openrouter/free' ไม่สามารถสร้างแผนงานได้".
+Hardcoding slugs that drift over time violates No Hardcode.
+
+### TDD slices
+1. RED: `test_rotator_dynamic_ranking.py` — 5 tests for dynamic ranking (catalog injection, excludes paid/stale, sorts by context_length, empty when catalog empty)
+2. GREEN: Added `catalog` parameter to `FreeModelRotator.__init__`, `_fetch_catalog_models()`, rewrote `get_ranking()` to filter + sort dynamically. Kept `_FALLBACK_RANKING` (2 slugs) as safety net for API fetch failure only.
+3. REFACTOR: Updated `get_model_details()` to use `get_ranking()` instead of deleted `_FREE_MODEL_RANKING`
+4. Fix existing tests: `test_free_model_rotator.py` + `test_integration_pipeline.py` — inject fake catalog instead of hitting API, assert dynamic behavior instead of specific stale slugs
+
+### Verification
+- 370/370 tests pass, 0 regressions
+- New test `test_rotator_dynamic_ranking.py` locks in: only free models, no paid, no stale slugs, sorted by context_length, empty catalog → empty ranking
+- Fallback only triggers on API fetch failure (not on empty catalog)
+
+### Files
+- `backend/llm/rotator.py` — added `catalog` param, `_fetch_catalog_models()`, rewrote `get_ranking()`, kept `_FALLBACK_RANKING` for fetch failure only
+- `test_rotator_dynamic_ranking.py` — new test for dynamic ranking seam
+- `test_free_model_rotator.py` — updated to inject catalog, assert dynamic behavior
+- `test_integration_pipeline.py` — updated 3 tests to inject catalog
+
+### Issue
+Closes #125 — https://github.com/Pingevo/multi-agents/issues/125
+
+## 2026-08-05 (session 10) — SearchAdapter architecture completed (P0.2 done)
+
+### What
+Completed the SearchAdapter deepening per ADR-0004 + HANDOFF P0.2:
+1. **Bug fix**: `supports_server_tool` checked `"web_search"` (old name) instead of `"web_search_options"` (current OpenRouter param) — Perplexity models all returned True (wrong), reproducing the 404 bug ADR-0004 was meant to fix
+2. **Consolidation**: Added `SearchAdapter.resolve_search_model(ai_search_model, selected_model, default_model)` as the single resolution point. `search.py:_resolve_search_model` is now a thin wrapper delegating to the adapter — 4 scattered decision points → 1 deep module + 1 wrapper
+3. **Test data fix**: `test_search_adapter.py` + `test_web_search_migration.py` used `"web_search"` in fake catalogs (which is why the adapter bug passed tests). Updated to `"web_search_options"` to mirror real OpenRouter metadata
+
+### Why (architectural)
+- ADR-0004 created the adapter as the "single decision point" but the parameter-name check was wrong — the adapter was making the wrong decision, defeating its purpose
+- HANDOFF P0.2 marked "DONE" but manual test of Perplexity was pending — the bug would have surfaced immediately on first real Perplexity use
+- The 4 scattered decision points (secretary, chat.py, orchestrator, search.py) for model resolution are now 1 adapter + 1 thin wrapper — locality: bugs concentrate in the adapter
+
+### TDD slices (red → green → refactor)
+1. RED: Updated `test_search_adapter.py` fake catalog to use `web_search_options` → 5 Perplexity tests fail
+2. GREEN: Fixed `supports_server_tool` to check `web_search_options` → 13/13 pass
+3. RED: New `test_adapter_resolve_model.py` for `resolve_search_model` → AttributeError
+4. GREEN: Added `resolve_search_model` to adapter → 5/5 pass
+5. REFACTOR: `search.py:_resolve_search_model` delegates to adapter → 29/29 pass (behavior preserved)
+6. Fix test data in `test_web_search_migration.py` → 42/42 pass
+
+### Verification
+- Full suite: 364 passed, 0 regressions
+- ADR-0004 amended with the parameter-name fix + consolidation
+- HANDOFF P0.2 now genuinely complete (not just "code done")
+
+### Files
+- `backend/tools/search_adapter.py` — added `resolve_search_model`, fixed `supports_server_tool` param check
+- `backend/tools/search.py` — `_resolve_search_model` now delegates to adapter
+- `test_search_adapter.py` — fake catalog uses `web_search_options`
+- `test_web_search_migration.py` — fake catalog uses `web_search_options`
+- `test_adapter_resolve_model.py` — new test for `resolve_search_model` seam
+- `test_search_uses_adapter.py` — new test locking in delegation
+- `docs/adr/0004-search-adapter-for-format-selection.md` — amendment
+
+### Remaining (out of scope this session)
+- P0.1: Replace `_globals._search_model` with dependency injection (the wrapper still reads the global — that's the next slice)
+- P1.1: `cl.user_session` hidden coupling (100+ points)
+- P2: Catalog duplication (`discovery.get_catalog_summary` vs `selector._build_media_catalog`)
+
+## 2026-08-05 (session 9) — Fix search_model never selected: discovery missed web_search_options param
+
+### Bug
+User ขอข่าว "spider-man brand new day" → Secretary สร้าง plan ได้ แต่ `search_model: ""`
+ทำให้ปุ่ม "อนุมัติแผน" disabled และแสดง "กรุณาเลือกโมเดล: Search"
+
+### Root cause (diagnosing-bugs skill, 6 phases)
+`backend/llm/discovery.py:100` ตรวจ `"web_search" in supported_parameters`
+แต่ OpenRouter เปลี่ยนชื่อ parameter เป็น `web_search_options` สำหรับ Perplexity
+และ routing models ที่รองรับ search — ไม่มีโมเดลไหนในปัจจุบันที่ใช้ `web_search`
+อีกแล้ว ทำให้ `output_groups["search"]` ว่าง และ `get_catalog_summary()`
+ไม่ส่งบรรทัด "Web search models:" ให้ Secretary LLM เลย → LLM ไม่มี search model ID
+จะใส่ใน `search_model` field
+
+นี่คือ root cause เดียวกับ ADR-0004 (SearchAdapter) และ issue #124:
+OpenRouter มี 2 ชื่อ parameter สำหรับ search (`tools:[openrouter:web_search]`
+vs `web_search_options`) ระบบเราตรวจแค่ชื่อเดิม
+
+### Fix
+`backend/llm/discovery.py:99-107` — เพิ่ม `"web_search_options" in params` เข้าไปใน
+เงื่อนไข: `if ("web_search" in params or "web_search_options" in params) and "text" in output_modalities`
+
+### Verification
+- `/tmp/test_search_catalog.py` (regression test, red → green): assert "Web search" in summary
+- ก่อน fix: AssertionError (RED)
+- หลัง fix: "Web search models: sakana/fugu-ultra, perplexity/sonar-pro-search, ..." (GREEN)
+- Server restart แล้ว พร้อมทดสอบในเบราว์เซอร์
+
+### Note
+หลัง fix มีโมเดลทั่วไป (gpt-4o, sakana/fugu-ultra) ติดเข้ามาใน search list
+เพราะ OpenRouter อนุญาตให้ใช้ `web_search_options` เป็น routing feature
+โมเดลเหล่านี้ทำ search ได้จริง (ผ่าน routing) แต่ไม่ใช่ search-specialized
+แยกปัญหานี้ไว้ใน issue #124 (capability metadata) — ไม่ขยาย scope ในครั้งนี้
+
+## 2026-08-05 (session 8) — Fix NameError: _sanitize_error undefined in messenger.py
+
+### Bug
+User ขอข่าว "spider-man brand new day" → Manager ตอบ `❌ เกิดข้อผิดพลาด: name '_sanitize_error' is not defined`
+
+### Root cause
+`backend/core/messenger.py:70` เรียก `_sanitize_error(e)` ใน `_fetch_credits()` exception handler
+แต่ไม่ได้ import จาก `backend.utils` — เมื่อ credits fetch ไปเจอ exception ก็เกิด NameError ซ้อนทับ
+ส่งไปถึง user
+
+### Fix
+เพิ่ม `from backend.utils import _sanitize_error` ใน messenger.py (1 บรรทัด)
+
+### Verification
+- `python -c "from backend.core.messenger import StateMessenger"` → OK
+- `_sanitize_error(ValueError('test'))` → "test error"
+
 ## 2026-08-05 (session 7) — P0.2 SearchAdapter: fix perplexity 404 + consolidate search format decision
 
 ### Context

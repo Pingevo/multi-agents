@@ -2,22 +2,24 @@
 
 ## Type
 
-Local markdown
+GitHub Issues
 
 ## Location
 
-Issues live as markdown files under `.scratch/<feature>/` in this repo.
+Issues live in the `Pingevo/multi-agents` repository on GitHub: https://github.com/Pingevo/multi-agents/issues
 
 ## Convention
 
-- Each issue is a single `.md` file: `.scratch/<feature>/<issue-name>.md`
-- Issue files use kebab-case names
-- One issue per file
+- One issue per GitHub Issue
+- Title prefix indicates type: `[bug]`, `[feature]`, `[refactor]`, `[docs]`, `[chore]`
+- Labels: `bug`, `enhancement`, `documentation`, etc. (GitHub native labels)
+- Priority recorded via GitHub priority labels (`P0`, `P1`, `P2`) or milestone
+- Triage status uses GitHub's native `status:` field mapping (see `triage-labels.md`)
 
 ## PRs as a request surface
 
-No — this is a solo project without a remote. PRs are not applicable.
+Yes — PRs welcome. Use GitHub PRs for code changes; link issues via `Closes #N` or `Fixes #N`.
 
-## Migration
+## Migration history
 
-If this project gains a GitHub remote, update this file to switch from local markdown to GitHub Issues. Move existing `.scratch/` issues into GitHub Issues and update the type above.
+Migrated from local markdown (`.scratch/<feature>/`) to GitHub Issues on 2026-08-05 once the project gained a GitHub remote. Existing `.scratch/` issues were moved to GitHub Issues; the `.scratch/` directory is now reserved for working notes / handoff docs only, not tracked issues.
