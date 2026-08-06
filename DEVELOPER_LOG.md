@@ -1070,7 +1070,7 @@ log pattern is copied 3 times. A shared helper would prevent this class of
 bug. See architecture assessment below.
 
 
-## 2026-08-06 — MongoDB recheck + กฎใหม่ Section 16 (Assumption & Pivot Protocol)
+## 2026-08-06 — MongoDB recheck + กฎใหม่ Section 17 (Assumption & Pivot Protocol)
 
 ### Signal ที่เรียนรู้
 - เดิม: คิดว่า MongoDB (digital.in.th:27017) เก็บสินค้า ให้เราดึง (read-only)
@@ -1089,9 +1089,9 @@ bug. See architecture assessment below.
 3. สำรวจ database: itsAgents ว่างเปล่า (0 collections)
 4. ทดสอบสิทธิ์: readWrite ใน itsAgents อันเดียว (ไม่มีสิทธิ์ db อื่น)
 5. วิจัยหลักการ pivot roadmap (Strangler Fig, assumption mapping, agile replan)
-6. สรุปเป็นกฎใหม่ Section 16 ใน SYSTEM_PROTOCOL.md
+6. สรุปเป็นกฎใหม่ Section 17 ใน SYSTEM_PROTOCOL.md
 
-### กฎใหม่: Section 16 — Assumption & Pivot Protocol
+### กฎใหม่: Section 17 — Assumption & Pivot Protocol
 - 15.1: ทุก OST Opportunity ต้องมี Assumption ชัด (ไม่งั้น = planning fiction)
 - 15.2: เมื่อ assumption พัง → Impact Analysis ก่อน (ไล่ทุก issue ทุก milestone) → บันทึก ADR → ปรับ OST → mark issue pivot → สร้าง issue ใหม่ → ปรับ milestone → อัปเดต log
 - 15.3: เมื่อไหนสร้าง milestone ใหม่ vs ใส่ใน milestone เดิม (foundation กระทบหลาย M → สร้างใหม่)
@@ -1105,7 +1105,7 @@ bug. See architecture assessment below.
 - M6 milestone: ลด scope เหลือ Brand + Knowledge (พักสินค้า)
 - สร้าง milestone ใหม่ M6.5: Data Persistence Migration
 
-### ดำเนินการ pivot ตาม Section 16 (user ยืนยันทิศ)
+### ดำเนินการ pivot ตาม Section 17 (user ยืนยันทิศ)
 1. ✅ สร้าง ADR 0006: `docs/adr/0006-mongodb-data-storage-pivot.md`
 2. ✅ แก้ OST Opp 7: เพิ่ม assumption เดิม (ผิด) + ใหม่ + pivot note
 3. ✅ สร้าง milestone M6.5 (#14): "Data Persistence Migration" due 2026-10-15

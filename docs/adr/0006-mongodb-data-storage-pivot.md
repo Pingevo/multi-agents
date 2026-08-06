@@ -50,4 +50,4 @@ OST Opportunity 7 วาง assumption ไว้ว่า "สินค้า/�
 ## Refs
 - ADR-0003 (JSON persistence — ชั่วคราว, มี seam ไว้ย้าย)
 - OST Opportunity 7 (assumption ที่พัง)
-- SYSTEM_PROTOCOL Section 16 (Assumption & Pivot Protocol)
+- SYSTEM_PROTOCOL Section 17 (Assumption & Pivot Protocol)

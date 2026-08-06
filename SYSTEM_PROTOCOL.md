@@ -289,7 +289,7 @@ class SAMLProvider(AuthProvider):      # SAML SSO
 - ห้ามประมาณราคาเอง
 - ห้าม log แค่ success path
 
-## 15. Secrets & Credentials Handling (NON-NEGOTIABLE)
+## 16. Secrets & Credentials Handling (NON-NEGOTIABLE)
 
 **ห้ามอ่านค่า secret โดยตรงจาก `.env` หรือไฟล์ credential ใดๆ** — ไม่ว่าจะด้วย `cat`, `grep`, `read`, หรือคำสั่งอื่นใดที่แสดงค่าจริงออกมาใน context ของ agent
 
@@ -324,16 +324,16 @@ grep MONGO_PASSWORD .env
 cat .env
 ```
 
-## 16. Assumption & Pivot Protocol (เมื่อความจริงเปลี่ยน แผนต้องตาม)
+## 17. Assumption & Pivot Protocol (เมื่อความจริงเปลี่ยน แผนต้องตาม)
 
 แผน (OST + milestone + issue) ทุกอันมี assumption ซ่อนอยู่ เมื่อค้นพบว่า assumption ผิด ต้องปรับแผนตามลำดับนี้ ห้ามข้าม:
 
-### 16.1 ทุก OST Opportunity ต้องมี Assumption ชัด
+### 17.1 ทุก OST Opportunity ต้องมี Assumption ชัด
 - ใต้แต่ละ Opportunity ใน `OST.md` ต้องบอกว่า "สมมติฐานคืออะไร"
 - เช่น: `# Assumption: สินค้าอยู่ใน MongoDB แล้ว (read-only)`
 - ถ้าไม่มี assumption ชัด = planning fiction (วางแผนจากความเชื่อที่ไม่ได้เขียน)
 
-### 16.2 เมื่อ Assumption พัง — Impact Analysis ก่อน, ปรับแผนทีหลัง
+### 17.2 เมื่อ Assumption พัง — Impact Analysis ก่อน, ปรับแผนทีหลัง
 ก่อนแก้อะไร ต้องรู้ว่า assumption ที่พังกระทบอะไรบ้าง:
 
 1. **ระบุ assumption ที่พัง** — เขียนชัดว่า assumption อะไร, ผิดเพราะอะไร, เรียนรู้อะไรใหม่
@@ -349,7 +349,7 @@ cat .env
 7. **ปรับ milestone ถ้าจำเป็น** — ถ้าทิศใหม่ไม่ fit milestone เดิม หรือต้องสร้าง milestone ใหม่
 8. **อัปเดต DEVELOPER_LOG** — บันทึก "signal ที่เรียนรู้" ไม่ใช่แค่ "decision ที่เปลี่ยน"
 
-### 16.3 เมื่อไหนสร้าง milestone ใหม่ vs ใส่ใน milestone เดิม
+### 17.3 เมื่อไหนสร้าง milestone ใหม่ vs ใส่ใน milestone เดิม
 - **สร้าง milestone ใหม่** เมื่อทิศใหม่:
   - เป็น foundation ที่กระทบหลาย milestone (เช่น data persistence กระทบ M6, M8, M9, M10, M11)
   - ไม่ fit ชื่อ/desc milestone เดิม
@@ -359,14 +359,14 @@ cat .env
   - ไม่กระทบ milestone อื่น
 - ตั้งชื่อ milestone ใหม่ให้สื่อทิศใหม่ ไม่ใช่ตั้งชื่อสวยๆ
 
-### 16.4 ห้ามทำ
+### 17.4 ห้ามทำ
 - ห้ามลบ issue เดิมทิ้ง — ทำให้สูญเสียประวัติการตัดสินใจ
 - ห้ามแก้ issue เดิมจนเป็นเรื่องอื่น — ใช้ issue ใหม่แทน (1 issue = 1 concept)
 - ห้ามปรับแผนเงียบ — ต้องบันทึกใน ADR + DEVELOPER_LOG ทุกครั้ง
 - ห้าม blame ตัวเอง/team — assumption ผิด = เรียนรู้ ไม่ใช่ความผิด
 - ห้ามปรับแค่ issue ที่เจอโดยตรง — ต้องไล่หา issue อื่นที่ซ่อน assumption เดียวกัน
 
-### 16.5 ตัวอย่าง (เคส MongoDB)
+### 17.5 ตัวอย่าง (เคส MongoDB)
 ```
 เดิม:
   OST Opp 7: สินค้าอยู่ใน MongoDB → ดึงข้อมูล
