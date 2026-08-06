@@ -432,6 +432,18 @@ class FreeModelRotator:
                         "request_id": _stream_id if "_stream_id" in locals() else None,
                         "metadata": {"analysis_type": "chat"},
                     })
+                else:
+                    log_ai_usage({
+                        "provider": "openrouter",
+                        "model": model_id,
+                        "operation": "chat.completions",
+                        "source": caller,
+                        "status": "success",
+                        "duration_ms": int((time.time() - started_at) * 1000),
+                        "attempt": attempt,
+                        "request_id": _stream_id if "_stream_id" in locals() else None,
+                        "metadata": {"analysis_type": "chat", "note": "stream omitted usage"},
+                    })
                 print(f"[FreeModelRotator] Stream succeeded on attempt {attempt} with {model_id}", flush=True)
                 return
             except Exception as e:

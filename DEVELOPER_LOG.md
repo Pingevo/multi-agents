@@ -879,3 +879,33 @@ TDD violation fix:
 - frontend/retro-mockup.css
 - frontend/src/utils/sources.test.ts (new)
 - frontend/package.json (test scripts + vitest devDep)
+
+### Diagnosing-bugs: streaming methods skip log_ai_usage when stream omits usage (session 14)
+
+User asked: "จริงๆแล้วแค่ plan approval มันก็ต้องมีการใช้เครดิตแล้วไม่ใช่หรอ?"
+→ Correct insight: plan creation calls LLM (streaming path), so log MUST reach Hub.
+
+Phase 1 (feedback loop): unit test mocking stream without usage_data → assert log_ai_usage called.
+Phase 2 (reproduce): test failed — log_ai_usage NOT called when usage_data is None.
+Phase 3 (hypotheses):
+  H1: `if usage_data:` guard skips log on success when stream omits usage ✓
+  H2: log_ai_usage itself broken ✗ (e2e test with real token → 201)
+  H3: env vars not loaded ✗ (verified loaded)
+Phase 4 (instrument): audit ALL 9 LLM call paths via subagent:
+  - 6/9 correct (call_with_fallback, _call_with_image, _call_with_multimodal, rotator.call, rotator.call_with_image, rotator.call_with_multimodal)
+  - 3/9 had same bug: call_streaming, call_with_multimodal_streaming, rotator.call_streaming
+  All 3 had `if usage_data:` without `else` — same copy-paste pattern.
+Phase 5 (fix + regression test):
+  - Added `else` clause to all 3 methods: log success without token/cost when stream omits usage
+  - Wrote 3 regression tests (one per method) — all pass
+  - E2E test: Hub accepts no-usage payload → 201 Created
+Phase 6: 415/415 tests pass. Debug prints removed.
+
+Root cause: copy-paste of `if usage_data:` pattern across 3 streaming methods,
+none had an `else` branch. When a model's stream doesn't include usage metadata
+(some models do this even with stream_options={"include_usage": True}), the
+entire success log was silently skipped.
+
+Architecture note: this is a code duplication problem — the same streaming+
+log pattern is copied 3 times. A shared helper would prevent this class of
+bug. See architecture assessment below.

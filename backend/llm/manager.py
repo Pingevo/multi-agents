@@ -274,6 +274,17 @@ class LLMManager:
                     "request_id": _stream_id if "_stream_id" in locals() else None,
                     "metadata": {"analysis_type": "chat"},
                 })
+            else:
+                log_ai_usage({
+                    "provider": "openrouter",
+                    "model": model_id,
+                    "operation": "chat.completions",
+                    "source": caller,
+                    "status": "success",
+                    "duration_ms": int((time.time() - started_at) * 1000),
+                    "request_id": _stream_id if "_stream_id" in locals() else None,
+                    "metadata": {"analysis_type": "chat", "note": "stream omitted usage"},
+                })
             if has_content:
                 return
             print(f"[LLMManager] Multimodal stream returned empty with {model_id} — trying rotator", flush=True)
@@ -344,6 +355,20 @@ class LLMManager:
                             "raw_usage": usage,
                             "request_id": _stream_id if "_stream_id" in locals() else None,
                             "metadata": {"analysis_type": "chat"},
+                        })
+                    else:
+                        # Stream omitted usage (some models/providers do this).
+                        # Still log the call so it shows on the dashboard —
+                        # token/cost fields will be absent, which the Hub accepts.
+                        log_ai_usage({
+                            "provider": "openrouter",
+                            "model": model_id,
+                            "operation": "chat.completions",
+                            "source": caller,
+                            "status": "success",
+                            "duration_ms": int((time.time() - started_at) * 1000),
+                            "request_id": _stream_id if "_stream_id" in locals() else None,
+                            "metadata": {"analysis_type": "chat", "note": "stream omitted usage"},
                         })
                     if got_content:
                         return
