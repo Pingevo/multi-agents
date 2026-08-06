@@ -291,21 +291,33 @@ class SAMLProvider(AuthProvider):      # SAML SSO
 
 ## 16. Secrets & Credentials Handling (NON-NEGOTIABLE)
 
-**ห้ามอ่านค่า secret โดยตรงจาก `.env` หรือไฟล์ credential ใดๆ** — ไม่ว่าจะด้วย `cat`, `grep`, `read`, หรือคำสั่งอื่นใดที่แสดงค่าจริงออกมาใน context ของ agent
+**ดึงค่า secret ไปใช้ได้ แต่ห้ามค่าจริงปรากฏใน context ของ agent** — อนุญาตให้โหลด `.env` เข้า shell environment แล้วใช้ผ่าน `$VAR` ได้ แต่ห้ามทำคำสั่งใดๆ ที่ทำให้ค่าจริงแสดงออกมาใน output ที่ agent เห็น
+
+### สิ่งที่ทำได้ (อนุญาต)
+- `set -a; source .env; set +a` แล้วใช้ `$GITHUB_TOKEN`, `$MONGO_PASSWORD` ฯลฯ ในคำสั่งถัดไป — ค่าถูกโหลดเข้า shell แต่ไม่ print ออกมา
+- ใช้ `$VAR` ใน curl, script, หรือคำสั่งอื่นๆ โดยตรง — ตราบใดที่ output ของคำสั่งไม่ echo ค่าจริง
+- ให้ code/script อ่านจาก `os.environ` หรือ `dotenv` ใน runtime
+- อ้างอิงชื่อ key ได้ — บอกได้ว่ามี key ชื่อ `MONGO_PASSWORD` อยู่ แต่ห้ามแสดงค่า
 
 ### สิ่งที่ห้ามทำ
 - ห้าม `cat .env`, `grep KEY .env`, `read .env` หรือคำสั่งใดๆ ที่ทำให้ค่า secret ปรากฏใน output
+- ห้าม `echo $TOKEN`, `print($PASSWORD)`, `env | grep TOKEN` หรือคำสั่งใดๆ ที่แสดงค่าจริง
 - ห้าม print/log ค่า secret ออกมาใน terminal, chat, หรือไฟล์ log
 - ห้าม copy ค่า secret ไปใส่ใน code, commit message, comment, หรือ documentation
 - ห้ามส่งค่า secret ให้ user ดูใน chat — ถ้า user ถาม ให้บอกว่า "ห้ามแสดง secret ตามกฎ"
 
 ### วิธีที่ถูกต้อง
-- **ใช้ผ่าน environment variable เท่านั้น** — ให้ code อ่านจาก `os.environ` หรือ `dotenv` ใน runtime ไม่ใช่ให้ agent อ่านเอง
+- **โหลด .env เข้า shell แล้วใช้ผ่าน $VAR** — `set -a; source .env; set +a` แล้วใช้ `$GITHUB_TOKEN` ในคำสั่งถัดไป ไม่ต้อง print ค่าออกมา
 - **ตรวจสอบการเชื่อมต่อผ่าน script** — เขียน script ที่โหลดค่าจาก env var แล้วทดสอบการเชื่อมต่อ โดย script แสดงผลแค่ "connected/not connected" ไม่เปิดเผยค่า secret
 - **ถ้าต้อง debug auth** — ให้ script แสดงแค่สถานะ (success/fail) และ error message จาก library โดยไม่ echo ค่าที่ใช้
-- **อ้างอิงชื่อ key ได้** — บอกได้ว่ามี key ชื่อ `MONGO_PASSWORD` อยู่ แต่ห้ามแสดงค่า
 
 ### ตัวอย่าง
+```bash
+# ถูก — โหลดเข้า shell แล้วใช้ผ่าน $VAR ค่าจริงไม่ปรากฏ
+set -a; source .env; set +a
+curl -H "Authorization: token $GITHUB_TOKEN" https://api.github.com/...
+```
+
 ```python
 # ถูก — script โหลดจาก env เอง, แสดงแค่สถานะ
 import os
@@ -322,6 +334,7 @@ except Exception as e:
 # ผิด — เปิดเผยค่า secret ใน output
 grep MONGO_PASSWORD .env
 cat .env
+echo $GITHUB_TOKEN
 ```
 
 ## 17. Assumption & Pivot Protocol (เมื่อความจริงเปลี่ยน แผนต้องตาม)
