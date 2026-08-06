@@ -6,10 +6,10 @@
 
 โจทย์ตัวอย่าง: วางแผน Monthly Content — โพสวันละอย่าง 1 โพส, Short Video และ Artwork สัดส่วน 50:50 ต่อเดือน
 
-วิสัยทัศน์: Platform เปรียบเสมือนบริษัท มีทีม แบรนด์ และพนักงาน AI
-- บริษัท (Platform) → ทีม (Team) → แบรนด์ (Brand) → พนักงาน (Agent)
-- แต่ละทีมดูแลแบรนด์ของตัวเอง มีฐานความรู้เฉพาะ
-- Agent แต่ละตัว = พนักงานจริง มี persona, expertise, brand context, memory
+วิสัยทัศน์: Platform เปรียบเสมือนบริษัท มีแบรนด์ ทีม และพนักงาน AI
+- บริษัท (Platform) → แบรนด์ (Brand) → ทีม (Team) → พนักงาน (Agent)
+- แต่ละแบรนด์มีทีมของตัวเอง ทีมในแบรนด์เดียวกันใช้ brand_context ร่วมกัน
+- Agent แต่ละตัว = พนักงานจริง มี persona, expertise, memory — brand_context ดึงจาก Brand ของทีม
 - Flow: ทำงาน → ส่งผล → User review → Feedback → ทำใหม่จนกว่าจะถูกใจ
 
 หลักการ:
@@ -39,7 +39,7 @@ Frontend (Vite/React, port 5173)
   ↓ WebSocket + REST API
 Backend (Chainlit, port 8000)
   ├── Core: Secretary, Orchestrator, Messenger, Scheduler
-  ├── Agents: Registry, Factory, TaskStore, ChatStore, TeamRegistry
+  ├── Agents: Registry, Factory, TaskStore, ChatStore, TeamRegistry, BrandRegistry
   ├── LLM: Manager, Discovery, Rotator, Selector
   ├── Media: GenerationManager (image/video/TTS/STT)
   └── Auth: System81AuthProvider, SessionManager, UserStore
@@ -66,7 +66,7 @@ Frontend เป็นแบบ **Windows 95 Retro Desktop**:
 - **RetroDesktop** — หน้าจอหลัก มี desktop icons, taskbar, และ windows ที่เปิดได้
 - **WindowManager** — จัดการ window position, z-index, focus, minimize/maximize
 - **Taskbar** — แสดง running windows และ system tray
-- **Windows**: ChatWindow, TasksWindow, AgentsWindow, HistoryWindow, NotificationsWindow, SettingsWindow, ScheduleWindow, AgentDetailWindow
+- **Windows**: ChatWindow, TasksWindow, AgentsWindow, HistoryWindow, NotificationsWindow, SettingsWindow, ScheduleWindow, AgentDetailWindow, BrandWindow
 
 ### Key Windows
 - **ChatWindow** — Command center รับคำสั่ง, แสดง chat bubbles, plan cards, approval buttons
@@ -99,7 +99,7 @@ Agent = พนักงานจริง ต้องมี:
 | `goal` | เป้าหมายหลัก | YES |
 | `personality` | โทน, สไตล์การสื่อสาร, ภาษา | YES |
 | `expertise` | สกิล/ความรู้ถาวร ไม่ลืม | YES |
-| `brand_context` | แบรนด์ที่ดูแล + guidelines + target audience | YES |
+| `brand_context` | ดึงจาก Brand ของทีม (derived — ไม่เก็บใน agent) | YES (derived) |
 | `learnings` | บทเรียนสะสมจาก feedback | YES (last 5) |
 | `tools` | เครื่องมือที่ใช้ได้ | YES |
 | `model` | โมเดลที่ใช้ | YES |
@@ -111,13 +111,23 @@ Memory: ยอมรับ context limit — แปลง learnings ที่ใ
 
 Quality: 2 ชั้น — agent ตรวจตัวเอง + manager ตรวจอีกชั้น
 
-## 4. Team System
+## 4. Brand & Team System
 
-- **TeamRegistry**: จัดการทีม แต่ละทีมมี agents และ manager
+### Brand System
+- **BrandRegistry**: จัดการแบรนด์ของ user แต่ละคน
+- Brand = แบรนด์ที่ user ดูแล เก็บ `brand_context` (โทน, กลุ่มเป้าหมาย, guidelines, คำต้องห้าม) เป็น single source of truth
+- 1 Brand มีได้หลายทีม (เช่น ทีม MKT, ทีม Admin ในแบรนด์เดียว)
+- ทีมในแบรนด์เดียวกัน → ใช้ brand_context ร่วมกัน ไม่ drift
+- ลบ Brand → ต้องจัดการทีมข้างใต้ก่อน
+- UI: สร้างแบรนด์ก่อน → คลิกเข้าแบรนด์ → สร้าง/จัดการทีมในแบรนด์นั้น
+
+### Team System
+- **TeamRegistry**: จัดการทีม แต่ละทีมมี `brand_id` (บังคับ) + agents + manager
 - ทีม = กลุ่ม agent ที่ทำงานด้วยกัน มี Manager agent คอย coordinate
 - Manager agent: `allow_delegation=True`, ไม่มี tools, หน้าที่ delegate + synthesize results
-- TeamCreateModal: สร้างทีมพร้อม config manager (personality, expertise, brand_context)
+- TeamCreateModal: ต้องเลือก Brand ก่อน → สร้างทีมพร้อม config manager (personality, expertise)
 - แต่ละทีมมี settings เฉพาะ: review_iterations, max_retry, model selection
+- brand_context ไม่เก็บในทีม — ดึงจาก Brand ที่สังกัด
 
 ## 5. Review Loop (Quality Control)
 
@@ -197,6 +207,7 @@ Skills คือหลักการทำงาน ใช้ตามเงื
 - **UserStore**: เก็บ user profile ใน `data/users.json`
 - **SessionManager**: สร้าง/verify session token เก็บใน `data/sessions.json` (TTL 7 วัน)
 - **Per-user data**: แยกไฟล์ข้อมูลทุกประเภทตาม `data/users/{user_id}/`
+  - `brand_registry.json` — brands ของ user นั้น
   - `agent_registry.json` — agents ของ user นั้น
   - `task_registry.json` — tasks ของ user นั้น
   - `chat_sessions.json` — chat history ของ user นั้น

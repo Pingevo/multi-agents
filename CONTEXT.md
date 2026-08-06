@@ -7,15 +7,15 @@ It is a glossary only — no implementation details, no specs, no scratch notes.
 
 ### Agent
 
-An AI entity with a role, goal, backstory, and set of tools that performs a specific responsibility within a task. Created by the CentralSecretary from user requests and registered in the AgentRegistry. Has deep persona: personality, expertise, brand_context, learnings.
+An AI entity with a role, goal, backstory, and set of tools that performs a specific responsibility within a task. Created by the CentralSecretary from user requests and registered in the AgentRegistry. Has deep persona: personality, expertise, learnings. Brand_context is derived from the Brand of the team the agent belongs to, not stored on the agent.
 
 ### AgentRegistry
 
-The single source of truth for all registered agents. Persists agent specifications (name, role, goal, persona, tools, status, model, team_id) to `agent_registry.json`. Agents can be Idle, Busy, or have other statuses.
+The single source of truth for all registered agents. Persists agent specifications (name, role, goal, persona, tools, status, model, team_id) to `agent_registry.json`. Agents can be Idle, Busy, or have other statuses. Brand_context is not stored here — it is resolved at runtime via team → brand.
 
 ### AgentFactory
 
-Creates CrewAI Agent and Task instances at runtime from agent specs. Bridges the gap between stored registry data and live CrewAI execution. Composes rich backstory from all persona fields via `_build_agent_backstory()`.
+Creates CrewAI Agent and Task instances at runtime from agent specs. Bridges the gap between stored registry data and live CrewAI execution. Composes rich backstory from all persona fields via `_build_agent_backstory()`, pulling brand_context from the team's Brand at runtime.
 
 ### CentralSecretary
 
@@ -77,13 +77,23 @@ The single source of truth for all available capabilities. Maps each capability 
 
 Resolves capabilities to concrete tools and model traits for agents. Takes agent specs (with capability names) and produces a `ResolvedAgent` with bound tools and model traits. Used by `AgentFactory` during agent creation.
 
+### Brand
+
+A brand that a user manages. Sits between User and Team in the hierarchy: User → Brand → Team → Agent. Holds `brand_context` (tone, target audience, guidelines, forbidden words) as the single source of truth so that all teams under the same brand share one voice. Stored in `brand_registry.json`.
+_Avoid_: Label, brand label, brand profile
+
+### BrandRegistry
+
+The single source of truth for all brands owned by a user. Persists brand definitions (name, brand_context, created_at) to `brand_registry.json`. Supports per-user data isolation via `user_id`.
+
 ### Team
 
-A group of agents that work together under a Manager agent. Each team has a name, a manager configuration (personality, expertise, brand_context), and settings (review_iterations, max_retry, model selection). Stored in `team_registry.json`.
+A group of agents that work together under a Manager agent. Each team belongs to exactly one Brand (`brand_id`). Team holds operational settings (review_iterations, max_retry, model selection) but not brand_context — that lives on the Brand. Stored in `team_registry.json`.
+_Avoid_: Group, squad
 
 ### TeamRegistry
 
-Manages team definitions with persistence to `team_registry.json`. Each team contains a manager spec, worker agent specs, and team-level settings. Supports per-user data isolation via `user_id`.
+Manages team definitions with persistence to `team_registry.json`. Each team has a required `brand_id` linking it to a Brand, a manager spec, worker agent specs, and team-level settings. Supports per-user data isolation via `user_id`.
 
 ### MediaGenerationManager
 

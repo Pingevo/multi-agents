@@ -68,6 +68,10 @@ P0 | P1 | P2 — with one-line justification referencing a comparable existing i
 
 Always include a `P0`/`P1`/`P2` label — every issue needs a priority.
 
+## Project Board
+
+Issues ทั้งหมดถูกเพิ่มเข้า [Multi-Agents Board](https://github.com/users/itdev3-bot/projects/1) อัตโนมัติ — ดูรายละเอียด field, milestone, view ที่ [project-board.md](./project-board.md).
+
 ## PRs as a request surface
 
 Yes — repo has remote `Pingevo/multi-agents`. PRs are welcome but not required for solo work.
