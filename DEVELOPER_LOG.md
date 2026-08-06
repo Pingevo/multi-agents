@@ -1068,3 +1068,49 @@ entire success log was silently skipped.
 Architecture note: this is a code duplication problem — the same streaming+
 log pattern is copied 3 times. A shared helper would prevent this class of
 bug. See architecture assessment below.
+
+
+## 2026-08-06 — MongoDB recheck + กฎใหม่ Section 16 (Assumption & Pivot Protocol)
+
+### Signal ที่เรียนรู้
+- เดิม: คิดว่า MongoDB (digital.in.th:27017) เก็บสินค้า ให้เราดึง (read-only)
+- ความจริง: MongoDB `itsAgents` ว่างเปล่า + user มีสิทธิ์ readWrite
+- สรุป: MongoDB คือ data storage ของระบบเรา ไม่ใช่แหล่งดึงสินค้า
+
+### ประเด็นใหญ่ที่เจอ
+- ทุก milestone ข้างหน้าสมมติว่า "เก็บใน JSON" โดยไม่ได้เขียน assumption นี้ออกมา
+- พอทิศ MongoDB เปลี่ยน → assumption ซ่อนโผล่ออกมาทีละ issue ในทุก milestone
+- "data persistence layer" ไม่เคยเป็น issue ของตัวเอง ไม่เคยอยู่ใน OST
+- ADR-0003 บอกชัดว่า JSON คือชั่วคราว มี seam (store classes) ไว้ย้าย แต่ไม่เคยตั้ง issue/milestone ให้
+
+### สิ่งที่ทำ
+1. เช็ค .env: MONGO_DB เดิม = `tsAgents` (ตก i) → user แก้เป็น `itsAgents`
+2. ทดสอบ auth: authSource=itsAgents ผ่าน (เดิมใช้ tsAgents → fail มาตลอด)
+3. สำรวจ database: itsAgents ว่างเปล่า (0 collections)
+4. ทดสอบสิทธิ์: readWrite ใน itsAgents อันเดียว (ไม่มีสิทธิ์ db อื่น)
+5. วิจัยหลักการ pivot roadmap (Strangler Fig, assumption mapping, agile replan)
+6. สรุปเป็นกฎใหม่ Section 16 ใน SYSTEM_PROTOCOL.md
+
+### กฎใหม่: Section 16 — Assumption & Pivot Protocol
+- 15.1: ทุก OST Opportunity ต้องมี Assumption ชัด (ไม่งั้น = planning fiction)
+- 15.2: เมื่อ assumption พัง → Impact Analysis ก่อน (ไล่ทุก issue ทุก milestone) → บันทึก ADR → ปรับ OST → mark issue pivot → สร้าง issue ใหม่ → ปรับ milestone → อัปเดต log
+- 15.3: เมื่อไหนสร้าง milestone ใหม่ vs ใส่ใน milestone เดิม (foundation กระทบหลาย M → สร้างใหม่)
+- 15.4: ห้ามลบ issue, ห้ามแก้ issue จนเป็นเรื่องอื่น, ห้ามปรับแผนเงียบ, ห้าม blame
+- 15.5: ตัวอย่างเคส MongoDB (สร้าง M6.5 ใหม่ + mark #129 pivot + สร้าง issue ใหม่)
+
+### ผลกระทบต่อแผน (ยังไม่ได้แก้ — รอ user ยืนยันทิศ)
+- #129 (ดึงสินค้า): ต้อง mark pivot + สร้าง issue ใหม่ "data persistence layer"
+- #106 (Knowledge Store): ต้องแก้ body (ลบ MongoDB connector ดึงสินค้า)
+- #24, #31, #36, #116, #132 (เก็บ data): ต้องเพิ่ม note ว่า assumption เปลี่ยน
+- M6 milestone: ลด scope เหลือ Brand + Knowledge (พักสินค้า)
+- สร้าง milestone ใหม่ M6.5: Data Persistence Migration
+
+### ดำเนินการ pivot ตาม Section 16 (user ยืนยันทิศ)
+1. ✅ สร้าง ADR 0006: `docs/adr/0006-mongodb-data-storage-pivot.md`
+2. ✅ แก้ OST Opp 7: เพิ่ม assumption เดิม (ผิด) + ใหม่ + pivot note
+3. ✅ สร้าง milestone M6.5 (#14): "Data Persistence Migration" due 2026-10-15
+4. ✅ mark #129 pivot: เพิ่ม note ใน body (ไม่ลบ, บอก why)
+5. ✅ สร้าง issue #139: "DataStore abstraction — facade สำหรับย้าย JSON → MongoDB" (M6.5, P1)
+6. ✅ แก้ #106: ลบ "MongoDB connector ดึงสินค้า" + เพิ่ม pivot note
+7. ✅ เพิ่ม note ADR-0006 ใน #24, #31, #36, #116, #132 (assumption "เก็บใน JSON" อาจเปลี่ยน)
+8. ✅ ปรับ M6 desc: "Brand entity + Knowledge Store (REST API, URL, File, Text). MongoDB product data paused (ADR-0006 → M6.5)"

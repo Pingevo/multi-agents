@@ -288,3 +288,111 @@ class SAMLProvider(AuthProvider):      # SAML SSO
 - ห้ามเขียน log ลงไฟล์ในเครื่อง (ลบ `credit_logger.py` ไปแล้ว)
 - ห้ามประมาณราคาเอง
 - ห้าม log แค่ success path
+
+## 15. Secrets & Credentials Handling (NON-NEGOTIABLE)
+
+**ห้ามอ่านค่า secret โดยตรงจาก `.env` หรือไฟล์ credential ใดๆ** — ไม่ว่าจะด้วย `cat`, `grep`, `read`, หรือคำสั่งอื่นใดที่แสดงค่าจริงออกมาใน context ของ agent
+
+### สิ่งที่ห้ามทำ
+- ห้าม `cat .env`, `grep KEY .env`, `read .env` หรือคำสั่งใดๆ ที่ทำให้ค่า secret ปรากฏใน output
+- ห้าม print/log ค่า secret ออกมาใน terminal, chat, หรือไฟล์ log
+- ห้าม copy ค่า secret ไปใส่ใน code, commit message, comment, หรือ documentation
+- ห้ามส่งค่า secret ให้ user ดูใน chat — ถ้า user ถาม ให้บอกว่า "ห้ามแสดง secret ตามกฎ"
+
+### วิธีที่ถูกต้อง
+- **ใช้ผ่าน environment variable เท่านั้น** — ให้ code อ่านจาก `os.environ` หรือ `dotenv` ใน runtime ไม่ใช่ให้ agent อ่านเอง
+- **ตรวจสอบการเชื่อมต่อผ่าน script** — เขียน script ที่โหลดค่าจาก env var แล้วทดสอบการเชื่อมต่อ โดย script แสดงผลแค่ "connected/not connected" ไม่เปิดเผยค่า secret
+- **ถ้าต้อง debug auth** — ให้ script แสดงแค่สถานะ (success/fail) และ error message จาก library โดยไม่ echo ค่าที่ใช้
+- **อ้างอิงชื่อ key ได้** — บอกได้ว่ามี key ชื่อ `MONGO_PASSWORD` อยู่ แต่ห้ามแสดงค่า
+
+### ตัวอย่าง
+```python
+# ถูก — script โหลดจาก env เอง, แสดงแค่สถานะ
+import os
+from pymongo import MongoClient
+client = MongoClient(host=os.environ["MONGO_HOST"], username=os.environ["MONGO_USER"], password=os.environ["MONGO_PASSWORD"])
+try:
+    client.admin.command("ping")
+    print("MongoDB: connected")
+except Exception as e:
+    print(f"MongoDB: failed — {type(e).__name__}: {e}")
+```
+
+```bash
+# ผิด — เปิดเผยค่า secret ใน output
+grep MONGO_PASSWORD .env
+cat .env
+```
+
+## 16. Assumption & Pivot Protocol (เมื่อความจริงเปลี่ยน แผนต้องตาม)
+
+แผน (OST + milestone + issue) ทุกอันมี assumption ซ่อนอยู่ เมื่อค้นพบว่า assumption ผิด ต้องปรับแผนตามลำดับนี้ ห้ามข้าม:
+
+### 16.1 ทุก OST Opportunity ต้องมี Assumption ชัด
+- ใต้แต่ละ Opportunity ใน `OST.md` ต้องบอกว่า "สมมติฐานคืออะไร"
+- เช่น: `# Assumption: สินค้าอยู่ใน MongoDB แล้ว (read-only)`
+- ถ้าไม่มี assumption ชัด = planning fiction (วางแผนจากความเชื่อที่ไม่ได้เขียน)
+
+### 16.2 เมื่อ Assumption พัง — Impact Analysis ก่อน, ปรับแผนทีหลัง
+ก่อนแก้อะไร ต้องรู้ว่า assumption ที่พังกระทบอะไรบ้าง:
+
+1. **ระบุ assumption ที่พัง** — เขียนชัดว่า assumption อะไร, ผิดเพราะอะไร, เรียนรู้อะไรใหม่
+2. **ไล่หาทุก issue ที่ซ่อน assumption เดียวกัน** — ดูทุก milestone ไม่ใช่แค่ milestone ปัจจุบัน
+   - เช่น: assumption "เก็บใน JSON" ซ่อนอยู่ใน #24, #31, #116, #132, ...
+3. **บันทึก ADR** — บอก assumption ที่พัง + ทิศใหม่ + รายการ issue ที่กระทบ
+4. **ตัดสินใจ scope ใหม่** — บางทีต้องสร้าง scope ที่ไม่เคยมีในแผน (เช่น "data persistence layer" ไม่เคยเป็น issue ของตัวเอง)
+5. **ปรับ OST** — แก้ Opportunity ที่ assumption พัง + บอกว่า assumption เดิมผิดเพราะอะไร
+6. **ปรับ issue**:
+   - issue เดิม: mark "pivot" ใน body + บอก why (ห้ามลบ, ห้ามแก้จนเป็นเรื่องอื่น)
+   - issue ใหม่: สร้างถ้าทิศเปลี่ยนเป็นเรื่องอื่น (1 issue = 1 concept)
+   - issue อื่นที่กระทบ: เพิ่ม note ใน body ว่า "assumption X เปลี่ยน, ดู ADR-00XX"
+7. **ปรับ milestone ถ้าจำเป็น** — ถ้าทิศใหม่ไม่ fit milestone เดิม หรือต้องสร้าง milestone ใหม่
+8. **อัปเดต DEVELOPER_LOG** — บันทึก "signal ที่เรียนรู้" ไม่ใช่แค่ "decision ที่เปลี่ยน"
+
+### 16.3 เมื่อไหนสร้าง milestone ใหม่ vs ใส่ใน milestone เดิม
+- **สร้าง milestone ใหม่** เมื่อทิศใหม่:
+  - เป็น foundation ที่กระทบหลาย milestone (เช่น data persistence กระทบ M6, M8, M9, M10, M11)
+  - ไม่ fit ชื่อ/desc milestone เดิม
+  - ทำให้ milestone เดิมบวมเกิน 3 เรื่องปน
+- **ใส่ใน milestone เดิม** เมื่อ:
+  - ทิศใหม่ยังเกี่ยวกับ milestone เดิม
+  - ไม่กระทบ milestone อื่น
+- ตั้งชื่อ milestone ใหม่ให้สื่อทิศใหม่ ไม่ใช่ตั้งชื่อสวยๆ
+
+### 16.4 ห้ามทำ
+- ห้ามลบ issue เดิมทิ้ง — ทำให้สูญเสียประวัติการตัดสินใจ
+- ห้ามแก้ issue เดิมจนเป็นเรื่องอื่น — ใช้ issue ใหม่แทน (1 issue = 1 concept)
+- ห้ามปรับแผนเงียบ — ต้องบันทึกใน ADR + DEVELOPER_LOG ทุกครั้ง
+- ห้าม blame ตัวเอง/team — assumption ผิด = เรียนรู้ ไม่ใช่ความผิด
+- ห้ามปรับแค่ issue ที่เจอโดยตรง — ต้องไล่หา issue อื่นที่ซ่อน assumption เดียวกัน
+
+### 16.5 ตัวอย่าง (เคส MongoDB)
+```
+เดิม:
+  OST Opp 7: สินค้าอยู่ใน MongoDB → ดึงข้อมูล
+  #129: เชื่อม AI กับ MongoDB ดึงสินค้า
+  Assumption (ซ่อน): MongoDB มีสินค้าอยู่แล้ว, เรามีสิทธิ์ read
+
+ความจริงที่เจอ:
+  MongoDB ว่างเปล่า + สิทธิ์ readWrite
+  → assumption ผิด
+
+Impact Analysis:
+  assumption ที่พัง: "MongoDB มีสินค้า + เรามีสิทธิ์ read"
+  assumption ซ่อนที่โผล่: "ทุก issue ที่เก็บ data สมมติว่าใช้ JSON"
+  issue ที่กระทบ:
+    - #129 (ดึงสินค้า) → pivot
+    - #106 (Knowledge Store) → ลบ MongoDB connector ดึงสินค้า
+    - #24, #31, #36, #116, #132 (เก็บ data) → อาจต้องย้ายไป MongoDB
+  scope ใหม่ที่ไม่เคยมี: "data persistence layer" (ไม่เคยเป็น issue ของตัวเอง)
+
+ปรับแผน:
+  1. ADR 0006: "MongoDB = data storage ของเรา ไม่ใช่ดึงสินค้า" + บอก ADR-0003 (JSON) ถึงเวลาย้าย
+  2. OST Opp 7: แก้ + บอกว่า assumption เดิมผิด
+  3. #129: mark pivot (ไม่ลบ) + บอก why ใน body
+  4. สร้าง milestone ใหม่ "M6.5: Data Persistence Migration" (foundation กระทบ M6/M8/M9/M10/M11)
+  5. สร้าง issue ใหม่ใน M6.5: "data persistence layer (ย้าย JSON → MongoDB ทีละ store)"
+  6. #106, #24, #31, ...: เพิ่ม note ว่า assumption เปลี่ยน, ดู ADR-0006
+  7. M6 เดิม: ลด scope เหลือ Brand entity + Knowledge (พักสินค้า)
+  8. DEVELOPER_LOG: บันทึก signal ที่เรียนรู้
+```
