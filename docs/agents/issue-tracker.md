@@ -68,6 +68,23 @@ P0 | P1 | P2 — with one-line justification referencing a comparable existing i
 
 Always include a `P0`/`P1`/`P2` label — every issue needs a priority.
 
+## Issue lifecycle
+
+เมื่อทำ issue เสร็จและ commit แล้ว ต้องอัปเดต GitHub issue ทุกครั้ง:
+
+1. **อัปเดต Status field → Done** บน Project Board (ผ่าน `github-mcp-server` หรือ UI)
+2. **เพิ่ม comment สรุปงาน** ใน issue ประกอบด้วย:
+   - ไฟล์ที่เปลี่ยน (ทั้งใหม่และแก้)
+   - ผล test (ผ่านกี่จากกี่)
+   - commit hash (หรือ reference เช่น `Refs #136`)
+3. **ห้ามปิด issue อัตโนมัติ** — ปล่อยให้ human ตรวจสอบก่อน แล้วปิดเอง
+
+เหตุผล: ถ้าไม่อัปเดต issue จะเห็นเป็น Todo ตลอด ทำให้สับสนว่ายังไม่ได้ทำ และคนที่มาทำต่อไม่รู้ว่าทำไปแล้ว
+
+## Project Board
+
+Issues ทั้งหมดถูกเพิ่มเข้า [Multi-Agents Board](https://github.com/users/itdev3-bot/projects/1) อัตโนมัติ — ดูรายละเอียด field, milestone, view ที่ [project-board.md](./project-board.md).
+
 ## PRs as a request surface
 
 Yes — repo has remote `Pingevo/multi-agents`. PRs are welcome but not required for solo work.

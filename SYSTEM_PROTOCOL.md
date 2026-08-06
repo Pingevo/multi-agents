@@ -6,10 +6,10 @@
 
 โจทย์ตัวอย่าง: วางแผน Monthly Content — โพสวันละอย่าง 1 โพส, Short Video และ Artwork สัดส่วน 50:50 ต่อเดือน
 
-วิสัยทัศน์: Platform เปรียบเสมือนบริษัท มีทีม แบรนด์ และพนักงาน AI
-- บริษัท (Platform) → ทีม (Team) → แบรนด์ (Brand) → พนักงาน (Agent)
-- แต่ละทีมดูแลแบรนด์ของตัวเอง มีฐานความรู้เฉพาะ
-- Agent แต่ละตัว = พนักงานจริง มี persona, expertise, brand context, memory
+วิสัยทัศน์: Platform เปรียบเสมือนบริษัท มีแบรนด์ ทีม และพนักงาน AI
+- บริษัท (Platform) → แบรนด์ (Brand) → ทีม (Team) → พนักงาน (Agent)
+- แต่ละแบรนด์มีทีมของตัวเอง ทีมในแบรนด์เดียวกันใช้ brand_context ร่วมกัน
+- Agent แต่ละตัว = พนักงานจริง มี persona, expertise, memory — brand_context ดึงจาก Brand ของทีม
 - Flow: ทำงาน → ส่งผล → User review → Feedback → ทำใหม่จนกว่าจะถูกใจ
 
 หลักการ:
@@ -39,7 +39,7 @@ Frontend (Vite/React, port 5173)
   ↓ WebSocket + REST API
 Backend (Chainlit, port 8000)
   ├── Core: Secretary, Orchestrator, Messenger, Scheduler
-  ├── Agents: Registry, Factory, TaskStore, ChatStore, TeamRegistry
+  ├── Agents: Registry, Factory, TaskStore, ChatStore, TeamRegistry, BrandRegistry
   ├── LLM: Manager, Discovery, Rotator, Selector
   ├── Media: GenerationManager (image/video/TTS/STT)
   └── Auth: System81AuthProvider, SessionManager, UserStore
@@ -66,7 +66,7 @@ Frontend เป็นแบบ **Windows 95 Retro Desktop**:
 - **RetroDesktop** — หน้าจอหลัก มี desktop icons, taskbar, และ windows ที่เปิดได้
 - **WindowManager** — จัดการ window position, z-index, focus, minimize/maximize
 - **Taskbar** — แสดง running windows และ system tray
-- **Windows**: ChatWindow, TasksWindow, AgentsWindow, HistoryWindow, NotificationsWindow, SettingsWindow, ScheduleWindow, AgentDetailWindow
+- **Windows**: ChatWindow, TasksWindow, AgentsWindow, HistoryWindow, NotificationsWindow, SettingsWindow, ScheduleWindow, AgentDetailWindow, BrandWindow
 
 ### Key Windows
 - **ChatWindow** — Command center รับคำสั่ง, แสดง chat bubbles, plan cards, approval buttons
@@ -99,7 +99,7 @@ Agent = พนักงานจริง ต้องมี:
 | `goal` | เป้าหมายหลัก | YES |
 | `personality` | โทน, สไตล์การสื่อสาร, ภาษา | YES |
 | `expertise` | สกิล/ความรู้ถาวร ไม่ลืม | YES |
-| `brand_context` | แบรนด์ที่ดูแล + guidelines + target audience | YES |
+| `brand_context` | ดึงจาก Brand ของทีม (derived — ไม่เก็บใน agent) | YES (derived) |
 | `learnings` | บทเรียนสะสมจาก feedback | YES (last 5) |
 | `tools` | เครื่องมือที่ใช้ได้ | YES |
 | `model` | โมเดลที่ใช้ | YES |
@@ -111,13 +111,23 @@ Memory: ยอมรับ context limit — แปลง learnings ที่ใ
 
 Quality: 2 ชั้น — agent ตรวจตัวเอง + manager ตรวจอีกชั้น
 
-## 4. Team System
+## 4. Brand & Team System
 
-- **TeamRegistry**: จัดการทีม แต่ละทีมมี agents และ manager
+### Brand System
+- **BrandRegistry**: จัดการแบรนด์ของ user แต่ละคน
+- Brand = แบรนด์ที่ user ดูแล เก็บ `brand_context` (โทน, กลุ่มเป้าหมาย, guidelines, คำต้องห้าม) เป็น single source of truth
+- 1 Brand มีได้หลายทีม (เช่น ทีม MKT, ทีม Admin ในแบรนด์เดียว)
+- ทีมในแบรนด์เดียวกัน → ใช้ brand_context ร่วมกัน ไม่ drift
+- ลบ Brand → ต้องจัดการทีมข้างใต้ก่อน
+- UI: สร้างแบรนด์ก่อน → คลิกเข้าแบรนด์ → สร้าง/จัดการทีมในแบรนด์นั้น
+
+### Team System
+- **TeamRegistry**: จัดการทีม แต่ละทีมมี `brand_id` (บังคับ) + agents + manager
 - ทีม = กลุ่ม agent ที่ทำงานด้วยกัน มี Manager agent คอย coordinate
 - Manager agent: `allow_delegation=True`, ไม่มี tools, หน้าที่ delegate + synthesize results
-- TeamCreateModal: สร้างทีมพร้อม config manager (personality, expertise, brand_context)
+- TeamCreateModal: ต้องเลือก Brand ก่อน → สร้างทีมพร้อม config manager (personality, expertise)
 - แต่ละทีมมี settings เฉพาะ: review_iterations, max_retry, model selection
+- brand_context ไม่เก็บในทีม — ดึงจาก Brand ที่สังกัด
 
 ## 5. Review Loop (Quality Control)
 
@@ -197,6 +207,7 @@ Skills คือหลักการทำงาน ใช้ตามเงื
 - **UserStore**: เก็บ user profile ใน `data/users.json`
 - **SessionManager**: สร้าง/verify session token เก็บใน `data/sessions.json` (TTL 7 วัน)
 - **Per-user data**: แยกไฟล์ข้อมูลทุกประเภทตาม `data/users/{user_id}/`
+  - `brand_registry.json` — brands ของ user นั้น
   - `agent_registry.json` — agents ของ user นั้น
   - `task_registry.json` — tasks ของ user นั้น
   - `chat_sessions.json` — chat history ของ user นั้น
@@ -277,3 +288,124 @@ class SAMLProvider(AuthProvider):      # SAML SSO
 - ห้ามเขียน log ลงไฟล์ในเครื่อง (ลบ `credit_logger.py` ไปแล้ว)
 - ห้ามประมาณราคาเอง
 - ห้าม log แค่ success path
+
+## 16. Secrets & Credentials Handling (NON-NEGOTIABLE)
+
+**ดึงค่า secret ไปใช้ได้ แต่ห้ามค่าจริงปรากฏใน context ของ agent** — อนุญาตให้โหลด `.env` เข้า shell environment แล้วใช้ผ่าน `$VAR` ได้ แต่ห้ามทำคำสั่งใดๆ ที่ทำให้ค่าจริงแสดงออกมาใน output ที่ agent เห็น
+
+### สิ่งที่ทำได้ (อนุญาต)
+- `set -a; source .env; set +a` แล้วใช้ `$GITHUB_TOKEN`, `$MONGO_PASSWORD` ฯลฯ ในคำสั่งถัดไป — ค่าถูกโหลดเข้า shell แต่ไม่ print ออกมา
+- ใช้ `$VAR` ใน curl, script, หรือคำสั่งอื่นๆ โดยตรง — ตราบใดที่ output ของคำสั่งไม่ echo ค่าจริง
+- ให้ code/script อ่านจาก `os.environ` หรือ `dotenv` ใน runtime
+- อ้างอิงชื่อ key ได้ — บอกได้ว่ามี key ชื่อ `MONGO_PASSWORD` อยู่ แต่ห้ามแสดงค่า
+
+### สิ่งที่ห้ามทำ
+- ห้าม `cat .env`, `grep KEY .env`, `read .env` หรือคำสั่งใดๆ ที่ทำให้ค่า secret ปรากฏใน output
+- ห้าม `echo $TOKEN`, `print($PASSWORD)`, `env | grep TOKEN` หรือคำสั่งใดๆ ที่แสดงค่าจริง
+- ห้าม print/log ค่า secret ออกมาใน terminal, chat, หรือไฟล์ log
+- ห้าม copy ค่า secret ไปใส่ใน code, commit message, comment, หรือ documentation
+- ห้ามส่งค่า secret ให้ user ดูใน chat — ถ้า user ถาม ให้บอกว่า "ห้ามแสดง secret ตามกฎ"
+
+### วิธีที่ถูกต้อง
+- **โหลด .env เข้า shell แล้วใช้ผ่าน $VAR** — `set -a; source .env; set +a` แล้วใช้ `$GITHUB_TOKEN` ในคำสั่งถัดไป ไม่ต้อง print ค่าออกมา
+- **ตรวจสอบการเชื่อมต่อผ่าน script** — เขียน script ที่โหลดค่าจาก env var แล้วทดสอบการเชื่อมต่อ โดย script แสดงผลแค่ "connected/not connected" ไม่เปิดเผยค่า secret
+- **ถ้าต้อง debug auth** — ให้ script แสดงแค่สถานะ (success/fail) และ error message จาก library โดยไม่ echo ค่าที่ใช้
+
+### ตัวอย่าง
+```bash
+# ถูก — โหลดเข้า shell แล้วใช้ผ่าน $VAR ค่าจริงไม่ปรากฏ
+set -a; source .env; set +a
+curl -H "Authorization: token $GITHUB_TOKEN" https://api.github.com/...
+```
+
+```python
+# ถูก — script โหลดจาก env เอง, แสดงแค่สถานะ
+import os
+from pymongo import MongoClient
+client = MongoClient(host=os.environ["MONGO_HOST"], username=os.environ["MONGO_USER"], password=os.environ["MONGO_PASSWORD"])
+try:
+    client.admin.command("ping")
+    print("MongoDB: connected")
+except Exception as e:
+    print(f"MongoDB: failed — {type(e).__name__}: {e}")
+```
+
+```bash
+# ผิด — เปิดเผยค่า secret ใน output
+grep MONGO_PASSWORD .env
+cat .env
+echo $GITHUB_TOKEN
+```
+
+## 17. Assumption & Pivot Protocol (เมื่อความจริงเปลี่ยน แผนต้องตาม)
+
+แผน (OST + milestone + issue) ทุกอันมี assumption ซ่อนอยู่ เมื่อค้นพบว่า assumption ผิด ต้องปรับแผนตามลำดับนี้ ห้ามข้าม:
+
+### 17.1 ทุก OST Opportunity ต้องมี Assumption ชัด
+- ใต้แต่ละ Opportunity ใน `OST.md` ต้องบอกว่า "สมมติฐานคืออะไร"
+- เช่น: `# Assumption: สินค้าอยู่ใน MongoDB แล้ว (read-only)`
+- ถ้าไม่มี assumption ชัด = planning fiction (วางแผนจากความเชื่อที่ไม่ได้เขียน)
+
+### 17.2 เมื่อ Assumption พัง — Impact Analysis ก่อน, ปรับแผนทีหลัง
+ก่อนแก้อะไร ต้องรู้ว่า assumption ที่พังกระทบอะไรบ้าง:
+
+1. **ระบุ assumption ที่พัง** — เขียนชัดว่า assumption อะไร, ผิดเพราะอะไร, เรียนรู้อะไรใหม่
+2. **ไล่หาทุก issue ที่ซ่อน assumption เดียวกัน** — ดูทุก milestone ไม่ใช่แค่ milestone ปัจจุบัน
+   - เช่น: assumption "เก็บใน JSON" ซ่อนอยู่ใน #24, #31, #116, #132, ...
+3. **บันทึก ADR** — บอก assumption ที่พัง + ทิศใหม่ + รายการ issue ที่กระทบ
+4. **ตัดสินใจ scope ใหม่** — บางทีต้องสร้าง scope ที่ไม่เคยมีในแผน (เช่น "data persistence layer" ไม่เคยเป็น issue ของตัวเอง)
+5. **ปรับ OST** — แก้ Opportunity ที่ assumption พัง + บอกว่า assumption เดิมผิดเพราะอะไร
+6. **ปรับ issue**:
+   - issue เดิม: mark "pivot" ใน body + บอก why (ห้ามลบ, ห้ามแก้จนเป็นเรื่องอื่น)
+   - issue ใหม่: สร้างถ้าทิศเปลี่ยนเป็นเรื่องอื่น (1 issue = 1 concept)
+   - issue อื่นที่กระทบ: เพิ่ม note ใน body ว่า "assumption X เปลี่ยน, ดู ADR-00XX"
+7. **ปรับ milestone ถ้าจำเป็น** — ถ้าทิศใหม่ไม่ fit milestone เดิม หรือต้องสร้าง milestone ใหม่
+8. **อัปเดต DEVELOPER_LOG** — บันทึก "signal ที่เรียนรู้" ไม่ใช่แค่ "decision ที่เปลี่ยน"
+
+### 17.3 เมื่อไหนสร้าง milestone ใหม่ vs ใส่ใน milestone เดิม
+- **สร้าง milestone ใหม่** เมื่อทิศใหม่:
+  - เป็น foundation ที่กระทบหลาย milestone (เช่น data persistence กระทบ M6, M8, M9, M10, M11)
+  - ไม่ fit ชื่อ/desc milestone เดิม
+  - ทำให้ milestone เดิมบวมเกิน 3 เรื่องปน
+- **ใส่ใน milestone เดิม** เมื่อ:
+  - ทิศใหม่ยังเกี่ยวกับ milestone เดิม
+  - ไม่กระทบ milestone อื่น
+- ตั้งชื่อ milestone ใหม่ให้สื่อทิศใหม่ ไม่ใช่ตั้งชื่อสวยๆ
+
+### 17.4 ห้ามทำ
+- ห้ามลบ issue เดิมทิ้ง — ทำให้สูญเสียประวัติการตัดสินใจ
+- ห้ามแก้ issue เดิมจนเป็นเรื่องอื่น — ใช้ issue ใหม่แทน (1 issue = 1 concept)
+- ห้ามปรับแผนเงียบ — ต้องบันทึกใน ADR + DEVELOPER_LOG ทุกครั้ง
+- ห้าม blame ตัวเอง/team — assumption ผิด = เรียนรู้ ไม่ใช่ความผิด
+- ห้ามปรับแค่ issue ที่เจอโดยตรง — ต้องไล่หา issue อื่นที่ซ่อน assumption เดียวกัน
+
+### 17.5 ตัวอย่าง (เคส MongoDB)
+```
+เดิม:
+  OST Opp 7: สินค้าอยู่ใน MongoDB → ดึงข้อมูล
+  #129: เชื่อม AI กับ MongoDB ดึงสินค้า
+  Assumption (ซ่อน): MongoDB มีสินค้าอยู่แล้ว, เรามีสิทธิ์ read
+
+ความจริงที่เจอ:
+  MongoDB ว่างเปล่า + สิทธิ์ readWrite
+  → assumption ผิด
+
+Impact Analysis:
+  assumption ที่พัง: "MongoDB มีสินค้า + เรามีสิทธิ์ read"
+  assumption ซ่อนที่โผล่: "ทุก issue ที่เก็บ data สมมติว่าใช้ JSON"
+  issue ที่กระทบ:
+    - #129 (ดึงสินค้า) → pivot
+    - #106 (Knowledge Store) → ลบ MongoDB connector ดึงสินค้า
+    - #24, #31, #36, #116, #132 (เก็บ data) → อาจต้องย้ายไป MongoDB
+  scope ใหม่ที่ไม่เคยมี: "data persistence layer" (ไม่เคยเป็น issue ของตัวเอง)
+
+ปรับแผน:
+  1. ADR 0006: "MongoDB = data storage ของเรา ไม่ใช่ดึงสินค้า" + บอก ADR-0003 (JSON) ถึงเวลาย้าย
+  2. OST Opp 7: แก้ + บอกว่า assumption เดิมผิด
+  3. #129: mark pivot (ไม่ลบ) + บอก why ใน body
+  4. สร้าง milestone ใหม่ "M6.5: Data Persistence Migration" (foundation กระทบ M6/M8/M9/M10/M11)
+  5. สร้าง issue ใหม่ใน M6.5: "data persistence layer (ย้าย JSON → MongoDB ทีละ store)"
+  6. #106, #24, #31, ...: เพิ่ม note ว่า assumption เปลี่ยน, ดู ADR-0006
+  7. M6 เดิม: ลด scope เหลือ Brand entity + Knowledge (พักสินค้า)
+  8. DEVELOPER_LOG: บันทึก signal ที่เรียนรู้
+```

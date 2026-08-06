@@ -1,5 +1,164 @@
 # Developer Log
 
+## 2026-08-06 (session 17) — Implement #136 BrandRegistry (TDD)
+
+### Context
+M6 Phase 1 เริ่มที่ #136 (BrandRegistry + Brand entity) — รากของ dependency chain
+(#136 → #137 → #33 → #138). ทำตาม mattpocock skill: codebase-design ออกแบบ interface
+→ tdd เขียน failing test → implement → code-review.
+
+### Design (codebase-design skill)
+Module: BrandRegistry — JSON-backed brand registry (CRUD), mirror pattern ของ TeamRegistry
+ที่มีอยู่ (เดียวกับ _load/_save, uuid[:8], isoformat timestamps, sorted reverse).
+
+Interface (เล็ก/ลึก — 5 methods):
+- __init__(filepath, user_id) — per-user isolation ผ่าน resolve_data_path
+- create_brand(name, brand_context=None) -> dict
+- get_brand(brand_id) -> dict | None
+- update_brand(brand_id, fields) -> bool
+- delete_brand(brand_id) -> bool
+- list_brands() -> list[dict]
+
+brand_context structure (จาก ADR-0005 + CONTEXT.md):
+{tone, target_audience, guidelines, forbidden_words}
+
+Design note: ADR บอก "ลบ Brand → ต้องจัดการทีมข้างใต้ก่อน" แต่ guard นั้น couple กับ
+TeamRegistry → เก็บไว้ที่ service/UI layer ใน #138 ไม่ใส่ใน BrandRegistry
+(deep + single-responsibility + Simplicity First).
+
+Seam under test: public methods ของ BrandRegistry, ผ่าน tempfile JSON
+(เหมือน test_team_filtering.py).
+
+### TDD loop
+1. Red: เขียน test_brand_registry.py (16 tests, 6 classes) → ModuleNotFoundError
+2. Green: เพิ่ม BRAND_REGISTRY_FILE ใน globals.py + legacy_map → สร้าง
+   backend/agents/brand_registry.py (89 บรรทัด) → 16/16 passed
+3. Regression: test_team_filtering.py + test_agent_registry.py = 28 passed (ไม่พัง)
+
+### Changes
+- backend/globals.py — เพิ่ม BRAND_REGISTRY_FILE + legacy_map entry (2 บรรทัด)
+- backend/agents/brand_registry.py (new) — BrandRegistry class + DEFAULT_BRAND_CONTEXT
+- test_brand_registry.py (new) — 16 tests ครอบ CRUD + per-user isolation
+
+### Verification
+- pytest test_brand_registry.py -v → 16 passed
+- pytest test_team_filtering.py test_agent_registry.py -q → 28 passed
+- import smoke test ผ่าน
+
+### Files Changed
+- backend/globals.py (M)
+- backend/agents/brand_registry.py (new)
+- test_brand_registry.py (new)
+
+### Next
+- #137: TeamRegistry เพิ่ม brand_id (required field) — พึ่ง #136 ที่เสร็จแล้ว
+- #33: ย้าย brand_context จาก agent → Brand (resolve ผ่าน team → brand)
+- #138: BrandWindow UI + TeamCreateModal เลือก Brand
+
+## 2026-08-05 (session 16) — Architecture: Add Brand entity (User → Brand → Team → Agent)
+
+### Context
+User ดูแลหลายแบรนด์ แต่ hierarchy ปัจจุบันคือ User → Team → Agent (ไม่มี Brand)
+ทีมกระจัดกระจาย ไม่มีที่รวม และ `brand_context` เก็บใน agent แต่ละตัวทำให้ drift
+OST Opportunity 2 บอก "แบ่งทีมตามแบรนด์ → (มีแล้ว: ระบบทีม)" — ผิด เพราะยังไม่มี Brand entity
+
+### Decision (domain-modeling skill)
+เพิ่ม Brand entity ระหว่าง User และ Team → User → Brand → Team → Agent
+`brand_context` ย้ายจาก agent → Brand (single source of truth)
+ทีมในแบรนด์เดียวกันใช้ brand_context ร่วมกัน → ไม่ drift
+MongoDB product data ยังเป็น shared factual data ไม่ filter ตามแบรนด์
+
+ผ่านเกณฑ์ ADR 3 ข้อ: hard to reverse, surprising without context, real trade-off
+→ สร้าง ADR-0005
+
+### Changes (docs only — no code yet, awaiting approval per "User is Manager" rule)
+
+#### 1. `OST.md` — แก้ Opportunity 2, 7, 8 + ตารางสรุป
+- Opportunity 2: "แบ่งทีมตามแบรนด์ → (มีแล้ว)" → "ต้องมี: Brand entity"
+- Opportunity 7: brand_context เก็บ per Brand ไม่ใช่ per team
+- Opportunity 8: ย้ายจาก "ทีมรู้แบรนด์" → "แบรนด์รู้ตัวเอง"
+- ตารางสรุป: เพิ่ม Brand entity เป็น "ต้องมี" ใหม่
+
+#### 2. `docs/adr/0005-brand-entity.md` (new)
+- บันทึกการตัดสินใจ + Considered Options (3 ทางเลือก) + Consequences
+- Reject: 2-layer + tag, Reject: move to Team (#33/#109 original), Choose: Brand entity
+
+#### 3. `CONTEXT.md` — domain glossary
+- เพิ่ม term: Brand, BrandRegistry
+- แก้ term: Team (เพิ่ม brand_id), TeamRegistry (เพิ่ม brand_id)
+- แก้ term: Agent (brand_context = derived ไม่ใช่ stored)
+- แก้ term: AgentRegistry, AgentFactory (brand_context ดึงจาก Brand ผ่าน team)
+
+#### 4. `SYSTEM_PROTOCOL.md`
+- Section 0 (vision): Platform → Brand → Team → Agent (แก้จาก Team → Brand)
+- Section 1 (architecture): เพิ่ม BrandRegistry ใน backend modules
+- Section 2 (UI): เพิ่ม BrandWindow ใน windows list
+- Section 3.5 (Agent Persona): brand_context = derived (ไม่ใช่ attribute ของ agent)
+- Section 4: เพิ่ม "Brand System" + แก้ Team System ให้สังกัด Brand
+- Section 13: เพิ่ม `brand_registry.json` ใน per-user data list
+
+#### 5. GitHub Issues (M6: Company Knowledge Base)
+- #33 (existing): แก้ title + body + labels → ย้าย brand_context จาก agent ไป Brand entity
+- #109 (existing): ปิด — superseded by ADR-0005 (duplicate of #33)
+- #136 (new): BrandRegistry + Brand entity (backend)
+- #137 (new): TeamRegistry เพิ่ม brand_id
+- #138 (new): BrandWindow UI + TeamCreateModal เลือก Brand
+
+#### 6. Project Board (Multi-Agents Board)
+- Add #33, #136, #137, #138 เข้า board
+- ตั้ง Theme = Opp8: Brand (ทั้ง 4)
+- ตั้ง Priority: #33, #136, #137 = P1, #138 = P2
+- ตั้ง Status = Todo (ทั้ง 4)
+
+### Verification
+- ไม่มี code change → ไม่ต้อง run tests
+- ตรวจสอบ: ไฟล์ docs ทั้งหมดสอดคล้องกัน (OST ↔ ADR ↔ CONTEXT ↔ SYSTEM_PROTOCOL)
+- ตรวจสอบ: issues ทั้ง 4 อยู่ใน M6 milestone + มี Theme field
+
+### Files Changed
+- `OST.md` — แก้ Opportunity 2, 7, 8 + ตารางสรุป
+- `docs/adr/0005-brand-entity.md` (new)
+- `CONTEXT.md` — เพิ่ม/แก้ term Brand, BrandRegistry, Team, TeamRegistry, Agent, AgentRegistry, AgentFactory
+- `SYSTEM_PROTOCOL.md` — แก้ Section 0, 1, 2, 3.5, 4, 13
+- GitHub: #33 (updated), #109 (closed), #136, #137, #138 (new)
+- Project Board: added 4 items with Theme + Priority + Status
+
+### Post-mortem
+- ตอนแรกวางจะสร้าง worktree แยก — user ทักทายว่าไม่จำเป็น เพราะไม่มีงานควบ → แก้เป็น branch ธรรมดา
+- MCP server ล่มระหว่างดึง issue → ใช้ REST API ผ่าน Python แทน ได้ผลเหมือนกัน
+- #33 มีใน board view ก่อนหน้า แต่ GraphQL บอก 0 project items → น่าจะเป็น draft item ที่ไม่ได้ link issue
+  (add ใหม่จึงไม่ซ้ำ)
+
+### Next (awaiting user approval)
+- Implement #136: BrandRegistry (TDD: red test → green impl)
+- Implement #137: TeamRegistry brand_id
+- Implement #33: ย้าย brand_context จาก agent → Brand
+- Implement #138: BrandWindow UI + TeamCreateModal
+
+ลำดับทั้งหมดอยู่ใน GitHub Issues (Depends on / Blocks ใน issue body) + Project Board
+ไม่สร้างไฟล์ plan แยก — milestone + issue + board เพียงพอ
+
+### #34 วินิจฉัย + ย้าย
+#34 = `UserPreferenceStore` เก็บ preference ข้าม team/agent ของ user คนเดียว
+→ ไม่ใช่เรื่องแบรนด์ (Theme เดิม = Opp8: Brand ผิด)
+→ ย้าย Theme → Opp4: Memory
+→ ย้าย Milestone → M11 (Continuous Learning & Memory)
+
+### #106, #107, #108 แก้ body + Priority
+- body เดิมบอก "Milestone: M7" แต่อยู่ใน M6 → แก้เป็น M6
+- Priority เดิม P3 รอง → ไม่สอดคล้องกับ due 25 ก.ย.
+- #106 (Knowledge Store architecture) → P1 (foundation)
+- #108 (query_knowledge_base tool) → P2 (หลัง #106)
+- #107 (Knowledge Management UI) → P2 (หลัง #106)
+- เพิ่ม Depends on / Blocks ใน body ให้ชัด
+
+### ลบ m6-plan.md
+- สร้าง `docs/m6-plan.md` ไปก่อนหน้า → over-engineer (duplicate กับ milestone + board)
+- ลบทิ้ง + คืน `project-board.md` เดิม
+- ลำดับงานอยู่ใน GitHub Issues (Depends on/Blocks ใน body) + Board (Priority field) พอ
+
+---
+
 ## 2026-08-05 (session 15) — Fix: Manager review prompt missing date injection (Task B bug follow-up)
 
 ### Context
@@ -909,3 +1068,49 @@ entire success log was silently skipped.
 Architecture note: this is a code duplication problem — the same streaming+
 log pattern is copied 3 times. A shared helper would prevent this class of
 bug. See architecture assessment below.
+
+
+## 2026-08-06 — MongoDB recheck + กฎใหม่ Section 17 (Assumption & Pivot Protocol)
+
+### Signal ที่เรียนรู้
+- เดิม: คิดว่า MongoDB (digital.in.th:27017) เก็บสินค้า ให้เราดึง (read-only)
+- ความจริง: MongoDB `itsAgents` ว่างเปล่า + user มีสิทธิ์ readWrite
+- สรุป: MongoDB คือ data storage ของระบบเรา ไม่ใช่แหล่งดึงสินค้า
+
+### ประเด็นใหญ่ที่เจอ
+- ทุก milestone ข้างหน้าสมมติว่า "เก็บใน JSON" โดยไม่ได้เขียน assumption นี้ออกมา
+- พอทิศ MongoDB เปลี่ยน → assumption ซ่อนโผล่ออกมาทีละ issue ในทุก milestone
+- "data persistence layer" ไม่เคยเป็น issue ของตัวเอง ไม่เคยอยู่ใน OST
+- ADR-0003 บอกชัดว่า JSON คือชั่วคราว มี seam (store classes) ไว้ย้าย แต่ไม่เคยตั้ง issue/milestone ให้
+
+### สิ่งที่ทำ
+1. เช็ค .env: MONGO_DB เดิม = `tsAgents` (ตก i) → user แก้เป็น `itsAgents`
+2. ทดสอบ auth: authSource=itsAgents ผ่าน (เดิมใช้ tsAgents → fail มาตลอด)
+3. สำรวจ database: itsAgents ว่างเปล่า (0 collections)
+4. ทดสอบสิทธิ์: readWrite ใน itsAgents อันเดียว (ไม่มีสิทธิ์ db อื่น)
+5. วิจัยหลักการ pivot roadmap (Strangler Fig, assumption mapping, agile replan)
+6. สรุปเป็นกฎใหม่ Section 17 ใน SYSTEM_PROTOCOL.md
+
+### กฎใหม่: Section 17 — Assumption & Pivot Protocol
+- 15.1: ทุก OST Opportunity ต้องมี Assumption ชัด (ไม่งั้น = planning fiction)
+- 15.2: เมื่อ assumption พัง → Impact Analysis ก่อน (ไล่ทุก issue ทุก milestone) → บันทึก ADR → ปรับ OST → mark issue pivot → สร้าง issue ใหม่ → ปรับ milestone → อัปเดต log
+- 15.3: เมื่อไหนสร้าง milestone ใหม่ vs ใส่ใน milestone เดิม (foundation กระทบหลาย M → สร้างใหม่)
+- 15.4: ห้ามลบ issue, ห้ามแก้ issue จนเป็นเรื่องอื่น, ห้ามปรับแผนเงียบ, ห้าม blame
+- 15.5: ตัวอย่างเคส MongoDB (สร้าง M6.5 ใหม่ + mark #129 pivot + สร้าง issue ใหม่)
+
+### ผลกระทบต่อแผน (ยังไม่ได้แก้ — รอ user ยืนยันทิศ)
+- #129 (ดึงสินค้า): ต้อง mark pivot + สร้าง issue ใหม่ "data persistence layer"
+- #106 (Knowledge Store): ต้องแก้ body (ลบ MongoDB connector ดึงสินค้า)
+- #24, #31, #36, #116, #132 (เก็บ data): ต้องเพิ่ม note ว่า assumption เปลี่ยน
+- M6 milestone: ลด scope เหลือ Brand + Knowledge (พักสินค้า)
+- สร้าง milestone ใหม่ M6.5: Data Persistence Migration
+
+### ดำเนินการ pivot ตาม Section 17 (user ยืนยันทิศ)
+1. ✅ สร้าง ADR 0006: `docs/adr/0006-mongodb-data-storage-pivot.md`
+2. ✅ แก้ OST Opp 7: เพิ่ม assumption เดิม (ผิด) + ใหม่ + pivot note
+3. ✅ สร้าง milestone M6.5 (#14): "Data Persistence Migration" due 2026-10-15
+4. ✅ mark #129 pivot: เพิ่ม note ใน body (ไม่ลบ, บอก why)
+5. ✅ สร้าง issue #139: "DataStore abstraction — facade สำหรับย้าย JSON → MongoDB" (M6.5, P1)
+6. ✅ แก้ #106: ลบ "MongoDB connector ดึงสินค้า" + เพิ่ม pivot note
+7. ✅ เพิ่ม note ADR-0006 ใน #24, #31, #36, #116, #132 (assumption "เก็บใน JSON" อาจเปลี่ยน)
+8. ✅ ปรับ M6 desc: "Brand entity + Knowledge Store (REST API, URL, File, Text). MongoDB product data paused (ADR-0006 → M6.5)"

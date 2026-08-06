@@ -62,3 +62,4 @@ This project follows `SYSTEM_PROTOCOL.md` as its constitution. Key rules:
 - Summarize logic before big work
 - Investigate stack traces before guessing
 - Maintain `DEVELOPER_LOG.md` every time code is edited
+- **Update GitHub issue after work is committed**: set Status=Done + add a comment summarizing what was done (files, tests, commit hash). Do NOT auto-close — let a human verify first. See `docs/agents/issue-tracker.md` → Issue lifecycle.
