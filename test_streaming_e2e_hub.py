@@ -12,6 +12,8 @@ import unittest
 
 class TestStreamingPayloadReachesHub(unittest.TestCase):
     def setUp(self):
+        if not os.environ.get("RUN_E2E_HUB"):
+            self.skipTest("Set RUN_E2E_HUB=true to run e2e Hub test (avoids noise in dashboard)")
         from dotenv import load_dotenv
         load_dotenv(override=True)
         if not os.environ.get("AI_USAGE_HUB_TOKEN"):
