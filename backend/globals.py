@@ -23,6 +23,7 @@ AGENT_REGISTRY_FILE = os.path.join(_PROJECT_ROOT, "agent_registry.json")
 TASK_REGISTRY_FILE = os.path.join(_PROJECT_ROOT, "task_registry.json")
 CHAT_SESSIONS_FILE = os.path.join(_PROJECT_ROOT, "chat_sessions.json")
 TEAM_REGISTRY_FILE = os.path.join(_PROJECT_ROOT, "team_registry.json")
+BRAND_REGISTRY_FILE = os.path.join(_PROJECT_ROOT, "brand_registry.json")
 
 # ============================================================
 # Per-User Data Directory
@@ -52,6 +53,7 @@ def resolve_data_path(filename: str, user_id: str | None = None) -> str:
         "task_registry.json": TASK_REGISTRY_FILE,
         "chat_sessions.json": CHAT_SESSIONS_FILE,
         "team_registry.json": TEAM_REGISTRY_FILE,
+        "brand_registry.json": BRAND_REGISTRY_FILE,
     }
     return legacy_map.get(filename, os.path.join(_PROJECT_ROOT, filename))
 
