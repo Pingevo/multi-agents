@@ -100,14 +100,14 @@ Agent = พนักงานจริง ต้องมี:
 | `personality` | โทน, สไตล์การสื่อสาร, ภาษา | YES |
 | `expertise` | สกิล/ความรู้ถาวร ไม่ลืม | YES |
 | `brand_context` | ดึงจาก Brand ของทีม (derived — ไม่เก็บใน agent) | YES (derived) |
-| `learnings` | บทเรียนสะสมจาก feedback | YES (last 5) |
+| `learnings` | บทเรียนสะสมจาก feedback | YES (stored last 10, persona uses semantic top-5 per ADR-0007) |
 | `tools` | เครื่องมือที่ใช้ได้ | YES |
 | `model` | โมเดลที่ใช้ | YES |
 | `team_id` | ทีมที่สังกัด | YES |
 
 Naming: ใช้ `[Role] #N` ไม่ต้องชื่อแปลก ตัวเลข auto-increment ต่อ role
 
-Memory: ยอมรับ context limit — แปลง learnings ที่ใช้บ่อยเป็น expertise ถ้าจำได้นานพอ
+Memory: ยอมรับ context limit — เก็บ learnings ใน chromadb (ADR-0007), ดึง top-5 ที่เกี่ยวข้องกับ task ปัจจุบันด้วย semantic search (ไม่ใช่ last 5 เสมอ). แปลง learnings ที่ใช้บ่อยเป็น expertise ถ้าจำได้นานพอ (consolidation job)
 
 Quality: 2 ชั้น — agent ตรวจตัวเอง + manager ตรวจอีกชั้น
 
@@ -409,3 +409,31 @@ Impact Analysis:
   7. M6 เดิม: ลด scope เหลือ Brand entity + Knowledge (พักสินค้า)
   8. DEVELOPER_LOG: บันทึก signal ที่เรียนรู้
 ```
+
+## 18. Milestone Ordering — ลำดับการทำ (ตามสากล: CPM + dependency-driven)
+
+Milestone แบ่ง 2 ช่วง ตามโครงสร้าง dependency จริง:
+
+### 18.1 Foundation (M1–M6.5) — ทำตามลำดับเลข
+- ทุก milestone เป็น finish-to-start: ตัวถัดไป depend ตัวก่อน
+- ทำตามเลข M1 → M2 → ... → M6 → M6.5 ไม่ข้าม
+- เหตุผล: ทุกตัวสร้างบนพื้นฐานของตัวก่อน ข้ามไม่ได้
+
+### 18.2 Feature tracks (M7–M11) — user เลือกตามความเร่งด่วน
+- M7 (Product Content), M8 (Autonomous), M9 (Social), M10 (Content Library), M11 (Learning & Memory) เป็น feature คนละสาย ไม่ depend กัน
+- ทำก่อนทำหลังได้ — user (Manager) เป็นคนตัดสินใจว่าอะไรเร่งด่วนสุด
+- ถ้าไม่แน่ใจว่าตัวไหน depend ตัวไหน → ดูใน issue body ฟิลด์ "Depends on"
+- due date เป็นแค่เป้าหมาย ไม่ใช่ตัวบังคับลำดับ
+
+### 18.3 กฎเสริม
+- Priority (P0–P4) ≠ Order — P0 บอกสำคัญ ไม่ได้บอกทำก่อน ถ้า P0 depend บน P2 → ทำ P2 ก่อน
+- Enabling items ทำก่อน — issue ที่ปลดล็อค issue อื่นหลายตัว → ทำก่อนแม้ priority จะไม่สูงสุด
+- ห้ามสละลำดับเงียบ — ถ้าสละต้องบันทึก ADR ว่าทำไม (เช่น ADR-0008)
+- ดู dependency จริงใน code/issue อย่างเดียว อย่าใช้ "อะไรน่าจะ depend" โดยไม่ตรวจ
+
+### 18.4 ลำดับปัจจุบัน (2026-08-07, ตาม ADR-0008)
+```
+Foundation:  M1 → M2 → M3 → M4 → M5 → M6 → M6.5  (ทำตามเลข)
+Feature:     M11 → M7 → M8 → M9 → M10             (user เลือก M11 ก่อน เพราะเร่งด่วน)
+```
+M11 ทำก่อน M7-M10 เพราะ user ตัดสินใจ ไม่ใช่เพราะเลข milestone
