@@ -72,18 +72,50 @@ Always include a `P0`/`P1`/`P2` label — every issue needs a priority.
 
 เมื่อทำ issue เสร็จและ commit แล้ว ต้องอัปเดต GitHub issue ทุกครั้ง:
 
-1. **อัปเดต Status field → Done** บน Project Board (ผ่าน `github-mcp-server` หรือ UI)
-2. **เพิ่ม comment สรุปงาน** ใน issue ประกอบด้วย:
+1. **เช็คว่า issue อยู่ใน Project Board แล้วหรือยัง** — ถ้ายัง ให้เพิ่มเข้า board ก่อน (ดูวิธีด้านล่าง)
+2. **อัปเดต Status field → Done** บน Project Board (ผ่าน GraphQL API ด้วย token จาก .env)
+3. **เพิ่ม comment สรุปงาน** ใน issue ประกอบด้วย:
    - ไฟล์ที่เปลี่ยน (ทั้งใหม่และแก้)
    - ผล test (ผ่านกี่จากกี่)
    - commit hash (หรือ reference เช่น `Refs #136`)
-3. **ห้ามปิด issue อัตโนมัติ** — ปล่อยให้ human ตรวจสอบก่อน แล้วปิดเอง
+4. **ห้ามปิด issue อัตโนมัติ** — ปล่อยให้ human ตรวจสอบก่อน แล้วปิดเอง
 
 เหตุผล: ถ้าไม่อัปเดต issue จะเห็นเป็น Todo ตลอด ทำให้สับสนว่ายังไม่ได้ทำ และคนที่มาทำต่อไม่รู้ว่าทำไปแล้ว
 
-## Project Board
+## Project Board (workaround — ไม่ใช่ repo board)
 
-Issues ทั้งหมดถูกเพิ่มเข้า [Multi-Agents Board](https://github.com/users/itdev3-bot/projects/1) อัตโนมัติ — ดูรายละเอียด field, milestone, view ที่ [project-board.md](./project-board.md).
+repo `Pingevo/multi-agents` เราไม่ใช่เจ้าของ สร้าง project board ใน repo ไม่ได้ — ใช้ board ของ token owner (`itdev3-bot`) แทน:
+
+- **Board**: [Multi-Agents Board](https://github.com/users/itdev3-bot/projects/1) — project ID `PVT_kwHOEgEBqs4BdqeL`
+- **Token**: ใน `.env` (`GITHUB_TOKEN`) — โหลดด้วย `set -a; source .env; set +a` แล้วใช้ `$GITHUB_TOKEN` (ห้าม echo ค่าจริง — ตามกฎ Secrets Section 16)
+- **ดูรายละเอียด field, milestone, view ที่** [project-board.md](./project-board.md)
+
+### ขั้นตอนอัปเดต Status (GraphQL)
+
+```bash
+set -a; source .env; set +a
+
+# 1. หา issue node ID
+ISSUE_NODE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+  https://api.github.com/repos/Pingevo/multi-agents/issues/139 | \
+  python3 -c "import json,sys; print(json.load(sys.stdin)['node_id'])")
+
+# 2. เพิ่ม issue เข้า board (ถ้ายังไม่อยู่)
+curl -s -X POST -H "Authorization: bearer $GITHUB_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"query\":\"mutation{addProjectV2ItemById(input:{projectId:\\\"PVT_kwHOEgEBqs4BdqeL\\\",contentId:\\\"$ISSUE_NODE\\\"}){item{id}}}\"}" \
+  https://api.github.com/graphql
+
+# 3. หา item ID ของ issue ใน board
+curl -s -X POST -H "Authorization: bearer $GITHUB_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"query{node(id:\"PVT_kwHOEgEBqs4BdqeL\"){... on ProjectV2{items(first:100){nodes{id content{... on Issue{number}}}}}}}"}' \
+  https://api.github.com/graphql
+
+# 4. อัปเดต Status field → Done (ต้องการ item ID จากขั้น 3 + field ID + option ID จาก project-board.md)
+```
+
+**สำคัญ**: issue ไม่ได้ถูกเพิ่มเข้า board อัตโนมัติ — ต้องเพิ่มเองทุกครั้ง (ขั้นตอนที่ 2)
 
 ## PRs as a request surface
 

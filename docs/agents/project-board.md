@@ -81,6 +81,24 @@ Bug ไม่มี milestone — แก้ระหว่างทาง:
 - ใช้ผ่าน GraphQL API หรือ REST API
 - scope: `project, repo`
 - หมดอายุ → สร้างใหม่ที่ GitHub Settings → Developer settings → Personal access tokens
+- **โหลดใน shell**: `set -a; source .env; set +a` แล้วใช้ `$GITHUB_TOKEN` (ห้าม echo ค่าจริง — ตามกฎ Secrets Section 16)
+
+## IDs สำหรับ GraphQL (อัปเดต Status)
+
+- **Project ID**: `PVT_kwHOEgEBqs4BdqeL`
+- **Status field ID**: `PVTSSF_lAHOEgEBqs4BdqeLzhYKbwg`
+- **Done option ID**: `98236657`
+
+ตัวอย่าง mutation อัปเดต Status → Done:
+
+```bash
+curl -s -X POST -H "Authorization: bearer $GITHUB_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"query\":\"mutation{updateProjectV2ItemFieldValue(input:{projectId:\\\"PVT_kwHOEgEBqs4BdqeL\\\",itemId:\\\"<ITEM_ID>\\\",fieldId:\\\"PVTSSF_lAHOEgEBqs4BdqeLzhYKbwg\\\",value:{singleSelectOptionId:\\\"98236657\\\"}}){projectV2Item{id}}}\"}" \
+  https://api.github.com/graphql
+```
+
+แทน `<ITEM_ID>` ด้วย item ID ของ issue ใน board (หาจาก query ใน issue-tracker.md)
 
 ## ข้อจำกัดที่รู้แล้ว
 

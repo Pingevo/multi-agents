@@ -1114,3 +1114,36 @@ bug. See architecture assessment below.
 6. ✅ แก้ #106: ลบ "MongoDB connector ดึงสินค้า" + เพิ่ม pivot note
 7. ✅ เพิ่ม note ADR-0006 ใน #24, #31, #36, #116, #132 (assumption "เก็บใน JSON" อาจเปลี่ยน)
 8. ✅ ปรับ M6 desc: "Brand entity + Knowledge Store (REST API, URL, File, Text). MongoDB product data paused (ADR-0006 → M6.5)"
+
+---
+
+## 2026-08-06/07 — แก้กฎ Secrets + Issue lifecycle + Project Board workaround
+
+### แก้กฎ Secrets & Credentials (Section 16)
+- **ปัญหา**: กฎเดิมเขียน "ห้ามอ่านค่า secret จาก .env" แต่ความจริงอนุญาตให้ดึงค่าไปใช้ได้ แค่ห้ามค่าจริงปรากฏใน context ของ agent
+- **แก้ใน**: SYSTEM_PROTOCOL.md Section 16 + global_rules.md
+- **กฎใหม่**: ✅ `set -a; source .env; set +a` แล้วใช้ `$VAR` / ❌ `cat .env`, `echo $TOKEN`, `grep KEY .env`
+- **Commit**: `044b75e` (บน feat/brand-entity → merge เข้า dev ใน `6accf5d`)
+
+### แก้กฎ Issue lifecycle + Project Board (issue-tracker.md + project-board.md)
+- **ปัญหาที่เจอ**: ทำ #139 เสร็จ จะอัปเดต Status=Done ตามกฎ แต่พบว่า:
+  1. repo `Pingevo/multi-agents` เราไม่ใช่เจ้าของ สร้าง project board ใน repo ไม่ได้
+  2. กฎเดิมบอก "Issues ทั้งหมดถูกเพิ่มเข้า board อัตโนมัติ" — **ผิด** #139 ไม่ได้ถูกเพิ่มอัตโนมัติ
+  3. กฎเดิมไม่ได้อธิบายว่า board อยู่ที่ไหน ใช้ token อะไร ไม่มีขั้นตอนชัดเจน
+- **แก้ใน**:
+  - `docs/agents/issue-tracker.md` — Issue lifecycle เพิ่มขั้น "เช็คว่า issue อยู่ใน board หรือยัง" + อธิบาย workaround (board ของ token owner ไม่ใช่ repo board) + ตัวอย่าง GraphQL commands
+  - `docs/agents/project-board.md` — เพิ่ม section "IDs สำหรับ GraphQL" (Project ID, Status field ID, Done option ID) + ตัวอย่าง mutation
+- **ไฟล์ที่แก้**: `docs/agents/issue-tracker.md`, `docs/agents/project-board.md`
+
+### แยก branch ที่ผิด
+- **ปัญหา**: commit #139 (DataStore) ปนอยู่ใน `feat/brand-entity` (M6 branch) ทั้งที่ #139 เป็น M6.5
+- **แก้**:
+  1. สร้าง `feat/m6.5-data-persistence` จาก `93954db` cherry-pick `2c9e6fe` → `60d6d0c`
+  2. reset `feat/brand-entity` ลบ `2c9e6fe` ออก (เหลือถึง `044b75e`)
+  3. merge `feat/brand-entity` เข้า `dev` (commit `6accf5d`)
+
+### อัปเดต #139 บน GitHub
+- เพิ่ม #139 เข้า Project Board (item ID `PVTI_lAHOEgEBqs4BdqeLzg1m87w`)
+- อัปเดต Status → Done
+- เพิ่ม comment สรุปงาน (commit hash, ไฟล์, ผล test, ยังเหลืออะไร)
+- ไม่ปิด issue — รอ human verify (ตามกฎ)
